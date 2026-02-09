@@ -492,7 +492,7 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
 
   // config.toml content
-  const configContent = `model_provider = "sub2api"
+  const configContent = `model_provider = "apipool"
 model = "gpt-5.3-codex"
 model_reasoning_effort = "high"
 network_access = "enabled"
@@ -500,8 +500,8 @@ disable_response_storage = true
 windows_wsl_setup_acknowledged = true
 model_verbosity = "high"
 
-[model_providers.sub2api]
-name = "sub2api"
+[model_providers.apipool]
+name = "apipool"
 base_url = "${baseUrl}"
 wire_api = "responses"
 requires_openai_auth = true`
