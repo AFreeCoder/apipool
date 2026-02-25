@@ -1088,9 +1088,9 @@ func setDefaults() {
 	// RateLimit
 	viper.SetDefault("rate_limit.overload_cooldown_minutes", 10)
 
-	// Pricing - 从 price-mirror 分支同步，该分支维护了 sha256 哈希文件用于增量更新检查
-	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/claude-relay-service/price-mirror/model_prices_and_context_window.json")
-	viper.SetDefault("pricing.hash_url", "https://raw.githubusercontent.com/Wei-Shaw/claude-relay-service/price-mirror/model_prices_and_context_window.sha256")
+	// Pricing - 从 model-price-repo 同步模型定价和上下文窗口数据的配置
+	viper.SetDefault("pricing.remote_url", "https://github.com/Wei-Shaw/model-price-repo/raw/refs/heads/main/model_prices_and_context_window.json")
+	viper.SetDefault("pricing.hash_url", "https://github.com/Wei-Shaw/model-price-repo/raw/refs/heads/main/model_prices_and_context_window.sha256")
 	viper.SetDefault("pricing.data_dir", "./data")
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.update_interval_hours", 24)
@@ -1158,6 +1158,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.antigravity_fallback_cooldown_minutes", 1)
+	viper.SetDefault("gateway.antigravity_extra_retries", 10)
 	viper.SetDefault("gateway.max_body_size", int64(100*1024*1024))
 	viper.SetDefault("gateway.upstream_response_read_max_bytes", int64(8*1024*1024))
 	viper.SetDefault("gateway.proxy_probe_response_read_max_bytes", int64(1024*1024))
