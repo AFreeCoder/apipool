@@ -99,6 +99,21 @@ const routes: RouteRecordRaw[] = [
     }
   },
 
+  // ==================== Docs Routes ====================
+  {
+    path: '/docs',
+    redirect: '/docs/quick-start'
+  },
+  {
+    path: '/docs/:slug',
+    name: 'Docs',
+    component: () => import('@/views/docs/DocsView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Docs'
+    }
+  },
+
   // ==================== User Routes ====================
   {
     path: '/',
