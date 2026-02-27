@@ -280,7 +280,7 @@ export default {
     github: 'GitHub',
     mySubscriptions: '我的订阅',
     buySubscription: '购买订阅',
-    docs: '文档'
+    docs: '帮助文档'
   },
 
   // Auth
