@@ -25,16 +25,16 @@
         </div>
       </div>
 
-      <div class="card flex-1 min-h-0 overflow-hidden">
-        <div v-if="loading" class="flex h-full items-center justify-center py-12">
+      <div class="card overflow-hidden">
+        <div v-if="loading" class="flex items-center justify-center py-12">
           <div
             class="h-8 w-8 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
           ></div>
         </div>
 
         <div
+          class="flex items-center justify-center p-10 text-center"
           v-else-if="!purchaseEnabled"
-          class="flex h-full items-center justify-center p-10 text-center"
         >
           <div class="max-w-md">
             <div
@@ -70,14 +70,14 @@
           </div>
         </div>
 
-        <iframe v-else :src="purchaseUrl" class="h-full w-full border-0" allowfullscreen></iframe>
+        <iframe v-else ref="iframeRef" :src="purchaseUrl" class="block w-full border-0" :style="{ height: iframeHeight }" allowfullscreen referrerpolicy="no-referrer"></iframe>
       </div>
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -87,6 +87,8 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const loading = ref(false)
+const iframeRef = ref<HTMLIFrameElement | null>(null)
+const iframeHeight = ref('600px')
 
 const purchaseEnabled = computed(() => {
   return appStore.cachedPublicSettings?.purchase_subscription_enabled ?? false
@@ -101,21 +103,39 @@ const isValidUrl = computed(() => {
   return url.startsWith('http://') || url.startsWith('https://')
 })
 
+function updateIframeHeight() {
+  const header = document.querySelector('header') as HTMLElement | null
+  const headerH = header?.offsetHeight || 64
+  const main = document.querySelector('main') as HTMLElement | null
+  const mainPaddingTop = main ? parseInt(getComputedStyle(main).paddingTop) : 32
+  const mainPaddingBottom = main ? parseInt(getComputedStyle(main).paddingBottom) : 32
+  // 减去标题区域高度（约 80px）和 gap-6（24px）
+  const titleSectionH = 104
+  const available = window.innerHeight - headerH - mainPaddingTop - mainPaddingBottom - titleSectionH
+  iframeHeight.value = `${Math.max(available, 600)}px`
+}
+
 onMounted(async () => {
-  if (appStore.publicSettingsLoaded) return
-  loading.value = true
-  try {
-    await appStore.fetchPublicSettings()
-  } finally {
-    loading.value = false
+  if (!appStore.publicSettingsLoaded) {
+    loading.value = true
+    try {
+      await appStore.fetchPublicSettings()
+    } finally {
+      loading.value = false
+    }
   }
+  updateIframeHeight()
+  window.addEventListener('resize', updateIframeHeight)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateIframeHeight)
 })
 </script>
 
 <style scoped>
 .purchase-page-layout {
   @apply flex flex-col gap-6;
-  height: calc(100vh - 64px - 4rem); /* 减去 header + lg:p-8 的上下padding */
 }
 </style>
 

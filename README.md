@@ -64,6 +64,8 @@ docker run -d --name apipool-redis \
 | Redis | 端口 | `6379`（无密码） |
 | 后端 | 端口/模式 | `8080` / `debug` |
 | 前端 | 端口 | `3000`（Vite，代理 `/api`、`/setup` → `localhost:8080`） |
+| 管理员账号 | 邮箱 | `admin@apipool.local` |
+| 管理员账号 | 密码 | `admin123`（已在本地数据库重置为此值） |
 
 ### 启动开发
 
