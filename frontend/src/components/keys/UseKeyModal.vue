@@ -675,11 +675,90 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     }
   }
   const geminiModels = {
-    'gemini-2.0-flash': { name: 'Gemini 2.0 Flash' },
-    'gemini-2.5-flash': { name: 'Gemini 2.5 Flash' },
-    'gemini-2.5-pro': { name: 'Gemini 2.5 Pro' },
-    'gemini-3-flash-preview': { name: 'Gemini 3 Flash Preview' },
-    'gemini-3-pro-preview': { name: 'Gemini 3 Pro Preview' }
+    'gemini-2.0-flash': {
+      name: 'Gemini 2.0 Flash',
+      limit: {
+        context: 1048576,
+        output: 65536
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      }
+    },
+    'gemini-2.5-flash': {
+      name: 'Gemini 2.5 Flash',
+      limit: {
+        context: 1048576,
+        output: 65536
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      }
+    },
+    'gemini-2.5-pro': {
+      name: 'Gemini 2.5 Pro',
+      limit: {
+        context: 2097152,
+        output: 65536
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      },
+      options: {
+        thinking: {
+          budgetTokens: 24576,
+          type: 'enabled'
+        }
+      }
+    },
+    'gemini-3-flash-preview': {
+      name: 'Gemini 3 Flash Preview',
+      limit: {
+        context: 1048576,
+        output: 65536
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      }
+    },
+    'gemini-3-pro-preview': {
+      name: 'Gemini 3 Pro Preview',
+      limit: {
+        context: 1048576,
+        output: 65536
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      },
+      options: {
+        thinking: {
+          budgetTokens: 24576,
+          type: 'enabled'
+        }
+      }
+    },
+    'gemini-3.1-pro-preview': {
+      name: 'Gemini 3.1 Pro Preview',
+      limit: {
+        context: 1048576,
+        output: 65536
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      },
+      options: {
+        thinking: {
+          budgetTokens: 24576,
+          type: 'enabled'
+        }
+      }
+    }
   }
 
   const antigravityGeminiModels = {
@@ -785,8 +864,8 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         }
       }
     },
-    'gemini-3-pro-image': {
-      name: 'Gemini 3 Pro (Image)',
+    'gemini-3.1-flash-image': {
+      name: 'Gemini 3.1 Flash Image',
       limit: {
         context: 1048576,
         output: 65536
@@ -804,25 +883,38 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     }
   }
   const claudeModels = {
-    'claude-opus-4-5-thinking': {
-      name: 'Claude Opus 4.5 Thinking',
+    'claude-opus-4-6-thinking': {
+      name: 'Claude 4.6 Opus (Thinking)',
       limit: {
         context: 200000,
-        output: 64000
+        output: 128000
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      },
+      options: {
+        thinking: {
+          budgetTokens: 24576,
+          type: 'enabled'
+        }
       }
     },
-    'claude-sonnet-4-5-thinking': {
-      name: 'Claude Sonnet 4.5 Thinking',
+    'claude-sonnet-4-6': {
+      name: 'Claude 4.6 Sonnet',
       limit: {
         context: 200000,
         output: 64000
-      }
-    },
-    'claude-sonnet-4-5': {
-      name: 'Claude Sonnet 4.5',
-      limit: {
-        context: 200000,
-        output: 64000
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      },
+      options: {
+        thinking: {
+          budgetTokens: 24576,
+          type: 'enabled'
+        }
       }
     }
   }

@@ -24,6 +24,8 @@ const openaiModels = [
   // GPT-5.2 系列
   'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.2-chat-latest',
   'gpt-5.2-codex', 'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
+  // GPT-5.3 系列
+  'gpt-5.3-codex', 'gpt-5.3-codex-spark',
   'chatgpt-4o-latest',
   'gpt-4o-audio-preview', 'gpt-4o-realtime-preview'
 ]
@@ -75,6 +77,7 @@ const soraModels = [
 const antigravityModels = [
   // Claude 4.5+ 系列
   'claude-opus-4-6',
+  'claude-opus-4-6-thinking',
   'claude-opus-4-5-thinking',
   'claude-sonnet-4-6',
   'claude-sonnet-4-5',
@@ -88,10 +91,10 @@ const antigravityModels = [
   'gemini-3-flash',
   'gemini-3-pro-high',
   'gemini-3-pro-low',
-  'gemini-3-pro-image',
   // Gemini 3.1 系列
   'gemini-3.1-pro-high',
   'gemini-3.1-pro-low',
+  'gemini-3.1-flash-image',
   // 其他
   'gpt-oss-120b-medium',
   'tab_flash_lite_preview'
@@ -309,6 +312,7 @@ const antigravityPresetMappings = [
   // 精确映射
   { label: 'Sonnet 4.6', from: 'claude-sonnet-4-6', to: 'claude-sonnet-4-6', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
   { label: 'Sonnet 4.5', from: 'claude-sonnet-4-5', to: 'claude-sonnet-4-5', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'Opus 4.6', from: 'claude-opus-4-6', to: 'claude-opus-4-6-thinking', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },
   { label: 'Opus 4.6-thinking', from: 'claude-opus-4-6-thinking', to: 'claude-opus-4-6-thinking', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' }
 ]
 

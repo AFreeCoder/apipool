@@ -1133,7 +1133,7 @@ export default {
       },
       imagePricing: {
         title: 'Image Generation Pricing',
-        description: 'Configure pricing for gemini-3-pro-image model. Leave empty to use default prices.'
+        description: 'Configure pricing for image generation models. Leave empty to use default prices.'
       },
       soraPricing: {
         title: 'Sora Per-Request Pricing',
@@ -1505,7 +1505,8 @@ export default {
         partialSuccess: 'Partially updated: {success} succeeded, {failed} failed',
         failed: 'Bulk update failed',
         noSelection: 'Please select accounts to edit',
-        noFieldsSelected: 'Select at least one field to update'
+        noFieldsSelected: 'Select at least one field to update',
+        mixedPlatformWarning: 'Selected accounts span multiple platforms ({platforms}). Model mapping presets shown are combined — ensure mappings are appropriate for each platform.'
       },
       bulkDeleteTitle: 'Bulk Delete Accounts',
       bulkDeleteConfirm: 'Delete the selected {count} account(s)? This action cannot be undone.',
@@ -2046,7 +2047,7 @@ export default {
         geminiFlashDaily: 'Flash',
         gemini3Pro: 'G3P',
         gemini3Flash: 'G3F',
-        gemini3Image: 'G3I',
+        gemini3Image: 'GImage',
         claude: 'Claude'
       },
       tier: {

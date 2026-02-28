@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -260,6 +261,107 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardCountTokensPreservesBo
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.JSONEq(t, upstreamRespBody, rec.Body.String())
 	require.Empty(t, rec.Header().Get("Set-Cookie"))
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name            string
+		statusCode      int
+		respBody        string
+		wantPassthrough bool
+	}{
+		{
+			name:            "404 endpoint not found passes through as 404",
+			statusCode:      http.StatusNotFound,
+			respBody:        `{"error":{"message":"Not found: /v1/messages/count_tokens","type":"not_found_error"}}`,
+			wantPassthrough: true,
+		},
+		{
+			name:            "404 generic not found passes through as 404",
+			statusCode:      http.StatusNotFound,
+			respBody:        `{"error":{"message":"resource not found","type":"not_found_error"}}`,
+			wantPassthrough: true,
+		},
+		{
+			name:            "400 Invalid URL does not passthrough",
+			statusCode:      http.StatusBadRequest,
+			respBody:        `{"error":{"message":"Invalid URL (POST /v1/messages/count_tokens)","type":"invalid_request_error"}}`,
+			wantPassthrough: false,
+		},
+		{
+			name:            "400 model error does not passthrough",
+			statusCode:      http.StatusBadRequest,
+			respBody:        `{"error":{"message":"model not found: claude-unknown","type":"invalid_request_error"}}`,
+			wantPassthrough: false,
+		},
+		{
+			name:            "500 internal error does not passthrough",
+			statusCode:      http.StatusInternalServerError,
+			respBody:        `{"error":{"message":"internal error","type":"api_error"}}`,
+			wantPassthrough: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+			body := []byte(`{"model":"claude-sonnet-4-5-20250929","messages":[{"role":"user","content":"hi"}]}`)
+			parsed := &ParsedRequest{Body: body, Model: "claude-sonnet-4-5-20250929"}
+
+			upstream := &anthropicHTTPUpstreamRecorder{
+				resp: &http.Response{
+					StatusCode: tt.statusCode,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(tt.respBody)),
+				},
+			}
+
+			svc := &GatewayService{
+				cfg: &config.Config{
+					Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+				},
+				httpUpstream:     upstream,
+				rateLimitService: nil,
+			}
+
+			account := &Account{
+				ID:          200,
+				Name:        "proxy-acc",
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeAPIKey,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "sk-proxy",
+					"base_url": "https://proxy.example.com",
+				},
+				Extra:       map[string]any{"anthropic_passthrough": true},
+				Status:      StatusActive,
+				Schedulable: true,
+			}
+
+			err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+
+			if tt.wantPassthrough {
+				// 返回 nil（不记录为错误），HTTP 状态码 404 + Anthropic 错误体
+				require.NoError(t, err)
+				require.Equal(t, http.StatusNotFound, rec.Code)
+				var errResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.Equal(t, "error", errResp["type"])
+				errObj, ok := errResp["error"].(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, "not_found_error", errObj["type"])
+			} else {
+				require.Error(t, err)
+				require.Equal(t, tt.statusCode, rec.Code)
+			}
+		})
+	}
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_BuildRequestRejectsInvalidBaseURL(t *testing.T) {

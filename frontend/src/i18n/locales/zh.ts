@@ -1220,7 +1220,7 @@ export default {
       },
       imagePricing: {
         title: '图片生成计费',
-        description: '配置 gemini-3-pro-image 模型的图片生成价格，留空则使用默认价格'
+        description: '配置图片生成模型的图片生成价格，留空则使用默认价格'
       },
       soraPricing: {
         title: 'Sora 按次计费',
@@ -1582,7 +1582,7 @@ export default {
         geminiFlashDaily: 'Flash',
         gemini3Pro: 'G3P',
         gemini3Flash: 'G3F',
-        gemini3Image: 'G3I',
+        gemini3Image: 'GImage',
         claude: 'Claude'
       },
       tier: {
@@ -1652,7 +1652,8 @@ export default {
         partialSuccess: '部分更新成功：成功 {success} 个，失败 {failed} 个',
         failed: '批量更新失败',
         noSelection: '请选择要编辑的账号',
-        noFieldsSelected: '请至少选择一个要更新的字段'
+        noFieldsSelected: '请至少选择一个要更新的字段',
+        mixedPlatformWarning: '所选账号跨越多个平台（{platforms}）。显示的模型映射预设为合并结果——请确保映射对每个平台都适用。'
       },
       bulkDeleteTitle: '批量删除账号',
       bulkDeleteConfirm: '确定要删除选中的 {count} 个账号吗？此操作无法撤销。',

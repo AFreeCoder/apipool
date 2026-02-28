@@ -166,7 +166,8 @@ const activeModelRateLimits = computed(() => {
 const formatScopeName = (scope: string): string => {
   const aliases: Record<string, string> = {
     // Claude 系列
-    'claude-opus-4-6-thinking': 'COpus46',
+    'claude-opus-4-6': 'COpus46',
+    'claude-opus-4-6-thinking': 'COpus46T',
     'claude-sonnet-4-6': 'CSon46',
     'claude-sonnet-4-5': 'CSon45',
     'claude-sonnet-4-5-thinking': 'CSon45T',
@@ -180,6 +181,7 @@ const formatScopeName = (scope: string): string => {
     'gemini-3.1-pro-high': 'G3PH',
     'gemini-3.1-pro-low': 'G3PL',
     'gemini-3-pro-image': 'G3PI',
+    'gemini-3.1-flash-image': 'GImage',
     // 其他
     'gpt-oss-120b-medium': 'GPT120',
     'tab_flash_lite_preview': 'TabFL',
