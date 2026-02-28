@@ -48,15 +48,6 @@
 
         <!-- Nav Actions -->
         <div class="flex items-center gap-3">
-          <!-- Docs Link -->
-          <router-link
-            to="/docs"
-            class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-300 dark:hover:bg-dark-800 dark:hover:text-white"
-          >
-            <Icon name="book" size="sm" />
-            {{ t('home.docs') }}
-          </router-link>
-
           <!-- Language Switcher -->
           <LocaleSwitcher />
 
