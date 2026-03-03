@@ -146,7 +146,7 @@ services:
     networks:
       - sub2api-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -166,9 +166,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      # postgres:18-alpine 默认 PGDATA=/var/lib/postgresql/18/docker（位于镜像声明的匿名卷 /var/lib/postgresql 内）。
-      # 若不显式设置 PGDATA，则即使挂载了 postgres_data 到 /var/lib/postgresql/data，数据也不会落盘到该命名卷，
-      # docker compose down/up 后会触发 initdb 重新初始化，导致用户/密码等数据丢失。
+      # postgres:18-alpine 镜像已内置 ENV PGDATA=/var/lib/postgresql/data，
+      # 此处显式设置与镜像默认值一致，目的是防止未来镜像版本更改默认路径时静默丢失数据。
+      # 注意：若删除此行，数据仍会落到 /var/lib/postgresql/data（即命名卷），但依赖镜像行为，
+      # 不建议删除——历史上曾因"认为冗余而删除"导致过一次数据库被重新初始化的事故。
       - PGDATA=/var/lib/postgresql/data
       - POSTGRES_USER=${POSTGRES_USER:-sub2api}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}

@@ -20,6 +20,30 @@ jobs:
             set -e
 
             APP_DIR="/opt/sub2api"
+            BACKUP_DIR="/opt/sub2api/backups"
+
+            # ============================================================
+            # 部署前备份（必须在代码更新和 compose up 之前执行）
+            # 首次部署时 postgres 容器不存在，跳过备份
+            # ============================================================
+            mkdir -p "$BACKUP_DIR"
+            if docker ps --filter "name=^sub2api-postgres$" --format '{{.Names}}' | grep -q .; then
+              BACKUP_FILE="${BACKUP_DIR}/pre-deploy-$(date +%Y%m%d_%H%M%S).sql.gz"
+              echo "开始部署前备份..."
+              docker exec sub2api-postgres pg_dump -U sub2api -d sub2api --clean --if-exists \
+                | gzip > "$BACKUP_FILE"
+              if [ -s "$BACKUP_FILE" ]; then
+                echo "备份成功: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
+                # 清理超过 7 天的 pre-deploy 备份
+                find "$BACKUP_DIR" -name "pre-deploy-*.sql.gz" -mtime +7 -delete
+              else
+                echo "备份失败，中止部署！" >&2
+                rm -f "$BACKUP_FILE"
+                exit 1
+              fi
+            else
+              echo "首次部署，跳过数据库备份"
+            fi
 
             # 首次部署：克隆仓库
             if [ ! -d "$APP_DIR/.git" ]; then
