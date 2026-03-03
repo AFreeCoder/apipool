@@ -55,6 +55,9 @@ func RegisterAdminRoutes(
 		// 系统设置
 		registerSettingsRoutes(admin, h)
 
+		// 数据管理
+		registerDataManagementRoutes(admin, h)
+
 		// 运维监控（Ops）
 		registerOpsRoutes(admin, h)
 
@@ -72,6 +75,16 @@ func RegisterAdminRoutes(
 
 		// 错误透传规则管理
 		registerErrorPassthroughRoutes(admin, h)
+
+		// API Key 管理
+		registerAdminAPIKeyRoutes(admin, h)
+	}
+}
+
+func registerAdminAPIKeyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	apiKeys := admin.Group("/api-keys")
+	{
+		apiKeys.PUT("/:id", h.Admin.APIKey.UpdateGroup)
 	}
 }
 
@@ -171,6 +184,7 @@ func registerDashboardRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		dashboard.GET("/realtime", h.Admin.Dashboard.GetRealtimeMetrics)
 		dashboard.GET("/trend", h.Admin.Dashboard.GetUsageTrend)
 		dashboard.GET("/models", h.Admin.Dashboard.GetModelStats)
+		dashboard.GET("/groups", h.Admin.Dashboard.GetGroupStats)
 		dashboard.GET("/api-keys-trend", h.Admin.Dashboard.GetAPIKeyUsageTrend)
 		dashboard.GET("/users-trend", h.Admin.Dashboard.GetUserUsageTrend)
 		dashboard.POST("/users-usage", h.Admin.Dashboard.GetBatchUsersUsage)
@@ -231,6 +245,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/:id/clear-error", h.Admin.Account.ClearError)
 		accounts.GET("/:id/usage", h.Admin.Account.GetUsage)
 		accounts.GET("/:id/today-stats", h.Admin.Account.GetTodayStats)
+		accounts.POST("/today-stats/batch", h.Admin.Account.GetBatchTodayStats)
 		accounts.POST("/:id/clear-rate-limit", h.Admin.Account.ClearRateLimit)
 		accounts.GET("/:id/temp-unschedulable", h.Admin.Account.GetTempUnschedulable)
 		accounts.DELETE("/:id/temp-unschedulable", h.Admin.Account.ClearTempUnschedulable)
@@ -337,6 +352,7 @@ func registerRedeemCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		codes.GET("/stats", h.Admin.Redeem.GetStats)
 		codes.GET("/export", h.Admin.Redeem.Export)
 		codes.GET("/:id", h.Admin.Redeem.GetByID)
+		codes.POST("/create-and-redeem", h.Admin.Redeem.CreateAndRedeem)
 		codes.POST("/generate", h.Admin.Redeem.Generate)
 		codes.DELETE("/:id", h.Admin.Redeem.Delete)
 		codes.POST("/batch-delete", h.Admin.Redeem.BatchDelete)
@@ -370,6 +386,38 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 流超时处理配置
 		adminSettings.GET("/stream-timeout", h.Admin.Setting.GetStreamTimeoutSettings)
 		adminSettings.PUT("/stream-timeout", h.Admin.Setting.UpdateStreamTimeoutSettings)
+		// Sora S3 存储配置
+		adminSettings.GET("/sora-s3", h.Admin.Setting.GetSoraS3Settings)
+		adminSettings.PUT("/sora-s3", h.Admin.Setting.UpdateSoraS3Settings)
+		adminSettings.POST("/sora-s3/test", h.Admin.Setting.TestSoraS3Connection)
+		adminSettings.GET("/sora-s3/profiles", h.Admin.Setting.ListSoraS3Profiles)
+		adminSettings.POST("/sora-s3/profiles", h.Admin.Setting.CreateSoraS3Profile)
+		adminSettings.PUT("/sora-s3/profiles/:profile_id", h.Admin.Setting.UpdateSoraS3Profile)
+		adminSettings.DELETE("/sora-s3/profiles/:profile_id", h.Admin.Setting.DeleteSoraS3Profile)
+		adminSettings.POST("/sora-s3/profiles/:profile_id/activate", h.Admin.Setting.SetActiveSoraS3Profile)
+	}
+}
+
+func registerDataManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	dataManagement := admin.Group("/data-management")
+	{
+		dataManagement.GET("/agent/health", h.Admin.DataManagement.GetAgentHealth)
+		dataManagement.GET("/config", h.Admin.DataManagement.GetConfig)
+		dataManagement.PUT("/config", h.Admin.DataManagement.UpdateConfig)
+		dataManagement.GET("/sources/:source_type/profiles", h.Admin.DataManagement.ListSourceProfiles)
+		dataManagement.POST("/sources/:source_type/profiles", h.Admin.DataManagement.CreateSourceProfile)
+		dataManagement.PUT("/sources/:source_type/profiles/:profile_id", h.Admin.DataManagement.UpdateSourceProfile)
+		dataManagement.DELETE("/sources/:source_type/profiles/:profile_id", h.Admin.DataManagement.DeleteSourceProfile)
+		dataManagement.POST("/sources/:source_type/profiles/:profile_id/activate", h.Admin.DataManagement.SetActiveSourceProfile)
+		dataManagement.POST("/s3/test", h.Admin.DataManagement.TestS3)
+		dataManagement.GET("/s3/profiles", h.Admin.DataManagement.ListS3Profiles)
+		dataManagement.POST("/s3/profiles", h.Admin.DataManagement.CreateS3Profile)
+		dataManagement.PUT("/s3/profiles/:profile_id", h.Admin.DataManagement.UpdateS3Profile)
+		dataManagement.DELETE("/s3/profiles/:profile_id", h.Admin.DataManagement.DeleteS3Profile)
+		dataManagement.POST("/s3/profiles/:profile_id/activate", h.Admin.DataManagement.SetActiveS3Profile)
+		dataManagement.POST("/backups", h.Admin.DataManagement.CreateBackupJob)
+		dataManagement.GET("/backups", h.Admin.DataManagement.ListBackupJobs)
+		dataManagement.GET("/backups/:job_id", h.Admin.DataManagement.GetBackupJob)
 	}
 }
 

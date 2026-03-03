@@ -41,7 +41,9 @@ func GetNonceFromContext(c *gin.Context) string {
 }
 
 // SecurityHeaders sets baseline security headers for all responses.
-func SecurityHeaders(cfg config.CSPConfig) gin.HandlerFunc {
+// getFrameSrcOrigins is an optional function that returns extra origins to inject into frame-src;
+// pass nil to disable dynamic frame-src injection.
+func SecurityHeaders(cfg config.CSPConfig, getFrameSrcOrigins func() []string) gin.HandlerFunc {
 	policy := strings.TrimSpace(cfg.Policy)
 	if policy == "" {
 		policy = config.DefaultCSPPolicy
@@ -51,9 +53,22 @@ func SecurityHeaders(cfg config.CSPConfig) gin.HandlerFunc {
 	policy = enhanceCSPPolicy(policy)
 
 	return func(c *gin.Context) {
+		finalPolicy := policy
+		if getFrameSrcOrigins != nil {
+			for _, origin := range getFrameSrcOrigins() {
+				if origin != "" {
+					finalPolicy = addToDirective(finalPolicy, "frame-src", origin)
+				}
+			}
+		}
+
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		if isAPIRoutePath(c) {
+			c.Next()
+			return
+		}
 
 		if cfg.Enabled {
 			// Generate nonce for this request
@@ -61,16 +76,26 @@ func SecurityHeaders(cfg config.CSPConfig) gin.HandlerFunc {
 			if err != nil {
 				// crypto/rand 失败时降级为无 nonce 的 CSP 策略
 				log.Printf("[SecurityHeaders] %v — 降级为无 nonce 的 CSP", err)
-				finalPolicy := strings.ReplaceAll(policy, NonceTemplate, "'unsafe-inline'")
-				c.Header("Content-Security-Policy", finalPolicy)
+				c.Header("Content-Security-Policy", strings.ReplaceAll(finalPolicy, NonceTemplate, "'unsafe-inline'"))
 			} else {
 				c.Set(CSPNonceKey, nonce)
-				finalPolicy := strings.ReplaceAll(policy, NonceTemplate, "'nonce-"+nonce+"'")
-				c.Header("Content-Security-Policy", finalPolicy)
+				c.Header("Content-Security-Policy", strings.ReplaceAll(finalPolicy, NonceTemplate, "'nonce-"+nonce+"'"))
 			}
 		}
 		c.Next()
 	}
+}
+
+func isAPIRoutePath(c *gin.Context) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	path := c.Request.URL.Path
+	return strings.HasPrefix(path, "/v1/") ||
+		strings.HasPrefix(path, "/v1beta/") ||
+		strings.HasPrefix(path, "/antigravity/") ||
+		strings.HasPrefix(path, "/sora/") ||
+		strings.HasPrefix(path, "/responses")
 }
 
 // enhanceCSPPolicy ensures the CSP policy includes nonce support and Cloudflare Insights domain.

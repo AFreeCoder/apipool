@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -26,6 +28,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+const gatewayCompatibilityMetricsLogInterval = 1024
+
+var gatewayCompatibilityMetricsLogCounter atomic.Uint64
 
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
@@ -39,9 +45,11 @@ type GatewayHandler struct {
 	usageRecordWorkerPool     *service.UsageRecordWorkerPool
 	errorPassthroughService   *service.ErrorPassthroughService
 	concurrencyHelper         *ConcurrencyHelper
+	userMsgQueueHelper        *UserMsgQueueHelper
 	maxAccountSwitches        int
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
+	settingService            *service.SettingService
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -56,7 +64,9 @@ func NewGatewayHandler(
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
+	userMsgQueueService *service.UserMessageQueueService,
 	cfg *config.Config,
+	settingService *service.SettingService,
 ) *GatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 10
@@ -70,6 +80,13 @@ func NewGatewayHandler(
 			maxAccountSwitchesGemini = cfg.Gateway.MaxAccountSwitchesGemini
 		}
 	}
+
+	// 初始化用户消息串行队列 helper
+	var umqHelper *UserMsgQueueHelper
+	if userMsgQueueService != nil && cfg != nil {
+		umqHelper = NewUserMsgQueueHelper(userMsgQueueService, SSEPingFormatClaude, pingInterval)
+	}
+
 	return &GatewayHandler{
 		gatewayService:            gatewayService,
 		geminiCompatService:       geminiCompatService,
@@ -81,9 +98,11 @@ func NewGatewayHandler(
 		usageRecordWorkerPool:     usageRecordWorkerPool,
 		errorPassthroughService:   errorPassthroughService,
 		concurrencyHelper:         NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
+		userMsgQueueHelper:        umqHelper,
 		maxAccountSwitches:        maxAccountSwitches,
 		maxAccountSwitchesGemini:  maxAccountSwitchesGemini,
 		cfg:                       cfg,
+		settingService:            settingService,
 	}
 }
 
@@ -109,9 +128,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		zap.Int64("api_key_id", apiKey.ID),
 		zap.Any("group_id", apiKey.GroupID),
 	)
+	defer h.maybeLogCompatibilityFallbackMetrics(reqLog)
 
 	// 读取请求体
-	body, err := io.ReadAll(c.Request.Body)
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
@@ -140,16 +160,21 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 设置 max_tokens=1 + haiku 探测请求标识到 context 中
 	// 必须在 SetClaudeCodeClientContext 之前设置，因为 ClaudeCodeValidator 需要读取此标识进行绕过判断
 	if isMaxTokensOneHaikuRequest(reqModel, parsedReq.MaxTokens, reqStream) {
-		ctx := context.WithValue(c.Request.Context(), ctxkey.IsMaxTokensOneHaikuRequest, true)
+		ctx := service.WithIsMaxTokensOneHaikuRequest(c.Request.Context(), true, h.metadataBridgeEnabled())
 		c.Request = c.Request.WithContext(ctx)
 	}
 
-	// 检查是否为 Claude Code 客户端，设置到 context 中
-	SetClaudeCodeClientContext(c, body)
+	// 检查是否为 Claude Code 客户端，设置到 context 中（复用已解析请求，避免二次反序列化）。
+	SetClaudeCodeClientContext(c, body, parsedReq)
 	isClaudeCodeClient := service.IsClaudeCodeClient(c.Request.Context())
 
+	// 版本检查：仅对 Claude Code 客户端，拒绝低于最低版本的请求
+	if !h.checkClaudeCodeVersion(c) {
+		return
+	}
+
 	// 在请求上下文中记录 thinking 状态，供 Antigravity 最终模型 key 推导/模型维度限流使用
-	c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.ThinkingEnabled, parsedReq.ThinkingEnabled))
+	c.Request = c.Request.WithContext(service.WithThinkingEnabled(c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled()))
 
 	setOpsRequestContext(c, reqModel, reqStream, body)
 
@@ -247,8 +272,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if apiKey.GroupID != nil {
 				prefetchedGroupID = *apiKey.GroupID
 			}
-			ctx := context.WithValue(c.Request.Context(), ctxkey.PrefetchedStickyAccountID, sessionBoundAccountID)
-			ctx = context.WithValue(ctx, ctxkey.PrefetchedStickyGroupID, prefetchedGroupID)
+			ctx := service.WithPrefetchedStickySession(c.Request.Context(), sessionBoundAccountID, prefetchedGroupID, h.metadataBridgeEnabled())
 			c.Request = c.Request.WithContext(ctx)
 		}
 	}
@@ -261,7 +285,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 		// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
 		if h.gatewayService.IsSingleAntigravityAccountGroup(c.Request.Context(), apiKey.GroupID) {
-			ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+			ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
 			c.Request = c.Request.WithContext(ctx)
 		}
 
@@ -275,7 +299,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				action := fs.HandleSelectionExhausted(c.Request.Context())
 				switch action {
 				case FailoverContinue:
-					ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+					ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
 					c.Request = c.Request.WithContext(ctx)
 					continue
 				case FailoverCanceled:
@@ -364,7 +388,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			var result *service.ForwardResult
 			requestCtx := c.Request.Context()
 			if fs.SwitchCount > 0 {
-				requestCtx = context.WithValue(requestCtx, ctxkey.AccountSwitchCount, fs.SwitchCount)
+				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
 			if account.Platform == service.PlatformAntigravity {
 				result, err = h.antigravityGatewayService.ForwardGemini(requestCtx, c, account, reqModel, "generateContent", reqStream, body, hasBoundSession)
@@ -395,6 +419,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					zap.Error(err),
 				)
 				return
+			}
+
+			// RPM 计数递增（Forward 成功后）
+			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
+			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
+			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
+				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
+					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+				}
 			}
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
@@ -439,7 +472,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
 	if h.gatewayService.IsSingleAntigravityAccountGroup(c.Request.Context(), currentAPIKey.GroupID) {
-		ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+		ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
 		c.Request = c.Request.WithContext(ctx)
 	}
 
@@ -458,7 +491,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				action := fs.HandleSelectionExhausted(c.Request.Context())
 				switch action {
 				case FailoverContinue:
-					ctx := context.WithValue(c.Request.Context(), ctxkey.SingleAccountRetry, true)
+					ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
 					c.Request = c.Request.WithContext(ctx)
 					continue
 				case FailoverCanceled:
@@ -543,17 +576,77 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
+			// ===== 用户消息串行队列 START =====
+			var queueRelease func()
+			umqMode := h.getUserMsgQueueMode(account, parsedReq)
+
+			switch umqMode {
+			case config.UMQModeSerialize:
+				// 串行模式：获取锁 + RPM 延迟 + 释放（当前行为不变）
+				baseRPM := account.GetBaseRPM()
+				release, qErr := h.userMsgQueueHelper.AcquireWithWait(
+					c, account.ID, baseRPM, reqStream, &streamStarted,
+					h.cfg.Gateway.UserMessageQueue.WaitTimeout(),
+					reqLog,
+				)
+				if qErr != nil {
+					// fail-open: 记录 warn，不阻止请求
+					reqLog.Warn("gateway.umq_acquire_failed",
+						zap.Int64("account_id", account.ID),
+						zap.Error(qErr),
+					)
+				} else {
+					queueRelease = release
+				}
+
+			case config.UMQModeThrottle:
+				// 软性限速：仅施加 RPM 自适应延迟，不阻塞并发
+				baseRPM := account.GetBaseRPM()
+				if tErr := h.userMsgQueueHelper.ThrottleWithPing(
+					c, account.ID, baseRPM, reqStream, &streamStarted,
+					h.cfg.Gateway.UserMessageQueue.WaitTimeout(),
+					reqLog,
+				); tErr != nil {
+					reqLog.Warn("gateway.umq_throttle_failed",
+						zap.Int64("account_id", account.ID),
+						zap.Error(tErr),
+					)
+				}
+
+			default:
+				if umqMode != "" {
+					reqLog.Warn("gateway.umq_unknown_mode",
+						zap.String("mode", umqMode),
+						zap.Int64("account_id", account.ID),
+					)
+				}
+			}
+
+			// 用 wrapReleaseOnDone 确保 context 取消时自动释放（仅 serialize 模式有 queueRelease）
+			queueRelease = wrapReleaseOnDone(c.Request.Context(), queueRelease)
+			// 注入回调到 ParsedRequest：使用外层 wrapper 以便提前清理 AfterFunc
+			parsedReq.OnUpstreamAccepted = queueRelease
+			// ===== 用户消息串行队列 END =====
+
 			// 转发请求 - 根据账号平台分流
 			var result *service.ForwardResult
 			requestCtx := c.Request.Context()
 			if fs.SwitchCount > 0 {
-				requestCtx = context.WithValue(requestCtx, ctxkey.AccountSwitchCount, fs.SwitchCount)
+				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, body, hasBoundSession)
 			} else {
 				result, err = h.gatewayService.Forward(requestCtx, c, account, parsedReq)
 			}
+
+			// 兜底释放串行锁（正常情况已通过回调提前释放）
+			if queueRelease != nil {
+				queueRelease()
+			}
+			// 清理回调引用，防止 failover 重试时旧回调被错误调用
+			parsedReq.OnUpstreamAccepted = nil
+
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
@@ -589,7 +682,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 							h.handleStreamingAwareError(c, status, code, message, streamStarted)
 							return
 						}
-						// 兜底重试按“直接请求兜底分组”处理：清除强制平台，允许按分组平台调度
+						// 兜底重试按"直接请求兜底分组"处理：清除强制平台，允许按分组平台调度
 						ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, "")
 						c.Request = c.Request.WithContext(ctx)
 						currentAPIKey = fallbackAPIKey
@@ -621,6 +714,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					zap.Error(err),
 				)
 				return
+			}
+
+			// RPM 计数递增（Forward 成功后）
+			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
+			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
+			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
+				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
+					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+				}
 			}
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
@@ -956,20 +1058,8 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 		// Stream already started, send error as SSE event then close
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
-			// Send error event in SSE format with proper JSON marshaling
-			errorData := map[string]any{
-				"type": "error",
-				"error": map[string]string{
-					"type":    errType,
-					"message": message,
-				},
-			}
-			jsonBytes, err := json.Marshal(errorData)
-			if err != nil {
-				_ = c.Error(err)
-				return
-			}
-			errorEvent := fmt.Sprintf("data: %s\n\n", string(jsonBytes))
+			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
+			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
 			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
 				_ = c.Error(err)
 			}
@@ -988,6 +1078,41 @@ func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarte
 		return false
 	}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", streamStarted)
+	return true
+}
+
+// checkClaudeCodeVersion 检查 Claude Code 客户端版本是否满足最低要求
+// 仅对已识别的 Claude Code 客户端执行，count_tokens 路径除外
+func (h *GatewayHandler) checkClaudeCodeVersion(c *gin.Context) bool {
+	ctx := c.Request.Context()
+	if !service.IsClaudeCodeClient(ctx) {
+		return true
+	}
+
+	// 排除 count_tokens 子路径
+	if strings.HasSuffix(c.Request.URL.Path, "/count_tokens") {
+		return true
+	}
+
+	minVersion := h.settingService.GetMinClaudeCodeVersion(ctx)
+	if minVersion == "" {
+		return true // 未设置，不检查
+	}
+
+	clientVersion := service.GetClaudeCodeVersion(ctx)
+	if clientVersion == "" {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error",
+			"Unable to determine Claude Code version. Please update Claude Code: npm update -g @anthropic-ai/claude-code")
+		return false
+	}
+
+	if service.CompareVersions(clientVersion, minVersion) < 0 {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error",
+			fmt.Sprintf("Your Claude Code version (%s) is below the minimum required version (%s). Please update: npm update -g @anthropic-ai/claude-code",
+				clientVersion, minVersion))
+		return false
+	}
+
 	return true
 }
 
@@ -1024,9 +1149,10 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		zap.Int64("api_key_id", apiKey.ID),
 		zap.Any("group_id", apiKey.GroupID),
 	)
+	defer h.maybeLogCompatibilityFallbackMetrics(reqLog)
 
 	// 读取请求体
-	body, err := io.ReadAll(c.Request.Body)
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
@@ -1041,9 +1167,6 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 
-	// 检查是否为 Claude Code 客户端，设置到 context 中
-	SetClaudeCodeClientContext(c, body)
-
 	setOpsRequestContext(c, "", false, body)
 
 	parsedReq, err := service.ParseGatewayRequest(body, domain.PlatformAnthropic)
@@ -1051,9 +1174,11 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
+	// count_tokens 走 messages 严格校验时，复用已解析请求，避免二次反序列化。
+	SetClaudeCodeClientContext(c, body, parsedReq)
 	reqLog = reqLog.With(zap.String("model", parsedReq.Model), zap.Bool("stream", parsedReq.Stream))
 	// 在请求上下文中记录 thinking 状态，供 Antigravity 最终模型 key 推导/模型维度限流使用
-	c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.ThinkingEnabled, parsedReq.ThinkingEnabled))
+	c.Request = c.Request.WithContext(service.WithThinkingEnabled(c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled()))
 
 	// 验证 model 必填
 	if parsedReq.Model == "" {
@@ -1217,24 +1342,8 @@ func sendMockInterceptStream(c *gin.Context, model string, interceptType Interce
 		textDeltas = []string{"New", " Conversation"}
 	}
 
-	// Build message_start event with proper JSON marshaling
-	messageStart := map[string]any{
-		"type": "message_start",
-		"message": map[string]any{
-			"id":            msgID,
-			"type":          "message",
-			"role":          "assistant",
-			"model":         model,
-			"content":       []any{},
-			"stop_reason":   nil,
-			"stop_sequence": nil,
-			"usage": map[string]int{
-				"input_tokens":  10,
-				"output_tokens": 0,
-			},
-		},
-	}
-	messageStartJSON, _ := json.Marshal(messageStart)
+	// Build message_start event with fixed schema.
+	messageStartJSON := `{"type":"message_start","message":{"id":` + strconv.Quote(msgID) + `,"type":"message","role":"assistant","model":` + strconv.Quote(model) + `,"content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":0}}}`
 
 	// Build events
 	events := []string{
@@ -1244,31 +1353,12 @@ func sendMockInterceptStream(c *gin.Context, model string, interceptType Interce
 
 	// Add text deltas
 	for _, text := range textDeltas {
-		delta := map[string]any{
-			"type":  "content_block_delta",
-			"index": 0,
-			"delta": map[string]string{
-				"type": "text_delta",
-				"text": text,
-			},
-		}
-		deltaJSON, _ := json.Marshal(delta)
+		deltaJSON := `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":` + strconv.Quote(text) + `}}`
 		events = append(events, `event: content_block_delta`+"\n"+`data: `+string(deltaJSON))
 	}
 
 	// Add final events
-	messageDelta := map[string]any{
-		"type": "message_delta",
-		"delta": map[string]any{
-			"stop_reason":   "end_turn",
-			"stop_sequence": nil,
-		},
-		"usage": map[string]int{
-			"input_tokens":  10,
-			"output_tokens": outputTokens,
-		},
-	}
-	messageDeltaJSON, _ := json.Marshal(messageDelta)
+	messageDeltaJSON := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":10,"output_tokens":` + strconv.Itoa(outputTokens) + `}}`
 
 	events = append(events,
 		`event: content_block_stop`+"\n"+`data: {"index":0,"type":"content_block_stop"}`,
@@ -1366,6 +1456,30 @@ func billingErrorDetails(err error) (status int, code, message string) {
 	return http.StatusForbidden, "billing_error", msg
 }
 
+func (h *GatewayHandler) metadataBridgeEnabled() bool {
+	if h == nil || h.cfg == nil {
+		return true
+	}
+	return h.cfg.Gateway.OpenAIWS.MetadataBridgeEnabled
+}
+
+func (h *GatewayHandler) maybeLogCompatibilityFallbackMetrics(reqLog *zap.Logger) {
+	if reqLog == nil {
+		return
+	}
+	if gatewayCompatibilityMetricsLogCounter.Add(1)%gatewayCompatibilityMetricsLogInterval != 0 {
+		return
+	}
+	metrics := service.SnapshotOpenAICompatibilityFallbackMetrics()
+	reqLog.Info("gateway.compatibility_fallback_metrics",
+		zap.Int64("session_hash_legacy_read_fallback_total", metrics.SessionHashLegacyReadFallbackTotal),
+		zap.Int64("session_hash_legacy_read_fallback_hit", metrics.SessionHashLegacyReadFallbackHit),
+		zap.Int64("session_hash_legacy_dual_write_total", metrics.SessionHashLegacyDualWriteTotal),
+		zap.Float64("session_hash_legacy_read_hit_rate", metrics.SessionHashLegacyReadHitRate),
+		zap.Int64("metadata_legacy_fallback_total", metrics.MetadataLegacyFallbackTotal),
+	)
+}
+
 func (h *GatewayHandler) submitUsageRecordTask(task service.UsageRecordTask) {
 	if task == nil {
 		return
@@ -1377,5 +1491,34 @@ func (h *GatewayHandler) submitUsageRecordTask(task service.UsageRecordTask) {
 	// 回退路径：worker 池未注入时同步执行，避免退回到无界 goroutine 模式。
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger.L().With(
+				zap.String("component", "handler.gateway.messages"),
+				zap.Any("panic", recovered),
+			).Error("gateway.usage_record_task_panic_recovered")
+		}
+	}()
 	task(ctx)
+}
+
+// getUserMsgQueueMode 获取当前请求的 UMQ 模式
+// 返回 "serialize" | "throttle" | ""
+func (h *GatewayHandler) getUserMsgQueueMode(account *service.Account, parsed *service.ParsedRequest) string {
+	if h.userMsgQueueHelper == nil {
+		return ""
+	}
+	// 仅适用于 Anthropic OAuth/SetupToken 账号
+	if !account.IsAnthropicOAuthOrSetupToken() {
+		return ""
+	}
+	if !service.IsRealUserMessage(parsed) {
+		return ""
+	}
+	// 账号级模式优先，fallback 到全局配置
+	mode := account.GetUserMsgQueueMode()
+	if mode == "" {
+		mode = h.cfg.Gateway.UserMessageQueue.GetEffectiveMode()
+	}
+	return mode
 }

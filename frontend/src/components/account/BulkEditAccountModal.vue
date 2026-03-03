@@ -585,6 +585,132 @@
         </div>
       </div>
 
+      <!-- RPM Limit (仅全部为 Anthropic OAuth/SetupToken 时显示) -->
+      <div v-if="allAnthropicOAuthOrSetupToken" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <label
+            id="bulk-edit-rpm-limit-label"
+            class="input-label mb-0"
+            for="bulk-edit-rpm-limit-enabled"
+          >
+            {{ t('admin.accounts.quotaControl.rpmLimit.label') }}
+          </label>
+          <input
+            v-model="enableRpmLimit"
+            id="bulk-edit-rpm-limit-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-rpm-limit-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+
+        <div
+          id="bulk-edit-rpm-limit-body"
+          :class="!enableRpmLimit && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-rpm-limit-label"
+        >
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.quotaControl.rpmLimit.hint') }}</span>
+            <button
+              type="button"
+              @click="rpmLimitEnabled = !rpmLimitEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                rpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  rpmLimitEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="rpmLimitEnabled" class="space-y-3">
+            <div>
+              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.rpmLimit.baseRpm') }}</label>
+              <input
+                v-model.number="bulkBaseRpm"
+                type="number"
+                min="1"
+                max="1000"
+                step="1"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.rpmLimit.baseRpmPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.baseRpmHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  @click="bulkRpmStrategy = 'tiered'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    bulkRpmStrategy === 'tiered'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  {{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}
+                </button>
+                <button
+                  type="button"
+                  @click="bulkRpmStrategy = 'sticky_exempt'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    bulkRpmStrategy === 'sticky_exempt'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  {{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="bulkRpmStrategy === 'tiered'">
+              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBuffer') }}</label>
+              <input
+                v-model.number="bulkRpmStickyBuffer"
+                type="number"
+                min="1"
+                step="1"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.rpmLimit.stickyBufferPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBufferHint') }}</p>
+            </div>
+
+            </div>
+          </div>
+
+        <!-- 用户消息限速模式（独立于 RPM 开关，始终可见） -->
+        <div class="mt-4">
+          <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueue') }}</label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
+            {{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint') }}
+          </p>
+          <div class="flex space-x-2">
+            <button type="button" v-for="opt in umqModeOptions" :key="opt.value"
+              @click="userMsgQueueMode = userMsgQueueMode === opt.value ? null : opt.value"
+              :class="[
+                'px-3 py-1.5 text-sm rounded-md border transition-colors',
+                userMsgQueueMode === opt.value
+                  ? 'bg-primary-600 text-white border-primary-600'
+                  : 'bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-dark-500 hover:bg-gray-50 dark:hover:bg-dark-600'
+              ]">
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Groups -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -651,6 +777,17 @@
       </div>
     </template>
   </BaseDialog>
+
+  <ConfirmDialog
+    :show="showMixedChannelWarning"
+    :title="t('admin.accounts.mixedChannelWarningTitle')"
+    :message="mixedChannelWarningMessage"
+    :confirm-text="t('common.confirm')"
+    :cancel-text="t('common.cancel')"
+    :danger="true"
+    @confirm="handleMixedChannelConfirm"
+    @cancel="handleMixedChannelCancel"
+  />
 </template>
 
 <script setup lang="ts">
@@ -658,8 +795,9 @@ import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { Proxy as ProxyConfig, AdminGroup, AccountPlatform } from '@/types'
+import type { Proxy as ProxyConfig, AdminGroup, AccountPlatform, AccountType } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
@@ -670,6 +808,7 @@ interface Props {
   show: boolean
   accountIds: number[]
   selectedPlatforms: AccountPlatform[]
+  selectedTypes: AccountType[]
   proxies: ProxyConfig[]
   groups: AdminGroup[]
 }
@@ -686,9 +825,18 @@ const appStore = useAppStore()
 // Platform awareness
 const isMixedPlatform = computed(() => props.selectedPlatforms.length > 1)
 
+// 是否全部为 Anthropic OAuth/SetupToken（RPM 配置仅在此条件下显示）
+const allAnthropicOAuthOrSetupToken = computed(() => {
+  return (
+    props.selectedPlatforms.length === 1 &&
+    props.selectedPlatforms[0] === 'anthropic' &&
+    props.selectedTypes.every(t => t === 'oauth' || t === 'setup-token')
+  )
+})
+
 const platformModelPrefix: Record<string, string[]> = {
   anthropic: ['claude-'],
-  antigravity: ['claude-'],
+  antigravity: ['claude-', 'gemini-', 'gpt-oss-', 'tab_'],
   openai: ['gpt-'],
   gemini: ['gemini-'],
   sora: []
@@ -725,9 +873,13 @@ const enablePriority = ref(false)
 const enableRateMultiplier = ref(false)
 const enableStatus = ref(false)
 const enableGroups = ref(false)
+const enableRpmLimit = ref(false)
 
 // State - field values
 const submitting = ref(false)
+const showMixedChannelWarning = ref(false)
+const mixedChannelWarningMessage = ref('')
+const pendingUpdatesForConfirm = ref<Record<string, unknown> | null>(null)
 const baseUrl = ref('')
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
@@ -741,6 +893,16 @@ const priority = ref(1)
 const rateMultiplier = ref(1)
 const status = ref<'active' | 'inactive'>('active')
 const groupIds = ref<number[]>([])
+const rpmLimitEnabled = ref(false)
+const bulkBaseRpm = ref<number | null>(null)
+const bulkRpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
+const bulkRpmStickyBuffer = ref<number | null>(null)
+const userMsgQueueMode = ref<string | null>(null)
+const umqModeOptions = computed(() => [
+  { value: '', label: t('admin.accounts.quotaControl.rpmLimit.umqModeOff') },
+  { value: 'throttle', label: t('admin.accounts.quotaControl.rpmLimit.umqModeThrottle') },
+  { value: 'serialize', label: t('admin.accounts.quotaControl.rpmLimit.umqModeSerialize') },
+])
 
 // All models list (combined Anthropic + OpenAI + Gemini)
 const allModels = [
@@ -766,6 +928,8 @@ const allModels = [
   { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  { value: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image' },
+  { value: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image (Legacy)' },
   { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
   { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' }
 ]
@@ -843,6 +1007,18 @@ const presetMappings = [
     from: 'claude-opus-4-5-20251101',
     to: 'claude-sonnet-4-5-20250929',
     color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400'
+  },
+  {
+    label: 'Gemini 3.1 Image',
+    from: 'gemini-3.1-flash-image',
+    to: 'gemini-3.1-flash-image',
+    color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400'
+  },
+  {
+    label: 'G3 Image→3.1',
+    from: 'gemini-3-pro-image',
+    to: 'gemini-3.1-flash-image',
+    color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400'
   },
   {
     label: 'GPT-5.3 Codex',
@@ -1080,11 +1256,75 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     updates.credentials = credentials
   }
 
+  // RPM limit settings (写入 extra 字段)
+  if (enableRpmLimit.value) {
+    const extra: Record<string, unknown> = {}
+    if (rpmLimitEnabled.value && bulkBaseRpm.value != null && bulkBaseRpm.value > 0) {
+      extra.base_rpm = bulkBaseRpm.value
+      extra.rpm_strategy = bulkRpmStrategy.value
+      if (bulkRpmStickyBuffer.value != null && bulkRpmStickyBuffer.value > 0) {
+        extra.rpm_sticky_buffer = bulkRpmStickyBuffer.value
+      }
+    } else {
+      // 关闭 RPM 限制 - 设置 base_rpm 为 0，并用空值覆盖关联字段
+      // 后端使用 JSONB || merge 语义，不会删除已有 key，
+      // 所以必须显式发送空值来重置（后端读取时会 fallback 到默认值）
+      extra.base_rpm = 0
+      extra.rpm_strategy = ''
+      extra.rpm_sticky_buffer = 0
+    }
+    updates.extra = extra
+  }
+
+  // UMQ mode（独立于 RPM 保存）
+  if (userMsgQueueMode.value !== null) {
+    if (!updates.extra) updates.extra = {}
+    const umqExtra = updates.extra as Record<string, unknown>
+    umqExtra.user_msg_queue_mode = userMsgQueueMode.value  // '' = 清除账号级覆盖
+    umqExtra.user_msg_queue_enabled = false  // 清理旧字段（JSONB merge）
+  }
+
   return Object.keys(updates).length > 0 ? updates : null
 }
 
+const mixedChannelConfirmed = ref(false)
+
+// 是否需要预检查：改了分组 + 全是单一的 antigravity 或 anthropic 平台
+// 多平台混合的情况由 submitBulkUpdate 的 409 catch 兜底
+const canPreCheck = () =>
+  enableGroups.value &&
+  groupIds.value.length > 0 &&
+  props.selectedPlatforms.length === 1 &&
+  (props.selectedPlatforms[0] === 'antigravity' || props.selectedPlatforms[0] === 'anthropic')
+
 const handleClose = () => {
+  showMixedChannelWarning.value = false
+  mixedChannelWarningMessage.value = ''
+  pendingUpdatesForConfirm.value = null
+  mixedChannelConfirmed.value = false
   emit('close')
+}
+
+// 预检查：提交前调接口检测，有风险就弹窗阻止，返回 false 表示需要用户确认
+const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise<boolean> => {
+  if (!canPreCheck()) return true
+  if (mixedChannelConfirmed.value) return true
+
+  try {
+    const result = await adminAPI.accounts.checkMixedChannelRisk({
+      platform: props.selectedPlatforms[0],
+      group_ids: groupIds.value
+    })
+    if (!result.has_risk) return true
+
+    pendingUpdatesForConfirm.value = built
+    mixedChannelWarningMessage.value = result.message || t('admin.accounts.bulkEdit.failed')
+    showMixedChannelWarning.value = true
+    return false
+  } catch (error: any) {
+    appStore.showError(error.message || t('admin.accounts.bulkEdit.failed'))
+    return false
+  }
 }
 
 const handleSubmit = async () => {
@@ -1103,18 +1343,32 @@ const handleSubmit = async () => {
     enablePriority.value ||
     enableRateMultiplier.value ||
     enableStatus.value ||
-    enableGroups.value
+    enableGroups.value ||
+    enableRpmLimit.value ||
+    userMsgQueueMode.value !== null
 
   if (!hasAnyFieldEnabled) {
     appStore.showError(t('admin.accounts.bulkEdit.noFieldsSelected'))
     return
   }
 
-  const updates = buildUpdatePayload()
-  if (!updates) {
+  const built = buildUpdatePayload()
+  if (!built) {
     appStore.showError(t('admin.accounts.bulkEdit.noFieldsSelected'))
     return
   }
+
+  const canContinue = await preCheckMixedChannelRisk(built)
+  if (!canContinue) return
+
+  await submitBulkUpdate(built)
+}
+
+const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
+  // 无论是预检查确认还是 409 兜底确认，只要 mixedChannelConfirmed 为 true 就带上 flag
+  const updates = mixedChannelConfirmed.value
+    ? { ...baseUpdates, confirm_mixed_channel_risk: true }
+    : baseUpdates
 
   submitting.value = true
 
@@ -1132,15 +1386,36 @@ const handleSubmit = async () => {
     }
 
     if (success > 0) {
+      pendingUpdatesForConfirm.value = null
       emit('updated')
       handleClose()
     }
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.accounts.bulkEdit.failed'))
-    console.error('Error bulk updating accounts:', error)
+    // 兜底：多平台混合场景下，预检查跳过，由后端 409 触发确认框
+    if (error.status === 409 && error.error === 'mixed_channel_warning') {
+      pendingUpdatesForConfirm.value = baseUpdates
+      mixedChannelWarningMessage.value = error.message
+      showMixedChannelWarning.value = true
+    } else {
+      appStore.showError(error.message || t('admin.accounts.bulkEdit.failed'))
+      console.error('Error bulk updating accounts:', error)
+    }
   } finally {
     submitting.value = false
   }
+}
+
+const handleMixedChannelConfirm = async () => {
+  showMixedChannelWarning.value = false
+  mixedChannelConfirmed.value = true
+  if (pendingUpdatesForConfirm.value) {
+    await submitBulkUpdate(pendingUpdatesForConfirm.value)
+  }
+}
+
+const handleMixedChannelCancel = () => {
+  showMixedChannelWarning.value = false
+  pendingUpdatesForConfirm.value = null
 }
 
 // Reset form when modal closes
@@ -1159,6 +1434,7 @@ watch(
       enableRateMultiplier.value = false
       enableStatus.value = false
       enableGroups.value = false
+      enableRpmLimit.value = false
 
       // Reset all values
       baseUrl.value = ''
@@ -1174,6 +1450,17 @@ watch(
       rateMultiplier.value = 1
       status.value = 'active'
       groupIds.value = []
+      rpmLimitEnabled.value = false
+      bulkBaseRpm.value = null
+      bulkRpmStrategy.value = 'tiered'
+      bulkRpmStickyBuffer.value = null
+      userMsgQueueMode.value = null
+
+      // Reset mixed channel warning state
+      showMixedChannelWarning.value = false
+      mixedChannelWarningMessage.value = ''
+      pendingUpdatesForConfirm.value = null
+      mixedChannelConfirmed.value = false
     }
   }
 )

@@ -35,7 +35,7 @@
             type="text"
             class="input"
             :placeholder="
-              account.platform === 'openai'
+              account.platform === 'openai' || account.platform === 'sora'
                 ? 'https://api.openai.com'
                 : account.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
@@ -53,7 +53,7 @@
             type="password"
             class="input font-mono"
             :placeholder="
-              account.platform === 'openai'
+              account.platform === 'openai' || account.platform === 'sora'
                 ? 'sk-proj-...'
                 : account.platform === 'gemini'
                   ? 'AIza...'
@@ -708,6 +708,27 @@
         </div>
       </div>
 
+      <!-- OpenAI WS Mode 三态（off/shared/dedicated） -->
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.wsMode') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.wsModeDesc') }}
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.wsModeConcurrencyHint') }}
+            </p>
+          </div>
+          <div class="w-52">
+            <Select v-model="openaiResponsesWebSocketV2Mode" :options="openAIWSModeOptions" />
+          </div>
+        </div>
+      </div>
+
       <!-- Anthropic API Key 自动透传开关 -->
       <div
         v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
@@ -921,6 +942,119 @@
                 <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">{{ t('common.minutes') }}</span>
               </div>
               <p class="input-hint">{{ t('admin.accounts.quotaControl.sessionLimit.idleTimeoutHint') }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- RPM Limit -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.rpmLimit.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.rpmLimit.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="rpmLimitEnabled = !rpmLimitEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                rpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  rpmLimitEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="rpmLimitEnabled" class="space-y-4">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.baseRpm') }}</label>
+              <input
+                v-model.number="baseRpm"
+                type="number"
+                min="1"
+                max="1000"
+                step="1"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.rpmLimit.baseRpmPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.baseRpmHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  @click="rpmStrategy = 'tiered'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    rpmStrategy === 'tiered'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  <div class="text-center">
+                    <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}</div>
+                    <div class="mt-0.5 text-[10px] opacity-70">{{ t('admin.accounts.quotaControl.rpmLimit.strategyTieredHint') }}</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  @click="rpmStrategy = 'sticky_exempt'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    rpmStrategy === 'sticky_exempt'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  <div class="text-center">
+                    <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}</div>
+                    <div class="mt-0.5 text-[10px] opacity-70">{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExemptHint') }}</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="rpmStrategy === 'tiered'">
+              <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBuffer') }}</label>
+              <input
+                v-model.number="rpmStickyBuffer"
+                type="number"
+                min="1"
+                step="1"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.rpmLimit.stickyBufferPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBufferHint') }}</p>
+            </div>
+
+          </div>
+
+          <!-- 用户消息限速模式（独立于 RPM 开关，始终可见） -->
+          <div class="mt-4">
+            <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueue') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
+              {{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint') }}
+            </p>
+            <div class="flex space-x-2">
+              <button type="button" v-for="opt in umqModeOptions" :key="opt.value"
+                @click="userMsgQueueMode = opt.value"
+                :class="[
+                  'px-3 py-1.5 text-sm rounded-md border transition-colors',
+                  userMsgQueueMode === opt.value
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-dark-500 hover:bg-gray-50 dark:hover:bg-dark-600'
+                ]">
+                {{ opt.label }}
+              </button>
             </div>
           </div>
         </div>
@@ -1139,6 +1273,14 @@ import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import {
+  OPENAI_WS_MODE_DEDICATED,
+  OPENAI_WS_MODE_OFF,
+  OPENAI_WS_MODE_SHARED,
+  isOpenAIWSModeEnabled,
+  type OpenAIWSMode,
+  resolveOpenAIWSModeFromExtra
+} from '@/utils/openaiWsMode'
+import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
@@ -1222,6 +1364,16 @@ const windowCostStickyReserve = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
+const rpmLimitEnabled = ref(false)
+const baseRpm = ref<number | null>(null)
+const rpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
+const rpmStickyBuffer = ref<number | null>(null)
+const userMsgQueueMode = ref('')
+const umqModeOptions = computed(() => [
+  { value: '', label: t('admin.accounts.quotaControl.rpmLimit.umqModeOff') },
+  { value: 'throttle', label: t('admin.accounts.quotaControl.rpmLimit.umqModeThrottle') },
+  { value: 'serialize', label: t('admin.accounts.quotaControl.rpmLimit.umqModeSerialize') },
+])
 const tlsFingerprintEnabled = ref(false)
 const sessionIdMaskingEnabled = ref(false)
 const cacheTTLOverrideEnabled = ref(false)
@@ -1229,8 +1381,30 @@ const cacheTTLOverrideTarget = ref<string>('5m')
 
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
+const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const anthropicPassthroughEnabled = ref(false)
+const openAIWSModeOptions = computed(() => [
+  { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
+  { value: OPENAI_WS_MODE_SHARED, label: t('admin.accounts.openai.wsModeShared') },
+  { value: OPENAI_WS_MODE_DEDICATED, label: t('admin.accounts.openai.wsModeDedicated') }
+])
+const openaiResponsesWebSocketV2Mode = computed({
+  get: () => {
+    if (props.account?.type === 'apikey') {
+      return openaiAPIKeyResponsesWebSocketV2Mode.value
+    }
+    return openaiOAuthResponsesWebSocketV2Mode.value
+  },
+  set: (mode: OpenAIWSMode) => {
+    if (props.account?.type === 'apikey') {
+      openaiAPIKeyResponsesWebSocketV2Mode.value = mode
+      return
+    }
+    openaiOAuthResponsesWebSocketV2Mode.value = mode
+  }
+})
 const isOpenAIModelRestrictionDisabled = computed(() =>
   props.account?.platform === 'openai' && openaiPassthroughEnabled.value
 )
@@ -1269,7 +1443,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
-  if (props.account?.platform === 'openai') return 'https://api.openai.com'
+  if (props.account?.platform === 'openai' || props.account?.platform === 'sora') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   return 'https://api.anthropic.com'
 })
@@ -1336,10 +1510,24 @@ watch(
 
       // Load OpenAI passthrough toggle (OpenAI OAuth/API Key)
       openaiPassthroughEnabled.value = false
+      openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+      openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
       anthropicPassthroughEnabled.value = false
       if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
         openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
+        openaiOAuthResponsesWebSocketV2Mode.value = resolveOpenAIWSModeFromExtra(extra, {
+          modeKey: 'openai_oauth_responses_websockets_v2_mode',
+          enabledKey: 'openai_oauth_responses_websockets_v2_enabled',
+          fallbackEnabledKeys: ['responses_websockets_v2_enabled', 'openai_ws_enabled'],
+          defaultMode: OPENAI_WS_MODE_OFF
+        })
+        openaiAPIKeyResponsesWebSocketV2Mode.value = resolveOpenAIWSModeFromExtra(extra, {
+          modeKey: 'openai_apikey_responses_websockets_v2_mode',
+          enabledKey: 'openai_apikey_responses_websockets_v2_enabled',
+          fallbackEnabledKeys: ['responses_websockets_v2_enabled', 'openai_ws_enabled'],
+          defaultMode: OPENAI_WS_MODE_OFF
+        })
         if (newAccount.type === 'oauth') {
           codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
         }
@@ -1389,7 +1577,7 @@ watch(
       if (newAccount.type === 'apikey' && newAccount.credentials) {
         const credentials = newAccount.credentials as Record<string, unknown>
         const platformDefaultUrl =
-          newAccount.platform === 'openai'
+          newAccount.platform === 'openai' || newAccount.platform === 'sora'
             ? 'https://api.openai.com'
             : newAccount.platform === 'gemini'
               ? 'https://generativelanguage.googleapis.com'
@@ -1435,7 +1623,7 @@ watch(
         editBaseUrl.value = (credentials.base_url as string) || ''
       } else {
         const platformDefaultUrl =
-          newAccount.platform === 'openai'
+          newAccount.platform === 'openai' || newAccount.platform === 'sora'
             ? 'https://api.openai.com'
             : newAccount.platform === 'gemini'
               ? 'https://generativelanguage.googleapis.com'
@@ -1645,6 +1833,11 @@ function loadQuotaControlSettings(account: Account) {
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
+  rpmLimitEnabled.value = false
+  baseRpm.value = null
+  rpmStrategy.value = 'tiered'
+  rpmStickyBuffer.value = null
+  userMsgQueueMode.value = ''
   tlsFingerprintEnabled.value = false
   sessionIdMaskingEnabled.value = false
   cacheTTLOverrideEnabled.value = false
@@ -1667,6 +1860,17 @@ function loadQuotaControlSettings(account: Account) {
     maxSessions.value = account.max_sessions
     sessionIdleTimeout.value = account.session_idle_timeout_minutes ?? 5
   }
+
+  // RPM limit
+  if (account.base_rpm != null && account.base_rpm > 0) {
+    rpmLimitEnabled.value = true
+    baseRpm.value = account.base_rpm
+    rpmStrategy.value = (account.rpm_strategy as 'tiered' | 'sticky_exempt') || 'tiered'
+    rpmStickyBuffer.value = account.rpm_sticky_buffer ?? null
+  }
+
+  // UMQ mode（独立于 RPM 加载，防止编辑无 RPM 账号时丢失已有配置）
+  userMsgQueueMode.value = account.user_msg_queue_mode ?? ''
 
   // Load TLS fingerprint setting
   if (account.enable_tls_fingerprint === true) {
@@ -1788,7 +1992,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
     })
     return false
   } catch (error: any) {
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToUpdate'))
+    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
     return false
   }
 }
@@ -1811,9 +2015,9 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
     emit('updated', updatedAccount)
     handleClose()
   } catch (error: any) {
-    if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning' && needsMixedChannelCheck()) {
+    if (error.status === 409 && error.error === 'mixed_channel_warning' && needsMixedChannelCheck()) {
       openMixedChannelDialog({
-        message: error.response?.data?.message,
+        message: error.message,
         onConfirm: async () => {
           antigravityMixedChannelConfirmed.value = true
           await submitUpdateAccount(accountID, updatePayload)
@@ -1821,7 +2025,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
       })
       return
     }
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToUpdate'))
+    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
   } finally {
     submitting.value = false
   }
@@ -1978,6 +2182,29 @@ const handleSubmit = async () => {
         delete newExtra.session_idle_timeout_minutes
       }
 
+      // RPM limit settings
+      if (rpmLimitEnabled.value && baseRpm.value != null && baseRpm.value > 0) {
+        newExtra.base_rpm = baseRpm.value
+        newExtra.rpm_strategy = rpmStrategy.value
+        if (rpmStickyBuffer.value != null && rpmStickyBuffer.value > 0) {
+          newExtra.rpm_sticky_buffer = rpmStickyBuffer.value
+        } else {
+          delete newExtra.rpm_sticky_buffer
+        }
+      } else {
+        delete newExtra.base_rpm
+        delete newExtra.rpm_strategy
+        delete newExtra.rpm_sticky_buffer
+      }
+
+      // UMQ mode（独立于 RPM 保存）
+      if (userMsgQueueMode.value) {
+        newExtra.user_msg_queue_mode = userMsgQueueMode.value
+      } else {
+        delete newExtra.user_msg_queue_mode
+      }
+      delete newExtra.user_msg_queue_enabled  // 清理旧字段
+
       // TLS fingerprint setting
       if (tlsFingerprintEnabled.value) {
         newExtra.enable_tls_fingerprint = true
@@ -2021,6 +2248,12 @@ const handleSubmit = async () => {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true
+      newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
+      newExtra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
+      newExtra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
+      newExtra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
+      delete newExtra.responses_websockets_v2_enabled
+      delete newExtra.openai_ws_enabled
       if (openaiPassthroughEnabled.value) {
         newExtra.openai_passthrough = true
       } else {
@@ -2051,7 +2284,7 @@ const handleSubmit = async () => {
 
     await submitUpdateAccount(accountID, updatePayload)
   } catch (error: any) {
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToUpdate'))
+    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
   }
 }
 

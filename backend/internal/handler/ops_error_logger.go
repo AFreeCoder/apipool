@@ -311,6 +311,35 @@ type opsCaptureWriter struct {
 	buf   bytes.Buffer
 }
 
+const opsCaptureWriterLimit = 64 * 1024
+
+var opsCaptureWriterPool = sync.Pool{
+	New: func() any {
+		return &opsCaptureWriter{limit: opsCaptureWriterLimit}
+	},
+}
+
+func acquireOpsCaptureWriter(rw gin.ResponseWriter) *opsCaptureWriter {
+	w, ok := opsCaptureWriterPool.Get().(*opsCaptureWriter)
+	if !ok || w == nil {
+		w = &opsCaptureWriter{}
+	}
+	w.ResponseWriter = rw
+	w.limit = opsCaptureWriterLimit
+	w.buf.Reset()
+	return w
+}
+
+func releaseOpsCaptureWriter(w *opsCaptureWriter) {
+	if w == nil {
+		return
+	}
+	w.ResponseWriter = nil
+	w.limit = opsCaptureWriterLimit
+	w.buf.Reset()
+	opsCaptureWriterPool.Put(w)
+}
+
 func (w *opsCaptureWriter) Write(b []byte) (int, error) {
 	if w.Status() >= 400 && w.limit > 0 && w.buf.Len() < w.limit {
 		remaining := w.limit - w.buf.Len()
@@ -342,7 +371,16 @@ func (w *opsCaptureWriter) WriteString(s string) (int, error) {
 // - Streaming errors after the response has started (SSE) may still need explicit logging.
 func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		w := &opsCaptureWriter{ResponseWriter: c.Writer, limit: 64 * 1024}
+		originalWriter := c.Writer
+		w := acquireOpsCaptureWriter(originalWriter)
+		defer func() {
+			// Restore the original writer before returning so outer middlewares
+			// don't observe a pooled wrapper that has been released.
+			if c.Writer == w {
+				c.Writer = originalWriter
+			}
+			releaseOpsCaptureWriter(w)
+		}()
 		c.Writer = w
 		c.Next()
 
@@ -624,8 +662,10 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			requestID = c.Writer.Header().Get("x-request-id")
 		}
 
-		phase := classifyOpsPhase(parsed.ErrorType, parsed.Message, parsed.Code)
-		isBusinessLimited := classifyOpsIsBusinessLimited(parsed.ErrorType, phase, parsed.Code, status, parsed.Message)
+		normalizedType := normalizeOpsErrorType(parsed.ErrorType, parsed.Code)
+
+		phase := classifyOpsPhase(normalizedType, parsed.Message, parsed.Code)
+		isBusinessLimited := classifyOpsIsBusinessLimited(normalizedType, phase, parsed.Code, status, parsed.Message)
 
 		errorOwner := classifyOpsErrorOwner(phase, parsed.Message)
 		errorSource := classifyOpsErrorSource(phase, parsed.Message)
@@ -647,8 +687,8 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			UserAgent: c.GetHeader("User-Agent"),
 
 			ErrorPhase:        phase,
-			ErrorType:         normalizeOpsErrorType(parsed.ErrorType, parsed.Code),
-			Severity:          classifyOpsSeverity(parsed.ErrorType, status),
+			ErrorType:         normalizedType,
+			Severity:          classifyOpsSeverity(normalizedType, status),
 			StatusCode:        status,
 			IsBusinessLimited: isBusinessLimited,
 			IsCountTokens:     isCountTokensRequest(c),
@@ -660,7 +700,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			ErrorSource: errorSource,
 			ErrorOwner:  errorOwner,
 
-			IsRetryable: classifyOpsIsRetryable(parsed.ErrorType, status),
+			IsRetryable: classifyOpsIsRetryable(normalizedType, status),
 			RetryCount:  0,
 			CreatedAt:   time.Now(),
 		}
@@ -901,8 +941,29 @@ func guessPlatformFromPath(path string) string {
 	}
 }
 
+// isKnownOpsErrorType returns true if t is a recognized error type used by the
+// ops classification pipeline.  Upstream proxies sometimes return garbage values
+// (e.g. the Go-serialized literal "<nil>") which would pollute phase/severity
+// classification if accepted blindly.
+func isKnownOpsErrorType(t string) bool {
+	switch t {
+	case "invalid_request_error",
+		"authentication_error",
+		"rate_limit_error",
+		"billing_error",
+		"subscription_error",
+		"upstream_error",
+		"overloaded_error",
+		"api_error",
+		"not_found_error",
+		"forbidden_error":
+		return true
+	}
+	return false
+}
+
 func normalizeOpsErrorType(errType string, code string) string {
-	if errType != "" {
+	if errType != "" && isKnownOpsErrorType(errType) {
 		return errType
 	}
 	switch strings.TrimSpace(code) {

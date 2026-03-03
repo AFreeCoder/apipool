@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -41,6 +43,9 @@ type AdminService interface {
 	DeleteGroup(ctx context.Context, id int64) error
 	GetGroupAPIKeys(ctx context.Context, groupID int64, page, pageSize int) ([]APIKey, int64, error)
 	UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error
+
+	// API Key management (admin)
+	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
 
 	// Account management
 	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64) ([]Account, int64, error)
@@ -83,13 +88,14 @@ type AdminService interface {
 
 // CreateUserInput represents input for creating a new user via admin operations.
 type CreateUserInput struct {
-	Email         string
-	Password      string
-	Username      string
-	Notes         string
-	Balance       float64
-	Concurrency   int
-	AllowedGroups []int64
+	Email                 string
+	Password              string
+	Username              string
+	Notes                 string
+	Balance               float64
+	Concurrency           int
+	AllowedGroups         []int64
+	SoraStorageQuotaBytes int64
 }
 
 type UpdateUserInput struct {
@@ -103,7 +109,8 @@ type UpdateUserInput struct {
 	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
-	GroupRates map[int64]*float64
+	GroupRates            map[int64]*float64
+	SoraStorageQuotaBytes *int64
 }
 
 type CreateGroupInput struct {
@@ -135,6 +142,8 @@ type CreateGroupInput struct {
 	MCPXMLInject        *bool
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes []string
+	// Sora 存储配额
+	SoraStorageQuotaBytes int64
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -169,6 +178,8 @@ type UpdateGroupInput struct {
 	MCPXMLInject        *bool
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes *[]string
+	// Sora 存储配额
+	SoraStorageQuotaBytes *int64
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -234,6 +245,14 @@ type BulkUpdateAccountResult struct {
 	AccountID int64  `json:"account_id"`
 	Success   bool   `json:"success"`
 	Error     string `json:"error,omitempty"`
+}
+
+// AdminUpdateAPIKeyGroupIDResult is the result of AdminUpdateAPIKeyGroupID.
+type AdminUpdateAPIKeyGroupIDResult struct {
+	APIKey                 *APIKey
+	AutoGrantedGroupAccess bool   // true if a new exclusive group permission was auto-added
+	GrantedGroupID         *int64 // the group ID that was auto-granted
+	GrantedGroupName       string // the group name that was auto-granted
 }
 
 // BulkUpdateAccountsResult is the aggregated response for bulk updates.
@@ -400,6 +419,17 @@ type adminServiceImpl struct {
 	proxyProber          ProxyExitInfoProber
 	proxyLatencyCache    ProxyLatencyCache
 	authCacheInvalidator APIKeyAuthCacheInvalidator
+	entClient            *dbent.Client // 用于开启数据库事务
+	settingService       *SettingService
+	defaultSubAssigner   DefaultSubscriptionAssigner
+}
+
+type userGroupRateBatchReader interface {
+	GetByUserIDs(ctx context.Context, userIDs []int64) (map[int64]map[int64]float64, error)
+}
+
+type groupExistenceBatchReader interface {
+	ExistsByIDs(ctx context.Context, ids []int64) (map[int64]bool, error)
 }
 
 // NewAdminService creates a new AdminService
@@ -416,6 +446,9 @@ func NewAdminService(
 	proxyProber ProxyExitInfoProber,
 	proxyLatencyCache ProxyLatencyCache,
 	authCacheInvalidator APIKeyAuthCacheInvalidator,
+	entClient *dbent.Client,
+	settingService *SettingService,
+	defaultSubAssigner DefaultSubscriptionAssigner,
 ) AdminService {
 	return &adminServiceImpl{
 		userRepo:             userRepo,
@@ -430,6 +463,9 @@ func NewAdminService(
 		proxyProber:          proxyProber,
 		proxyLatencyCache:    proxyLatencyCache,
 		authCacheInvalidator: authCacheInvalidator,
+		entClient:            entClient,
+		settingService:       settingService,
+		defaultSubAssigner:   defaultSubAssigner,
 	}
 }
 
@@ -442,16 +478,41 @@ func (s *adminServiceImpl) ListUsers(ctx context.Context, page, pageSize int, fi
 	}
 	// 批量加载用户专属分组倍率
 	if s.userGroupRateRepo != nil && len(users) > 0 {
-		for i := range users {
-			rates, err := s.userGroupRateRepo.GetByUserID(ctx, users[i].ID)
-			if err != nil {
-				logger.LegacyPrintf("service.admin", "failed to load user group rates: user_id=%d err=%v", users[i].ID, err)
-				continue
+		if batchRepo, ok := s.userGroupRateRepo.(userGroupRateBatchReader); ok {
+			userIDs := make([]int64, 0, len(users))
+			for i := range users {
+				userIDs = append(userIDs, users[i].ID)
 			}
-			users[i].GroupRates = rates
+			ratesByUser, err := batchRepo.GetByUserIDs(ctx, userIDs)
+			if err != nil {
+				logger.LegacyPrintf("service.admin", "failed to load user group rates in batch: err=%v", err)
+				s.loadUserGroupRatesOneByOne(ctx, users)
+			} else {
+				for i := range users {
+					if rates, ok := ratesByUser[users[i].ID]; ok {
+						users[i].GroupRates = rates
+					}
+				}
+			}
+		} else {
+			s.loadUserGroupRatesOneByOne(ctx, users)
 		}
 	}
 	return users, result.Total, nil
+}
+
+func (s *adminServiceImpl) loadUserGroupRatesOneByOne(ctx context.Context, users []User) {
+	if s.userGroupRateRepo == nil {
+		return
+	}
+	for i := range users {
+		rates, err := s.userGroupRateRepo.GetByUserID(ctx, users[i].ID)
+		if err != nil {
+			logger.LegacyPrintf("service.admin", "failed to load user group rates: user_id=%d err=%v", users[i].ID, err)
+			continue
+		}
+		users[i].GroupRates = rates
+	}
 }
 
 func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error) {
@@ -473,14 +534,15 @@ func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error)
 
 func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInput) (*User, error) {
 	user := &User{
-		Email:         input.Email,
-		Username:      input.Username,
-		Notes:         input.Notes,
-		Role:          RoleUser, // Always create as regular user, never admin
-		Balance:       input.Balance,
-		Concurrency:   input.Concurrency,
-		Status:        StatusActive,
-		AllowedGroups: input.AllowedGroups,
+		Email:                 input.Email,
+		Username:              input.Username,
+		Notes:                 input.Notes,
+		Role:                  RoleUser, // Always create as regular user, never admin
+		Balance:               input.Balance,
+		Concurrency:           input.Concurrency,
+		Status:                StatusActive,
+		AllowedGroups:         input.AllowedGroups,
+		SoraStorageQuotaBytes: input.SoraStorageQuotaBytes,
 	}
 	if err := user.SetPassword(input.Password); err != nil {
 		return nil, err
@@ -488,7 +550,25 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, err
 	}
+	s.assignDefaultSubscriptions(ctx, user.ID)
 	return user, nil
+}
+
+func (s *adminServiceImpl) assignDefaultSubscriptions(ctx context.Context, userID int64) {
+	if s.settingService == nil || s.defaultSubAssigner == nil || userID <= 0 {
+		return
+	}
+	items := s.settingService.GetDefaultSubscriptions(ctx)
+	for _, item := range items {
+		if _, _, err := s.defaultSubAssigner.AssignOrExtendSubscription(ctx, &AssignSubscriptionInput{
+			UserID:       userID,
+			GroupID:      item.GroupID,
+			ValidityDays: item.ValidityDays,
+			Notes:        "auto assigned by default user subscriptions setting",
+		}); err != nil {
+			logger.LegacyPrintf("service.admin", "failed to assign default subscription: user_id=%d group_id=%d err=%v", userID, item.GroupID, err)
+		}
+	}
 }
 
 func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error) {
@@ -532,6 +612,10 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 
 	if input.AllowedGroups != nil {
 		user.AllowedGroups = *input.AllowedGroups
+	}
+
+	if input.SoraStorageQuotaBytes != nil {
+		user.SoraStorageQuotaBytes = *input.SoraStorageQuotaBytes
 	}
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
@@ -820,6 +904,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ModelRouting:                    input.ModelRouting,
 		MCPXMLInject:                    mcpXMLInject,
 		SupportedModelScopes:            input.SupportedModelScopes,
+		SoraStorageQuotaBytes:           input.SoraStorageQuotaBytes,
 	}
 	if err := s.groupRepo.Create(ctx, group); err != nil {
 		return nil, err
@@ -982,6 +1067,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.SoraVideoPricePerRequestHD != nil {
 		group.SoraVideoPricePerRequestHD = normalizePrice(input.SoraVideoPricePerRequestHD)
 	}
+	if input.SoraStorageQuotaBytes != nil {
+		group.SoraStorageQuotaBytes = *input.SoraStorageQuotaBytes
+	}
 
 	// Claude Code 客户端限制
 	if input.ClaudeCodeOnly != nil {
@@ -1137,6 +1225,103 @@ func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, updates []
 	return s.groupRepo.UpdateSortOrders(ctx, updates)
 }
 
+// AdminUpdateAPIKeyGroupID 管理员修改 API Key 分组绑定
+// groupID: nil=不修改, 指向0=解绑, 指向正整数=绑定到目标分组
+func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error) {
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if groupID == nil {
+		// nil 表示不修改，直接返回
+		return &AdminUpdateAPIKeyGroupIDResult{APIKey: apiKey}, nil
+	}
+
+	if *groupID < 0 {
+		return nil, infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be non-negative")
+	}
+
+	result := &AdminUpdateAPIKeyGroupIDResult{}
+
+	if *groupID == 0 {
+		// 0 表示解绑分组（不修改 user_allowed_groups，避免影响用户其他 Key）
+		apiKey.GroupID = nil
+		apiKey.Group = nil
+	} else {
+		// 验证目标分组存在且状态为 active
+		group, err := s.groupRepo.GetByID(ctx, *groupID)
+		if err != nil {
+			return nil, err
+		}
+		if group.Status != StatusActive {
+			return nil, infraerrors.BadRequest("GROUP_NOT_ACTIVE", "target group is not active")
+		}
+		// 订阅类型分组：不允许通过此 API 直接绑定，需通过订阅管理流程
+		if group.IsSubscriptionType() {
+			return nil, infraerrors.BadRequest("SUBSCRIPTION_GROUP_NOT_ALLOWED", "subscription groups must be managed through the subscription workflow")
+		}
+
+		gid := *groupID
+		apiKey.GroupID = &gid
+		apiKey.Group = group
+
+		// 专属标准分组：使用事务保证「添加分组权限」与「更新 API Key」的原子性
+		if group.IsExclusive {
+			opCtx := ctx
+			var tx *dbent.Tx
+			if s.entClient == nil {
+				logger.LegacyPrintf("service.admin", "Warning: entClient is nil, skipping transaction protection for exclusive group binding")
+			} else {
+				var txErr error
+				tx, txErr = s.entClient.Tx(ctx)
+				if txErr != nil {
+					return nil, fmt.Errorf("begin transaction: %w", txErr)
+				}
+				defer func() { _ = tx.Rollback() }()
+				opCtx = dbent.NewTxContext(ctx, tx)
+			}
+
+			if addErr := s.userRepo.AddGroupToAllowedGroups(opCtx, apiKey.UserID, gid); addErr != nil {
+				return nil, fmt.Errorf("add group to user allowed groups: %w", addErr)
+			}
+			if err := s.apiKeyRepo.Update(opCtx, apiKey); err != nil {
+				return nil, fmt.Errorf("update api key: %w", err)
+			}
+			if tx != nil {
+				if err := tx.Commit(); err != nil {
+					return nil, fmt.Errorf("commit transaction: %w", err)
+				}
+			}
+
+			result.AutoGrantedGroupAccess = true
+			result.GrantedGroupID = &gid
+			result.GrantedGroupName = group.Name
+
+			// 失效认证缓存（在事务提交后执行）
+			if s.authCacheInvalidator != nil {
+				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+			}
+
+			result.APIKey = apiKey
+			return result, nil
+		}
+	}
+
+	// 非专属分组 / 解绑：无需事务，单步更新即可
+	if err := s.apiKeyRepo.Update(ctx, apiKey); err != nil {
+		return nil, fmt.Errorf("update api key: %w", err)
+	}
+
+	// 失效认证缓存
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+	}
+
+	result.APIKey = apiKey
+	return result, nil
+}
+
 // Account management implementations
 func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64) ([]Account, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
@@ -1185,6 +1370,18 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if len(groupIDs) > 0 && !input.SkipMixedChannelCheck {
 		if err := s.checkMixedChannelRisk(ctx, 0, input.Platform, groupIDs); err != nil {
 			return nil, err
+		}
+	}
+
+	// Sora apikey 账号的 base_url 必填校验
+	if input.Platform == PlatformSora && input.Type == AccountTypeAPIKey {
+		baseURL, _ := input.Credentials["base_url"].(string)
+		baseURL = strings.TrimSpace(baseURL)
+		if baseURL == "" {
+			return nil, errors.New("sora apikey 账号必须设置 base_url")
+		}
+		if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+			return nil, errors.New("base_url 必须以 http:// 或 https:// 开头")
 		}
 	}
 
@@ -1301,12 +1498,22 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
 	}
 
+	// Sora apikey 账号的 base_url 必填校验
+	if account.Platform == PlatformSora && account.Type == AccountTypeAPIKey {
+		baseURL, _ := account.Credentials["base_url"].(string)
+		baseURL = strings.TrimSpace(baseURL)
+		if baseURL == "" {
+			return nil, errors.New("sora apikey 账号必须设置 base_url")
+		}
+		if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+			return nil, errors.New("base_url 必须以 http:// 或 https:// 开头")
+		}
+	}
+
 	// 先验证分组是否存在（在任何写操作之前）
 	if input.GroupIDs != nil {
-		for _, groupID := range *input.GroupIDs {
-			if _, err := s.groupRepo.GetByID(ctx, groupID); err != nil {
-				return nil, fmt.Errorf("get group: %w", err)
-			}
+		if err := s.validateGroupIDsExist(ctx, *input.GroupIDs); err != nil {
+			return nil, err
 		}
 
 		// 检查混合渠道风险（除非用户已确认）
@@ -1348,22 +1555,37 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if len(input.AccountIDs) == 0 {
 		return result, nil
 	}
+	if input.GroupIDs != nil {
+		if err := s.validateGroupIDsExist(ctx, *input.GroupIDs); err != nil {
+			return nil, err
+		}
+	}
 
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 
-	// 预加载账号平台信息（混合渠道检查或 Sora 同步需要）。
+	// 预加载账号平台信息（混合渠道检查需要）。
 	platformByID := map[int64]string{}
 	if needMixedChannelCheck {
 		accounts, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
-			if needMixedChannelCheck {
-				return nil, err
+			return nil, err
+		}
+		for _, account := range accounts {
+			if account != nil {
+				platformByID[account.ID] = account.Platform
 			}
-		} else {
-			for _, account := range accounts {
-				if account != nil {
-					platformByID[account.ID] = account.Platform
-				}
+		}
+	}
+
+	// 预检查混合渠道风险：在任何写操作之前，若发现风险立即返回错误。
+	if needMixedChannelCheck {
+		for _, accountID := range input.AccountIDs {
+			platform := platformByID[accountID]
+			if platform == "" {
+				continue
+			}
+			if err := s.checkMixedChannelRisk(ctx, accountID, platform, *input.GroupIDs); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -1411,31 +1633,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		entry := BulkUpdateAccountResult{AccountID: accountID}
 
 		if input.GroupIDs != nil {
-			// 检查混合渠道风险（除非用户已确认）
-			if !input.SkipMixedChannelCheck {
-				platform := platformByID[accountID]
-				if platform == "" {
-					account, err := s.accountRepo.GetByID(ctx, accountID)
-					if err != nil {
-						entry.Success = false
-						entry.Error = err.Error()
-						result.Failed++
-						result.FailedIDs = append(result.FailedIDs, accountID)
-						result.Results = append(result.Results, entry)
-						continue
-					}
-					platform = account.Platform
-				}
-				if err := s.checkMixedChannelRisk(ctx, accountID, platform, *input.GroupIDs); err != nil {
-					entry.Success = false
-					entry.Error = err.Error()
-					result.Failed++
-					result.FailedIDs = append(result.FailedIDs, accountID)
-					result.Results = append(result.Results, entry)
-					continue
-				}
-			}
-
 			if err := s.accountRepo.BindGroups(ctx, accountID, *input.GroupIDs); err != nil {
 				entry.Success = false
 				entry.Error = err.Error()
@@ -1831,7 +2028,6 @@ func (s *adminServiceImpl) CheckProxyQuality(ctx context.Context, id int64) (*Pr
 		ProxyURL:              proxyURL,
 		Timeout:               proxyQualityRequestTimeout,
 		ResponseHeaderTimeout: proxyQualityResponseHeaderTimeout,
-		ProxyStrict:           true,
 	})
 	if err != nil {
 		result.Items = append(result.Items, ProxyQualityCheckItem{
@@ -2112,6 +2308,35 @@ func (s *adminServiceImpl) checkMixedChannelRisk(ctx context.Context, currentAcc
 		}
 	}
 
+	return nil
+}
+
+func (s *adminServiceImpl) validateGroupIDsExist(ctx context.Context, groupIDs []int64) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+	if s.groupRepo == nil {
+		return errors.New("group repository not configured")
+	}
+
+	if batchReader, ok := s.groupRepo.(groupExistenceBatchReader); ok {
+		existsByID, err := batchReader.ExistsByIDs(ctx, groupIDs)
+		if err != nil {
+			return fmt.Errorf("check groups exists: %w", err)
+		}
+		for _, groupID := range groupIDs {
+			if groupID <= 0 || !existsByID[groupID] {
+				return fmt.Errorf("get group: %w", ErrGroupNotFound)
+			}
+		}
+		return nil
+	}
+
+	for _, groupID := range groupIDs {
+		if _, err := s.groupRepo.GetByID(ctx, groupID); err != nil {
+			return fmt.Errorf("get group: %w", err)
+		}
+	}
 	return nil
 }
 

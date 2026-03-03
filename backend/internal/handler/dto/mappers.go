@@ -59,9 +59,11 @@ func UserFromServiceAdmin(u *service.User) *AdminUser {
 		return nil
 	}
 	return &AdminUser{
-		User:       *base,
-		Notes:      u.Notes,
-		GroupRates: u.GroupRates,
+		User:                  *base,
+		Notes:                 u.Notes,
+		GroupRates:            u.GroupRates,
+		SoraStorageQuotaBytes: u.SoraStorageQuotaBytes,
+		SoraStorageUsedBytes:  u.SoraStorageUsedBytes,
 	}
 }
 
@@ -152,6 +154,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
 		FallbackGroupID:                 g.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: g.FallbackGroupIDOnInvalidRequest,
+		SoraStorageQuotaBytes:           g.SoraStorageQuotaBytes,
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,
 	}
@@ -205,6 +208,17 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		}
 		if idleTimeout := a.GetSessionIdleTimeoutMinutes(); idleTimeout > 0 {
 			out.SessionIdleTimeoutMin = &idleTimeout
+		}
+		if rpm := a.GetBaseRPM(); rpm > 0 {
+			out.BaseRPM = &rpm
+			strategy := a.GetRPMStrategy()
+			out.RPMStrategy = &strategy
+			buffer := a.GetRPMStickyBuffer()
+			out.RPMStickyBuffer = &buffer
+		}
+		// 用户消息队列模式
+		if mode := a.GetUserMsgQueueMode(); mode != "" {
+			out.UserMsgQueueMode = &mode
 		}
 		// TLS指纹伪装开关
 		if a.IsTLSFingerprintEnabled() {
@@ -283,7 +297,6 @@ func ProxyFromService(p *service.Proxy) *Proxy {
 		Host:      p.Host,
 		Port:      p.Port,
 		Username:  p.Username,
-		Password:  p.Password,
 		Status:    p.Status,
 		CreatedAt: p.CreatedAt,
 		UpdatedAt: p.UpdatedAt,
@@ -296,6 +309,51 @@ func ProxyWithAccountCountFromService(p *service.ProxyWithAccountCount) *ProxyWi
 	}
 	return &ProxyWithAccountCount{
 		Proxy:          *ProxyFromService(&p.Proxy),
+		AccountCount:   p.AccountCount,
+		LatencyMs:      p.LatencyMs,
+		LatencyStatus:  p.LatencyStatus,
+		LatencyMessage: p.LatencyMessage,
+		IPAddress:      p.IPAddress,
+		Country:        p.Country,
+		CountryCode:    p.CountryCode,
+		Region:         p.Region,
+		City:           p.City,
+		QualityStatus:  p.QualityStatus,
+		QualityScore:   p.QualityScore,
+		QualityGrade:   p.QualityGrade,
+		QualitySummary: p.QualitySummary,
+		QualityChecked: p.QualityChecked,
+	}
+}
+
+// ProxyFromServiceAdmin converts a service Proxy to AdminProxy DTO for admin users.
+// It includes the password field - user-facing endpoints must not use this.
+func ProxyFromServiceAdmin(p *service.Proxy) *AdminProxy {
+	if p == nil {
+		return nil
+	}
+	base := ProxyFromService(p)
+	if base == nil {
+		return nil
+	}
+	return &AdminProxy{
+		Proxy:    *base,
+		Password: p.Password,
+	}
+}
+
+// ProxyWithAccountCountFromServiceAdmin converts a service ProxyWithAccountCount to AdminProxyWithAccountCount DTO.
+// It includes the password field - user-facing endpoints must not use this.
+func ProxyWithAccountCountFromServiceAdmin(p *service.ProxyWithAccountCount) *AdminProxyWithAccountCount {
+	if p == nil {
+		return nil
+	}
+	admin := ProxyFromServiceAdmin(&p.Proxy)
+	if admin == nil {
+		return nil
+	}
+	return &AdminProxyWithAccountCount{
+		AdminProxy:     *admin,
 		AccountCount:   p.AccountCount,
 		LatencyMs:      p.LatencyMs,
 		LatencyStatus:  p.LatencyStatus,
@@ -385,6 +443,8 @@ func AccountSummaryFromService(a *service.Account) *AccountSummary {
 
 func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 	// 普通用户 DTO：严禁包含管理员字段（例如 account_rate_multiplier、ip_address、account）。
+	requestType := l.EffectiveRequestType()
+	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
 	return UsageLog{
 		ID:                    l.ID,
 		UserID:                l.UserID,
@@ -409,7 +469,9 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		ActualCost:            l.ActualCost,
 		RateMultiplier:        l.RateMultiplier,
 		BillingType:           l.BillingType,
-		Stream:                l.Stream,
+		RequestType:           requestType.String(),
+		Stream:                stream,
+		OpenAIWSMode:          openAIWSMode,
 		DurationMs:            l.DurationMs,
 		FirstTokenMs:          l.FirstTokenMs,
 		ImageCount:            l.ImageCount,
@@ -464,6 +526,7 @@ func UsageCleanupTaskFromService(task *service.UsageCleanupTask) *UsageCleanupTa
 			AccountID:   task.Filters.AccountID,
 			GroupID:     task.Filters.GroupID,
 			Model:       task.Filters.Model,
+			RequestType: requestTypeStringPtr(task.Filters.RequestType),
 			Stream:      task.Filters.Stream,
 			BillingType: task.Filters.BillingType,
 		},
@@ -477,6 +540,14 @@ func UsageCleanupTaskFromService(task *service.UsageCleanupTask) *UsageCleanupTa
 		CreatedAt:    task.CreatedAt,
 		UpdatedAt:    task.UpdatedAt,
 	}
+}
+
+func requestTypeStringPtr(requestType *int16) *string {
+	if requestType == nil {
+		return nil
+	}
+	value := service.RequestTypeFromInt16(*requestType).String()
+	return &value
 }
 
 func SettingFromService(s *service.Setting) *Setting {

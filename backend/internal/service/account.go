@@ -3,11 +3,14 @@ package service
 
 import (
 	"encoding/json"
+	"hash/fnv"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
@@ -50,6 +53,14 @@ type Account struct {
 	AccountGroups []AccountGroup
 	GroupIDs      []int64
 	Groups        []*Group
+
+	// model_mapping 热路径缓存（非持久化字段）
+	modelMappingCache               map[string]string
+	modelMappingCacheReady          bool
+	modelMappingCacheCredentialsPtr uintptr
+	modelMappingCacheRawPtr         uintptr
+	modelMappingCacheRawLen         int
+	modelMappingCacheRawSig         uint64
 }
 
 type TempUnschedulableRule struct {
@@ -349,6 +360,39 @@ func parseTempUnschedInt(value any) int {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
+	credentialsPtr := mapPtr(a.Credentials)
+	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
+	rawPtr := mapPtr(rawMapping)
+	rawLen := len(rawMapping)
+	rawSig := uint64(0)
+	rawSigReady := false
+
+	if a.modelMappingCacheReady &&
+		a.modelMappingCacheCredentialsPtr == credentialsPtr &&
+		a.modelMappingCacheRawPtr == rawPtr &&
+		a.modelMappingCacheRawLen == rawLen {
+		rawSig = modelMappingSignature(rawMapping)
+		rawSigReady = true
+		if a.modelMappingCacheRawSig == rawSig {
+			return a.modelMappingCache
+		}
+	}
+
+	mapping := a.resolveModelMapping(rawMapping)
+	if !rawSigReady {
+		rawSig = modelMappingSignature(rawMapping)
+	}
+
+	a.modelMappingCache = mapping
+	a.modelMappingCacheReady = true
+	a.modelMappingCacheCredentialsPtr = credentialsPtr
+	a.modelMappingCacheRawPtr = rawPtr
+	a.modelMappingCacheRawLen = rawLen
+	a.modelMappingCacheRawSig = rawSig
+	return mapping
+}
+
+func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
 	if a.Credentials == nil {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
@@ -356,37 +400,67 @@ func (a *Account) GetModelMapping() map[string]string {
 		}
 		return nil
 	}
-	raw, ok := a.Credentials["model_mapping"]
-	if !ok || raw == nil {
+	if len(rawMapping) == 0 {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
 			return domain.DefaultAntigravityModelMapping
 		}
 		return nil
 	}
-	if m, ok := raw.(map[string]any); ok {
-		result := make(map[string]string)
-		for k, v := range m {
-			if s, ok := v.(string); ok {
-				result[k] = s
-			}
-		}
-		if len(result) > 0 {
-			if a.Platform == domain.PlatformAntigravity {
-				ensureAntigravityDefaultPassthroughs(result, []string{
-					"gemini-3-flash",
-					"gemini-3.1-pro-high",
-					"gemini-3.1-pro-low",
-				})
-			}
-			return result
+
+	result := make(map[string]string)
+	for k, v := range rawMapping {
+		if s, ok := v.(string); ok {
+			result[k] = s
 		}
 	}
+	if len(result) > 0 {
+		if a.Platform == domain.PlatformAntigravity {
+			ensureAntigravityDefaultPassthroughs(result, []string{
+				"gemini-3-flash",
+				"gemini-3.1-pro-high",
+				"gemini-3.1-pro-low",
+			})
+		}
+		return result
+	}
+
 	// Antigravity 平台使用默认映射
 	if a.Platform == domain.PlatformAntigravity {
 		return domain.DefaultAntigravityModelMapping
 	}
 	return nil
+}
+
+func mapPtr(m map[string]any) uintptr {
+	if m == nil {
+		return 0
+	}
+	return reflect.ValueOf(m).Pointer()
+}
+
+func modelMappingSignature(rawMapping map[string]any) uint64 {
+	if len(rawMapping) == 0 {
+		return 0
+	}
+	keys := make([]string, 0, len(rawMapping))
+	for k := range rawMapping {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	h := fnv.New64a()
+	for _, k := range keys {
+		_, _ = h.Write([]byte(k))
+		_, _ = h.Write([]byte{0})
+		if v, ok := rawMapping[k].(string); ok {
+			_, _ = h.Write([]byte(v))
+		} else {
+			_, _ = h.Write([]byte{1})
+		}
+		_, _ = h.Write([]byte{0xff})
+	}
+	return h.Sum64()
 }
 
 func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string) {
@@ -742,6 +816,159 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 	return false
 }
 
+// IsOpenAIResponsesWebSocketV2Enabled 返回 OpenAI 账号是否开启 Responses WebSocket v2。
+//
+// 分类型新字段：
+// - OAuth 账号：accounts.extra.openai_oauth_responses_websockets_v2_enabled
+// - API Key 账号：accounts.extra.openai_apikey_responses_websockets_v2_enabled
+//
+// 兼容字段：
+// - accounts.extra.responses_websockets_v2_enabled
+// - accounts.extra.openai_ws_enabled（历史开关）
+//
+// 优先级：
+// 1. 按账号类型读取分类型字段
+// 2. 分类型字段缺失时，回退兼容字段
+func (a *Account) IsOpenAIResponsesWebSocketV2Enabled() bool {
+	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+		return false
+	}
+	if a.IsOpenAIOAuth() {
+		if enabled, ok := a.Extra["openai_oauth_responses_websockets_v2_enabled"].(bool); ok {
+			return enabled
+		}
+	}
+	if a.IsOpenAIApiKey() {
+		if enabled, ok := a.Extra["openai_apikey_responses_websockets_v2_enabled"].(bool); ok {
+			return enabled
+		}
+	}
+	if enabled, ok := a.Extra["responses_websockets_v2_enabled"].(bool); ok {
+		return enabled
+	}
+	if enabled, ok := a.Extra["openai_ws_enabled"].(bool); ok {
+		return enabled
+	}
+	return false
+}
+
+const (
+	OpenAIWSIngressModeOff       = "off"
+	OpenAIWSIngressModeShared    = "shared"
+	OpenAIWSIngressModeDedicated = "dedicated"
+)
+
+func normalizeOpenAIWSIngressMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case OpenAIWSIngressModeOff:
+		return OpenAIWSIngressModeOff
+	case OpenAIWSIngressModeShared:
+		return OpenAIWSIngressModeShared
+	case OpenAIWSIngressModeDedicated:
+		return OpenAIWSIngressModeDedicated
+	default:
+		return ""
+	}
+}
+
+func normalizeOpenAIWSIngressDefaultMode(mode string) string {
+	if normalized := normalizeOpenAIWSIngressMode(mode); normalized != "" {
+		return normalized
+	}
+	return OpenAIWSIngressModeShared
+}
+
+// ResolveOpenAIResponsesWebSocketV2Mode 返回账号在 WSv2 ingress 下的有效模式（off/shared/dedicated）。
+//
+// 优先级：
+// 1. 分类型 mode 新字段（string）
+// 2. 分类型 enabled 旧字段（bool）
+// 3. 兼容 enabled 旧字段（bool）
+// 4. defaultMode（非法时回退 shared）
+func (a *Account) ResolveOpenAIResponsesWebSocketV2Mode(defaultMode string) string {
+	resolvedDefault := normalizeOpenAIWSIngressDefaultMode(defaultMode)
+	if a == nil || !a.IsOpenAI() {
+		return OpenAIWSIngressModeOff
+	}
+	if a.Extra == nil {
+		return resolvedDefault
+	}
+
+	resolveModeString := func(key string) (string, bool) {
+		raw, ok := a.Extra[key]
+		if !ok {
+			return "", false
+		}
+		mode, ok := raw.(string)
+		if !ok {
+			return "", false
+		}
+		normalized := normalizeOpenAIWSIngressMode(mode)
+		if normalized == "" {
+			return "", false
+		}
+		return normalized, true
+	}
+	resolveBoolMode := func(key string) (string, bool) {
+		raw, ok := a.Extra[key]
+		if !ok {
+			return "", false
+		}
+		enabled, ok := raw.(bool)
+		if !ok {
+			return "", false
+		}
+		if enabled {
+			return OpenAIWSIngressModeShared, true
+		}
+		return OpenAIWSIngressModeOff, true
+	}
+
+	if a.IsOpenAIOAuth() {
+		if mode, ok := resolveModeString("openai_oauth_responses_websockets_v2_mode"); ok {
+			return mode
+		}
+		if mode, ok := resolveBoolMode("openai_oauth_responses_websockets_v2_enabled"); ok {
+			return mode
+		}
+	}
+	if a.IsOpenAIApiKey() {
+		if mode, ok := resolveModeString("openai_apikey_responses_websockets_v2_mode"); ok {
+			return mode
+		}
+		if mode, ok := resolveBoolMode("openai_apikey_responses_websockets_v2_enabled"); ok {
+			return mode
+		}
+	}
+	if mode, ok := resolveBoolMode("responses_websockets_v2_enabled"); ok {
+		return mode
+	}
+	if mode, ok := resolveBoolMode("openai_ws_enabled"); ok {
+		return mode
+	}
+	return resolvedDefault
+}
+
+// IsOpenAIWSForceHTTPEnabled 返回账号级“强制 HTTP”开关。
+// 字段：accounts.extra.openai_ws_force_http。
+func (a *Account) IsOpenAIWSForceHTTPEnabled() bool {
+	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra["openai_ws_force_http"].(bool)
+	return ok && enabled
+}
+
+// IsOpenAIWSAllowStoreRecoveryEnabled 返回账号级 store 恢复开关。
+// 字段：accounts.extra.openai_ws_allow_store_recovery。
+func (a *Account) IsOpenAIWSAllowStoreRecoveryEnabled() bool {
+	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra["openai_ws_allow_store_recovery"].(bool)
+	return ok && enabled
+}
+
 // IsOpenAIOAuthPassthroughEnabled 兼容旧接口，等价于 OAuth 账号的 IsOpenAIPassthroughEnabled。
 func (a *Account) IsOpenAIOAuthPassthroughEnabled() bool {
 	return a != nil && a.IsOpenAIOAuth() && a.IsOpenAIPassthroughEnabled()
@@ -804,6 +1031,26 @@ func (a *Account) IsTLSFingerprintEnabled() bool {
 		}
 	}
 	return false
+}
+
+// GetUserMsgQueueMode 获取用户消息队列模式
+// "serialize" = 串行队列, "throttle" = 软性限速, "" = 未设置（使用全局配置）
+func (a *Account) GetUserMsgQueueMode() string {
+	if a.Extra == nil {
+		return ""
+	}
+	// 优先读取新字段 user_msg_queue_mode（白名单校验，非法值视为未设置）
+	if mode, ok := a.Extra["user_msg_queue_mode"].(string); ok && mode != "" {
+		if mode == config.UMQModeSerialize || mode == config.UMQModeThrottle {
+			return mode
+		}
+		return "" // 非法值 fallback 到全局配置
+	}
+	// 向后兼容: user_msg_queue_enabled: true → "serialize"
+	if enabled, ok := a.Extra["user_msg_queue_enabled"].(bool); ok && enabled {
+		return config.UMQModeSerialize
+	}
+	return ""
 }
 
 // IsSessionIDMaskingEnabled 检查是否启用会话ID伪装
@@ -911,6 +1158,80 @@ func (a *Account) GetSessionIdleTimeoutMinutes() int {
 	return 5
 }
 
+// GetBaseRPM 获取基础 RPM 限制
+// 返回 0 表示未启用（负数视为无效配置，按 0 处理）
+func (a *Account) GetBaseRPM() int {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["base_rpm"]; ok {
+		val := parseExtraInt(v)
+		if val > 0 {
+			return val
+		}
+	}
+	return 0
+}
+
+// GetRPMStrategy 获取 RPM 策略
+// "tiered" = 三区模型（默认）, "sticky_exempt" = 粘性豁免
+func (a *Account) GetRPMStrategy() string {
+	if a.Extra == nil {
+		return "tiered"
+	}
+	if v, ok := a.Extra["rpm_strategy"]; ok {
+		if s, ok := v.(string); ok && s == "sticky_exempt" {
+			return "sticky_exempt"
+		}
+	}
+	return "tiered"
+}
+
+// GetRPMStickyBuffer 获取 RPM 粘性缓冲数量
+// tiered 模式下的黄区大小，默认为 base_rpm 的 20%（至少 1）
+func (a *Account) GetRPMStickyBuffer() int {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["rpm_sticky_buffer"]; ok {
+		val := parseExtraInt(v)
+		if val > 0 {
+			return val
+		}
+	}
+	base := a.GetBaseRPM()
+	buffer := base / 5
+	if buffer < 1 && base > 0 {
+		buffer = 1
+	}
+	return buffer
+}
+
+// CheckRPMSchedulability 根据当前 RPM 计数检查调度状态
+// 复用 WindowCostSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
+func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulability {
+	baseRPM := a.GetBaseRPM()
+	if baseRPM <= 0 {
+		return WindowCostSchedulable
+	}
+
+	if currentRPM < baseRPM {
+		return WindowCostSchedulable
+	}
+
+	strategy := a.GetRPMStrategy()
+	if strategy == "sticky_exempt" {
+		return WindowCostStickyOnly // 粘性豁免无红区
+	}
+
+	// tiered: 黄区 + 红区
+	buffer := a.GetRPMStickyBuffer()
+	if currentRPM < baseRPM+buffer {
+		return WindowCostStickyOnly
+	}
+	return WindowCostNotSchedulable
+}
+
 // CheckWindowCostSchedulability 根据当前窗口费用检查调度状态
 // - 费用 < 阈值: WindowCostSchedulable（可正常调度）
 // - 费用 >= 阈值 且 < 阈值+预留: WindowCostStickyOnly（仅粘性会话）
@@ -974,6 +1295,12 @@ func parseExtraFloat64(value any) float64 {
 }
 
 // parseExtraInt 从 extra 字段解析 int 值
+// ParseExtraInt 从 extra 字段的 any 值解析为 int。
+// 支持 int, int64, float64, json.Number, string 类型，无法解析时返回 0。
+func ParseExtraInt(value any) int {
+	return parseExtraInt(value)
+}
+
 func parseExtraInt(value any) int {
 	switch v := value.(type) {
 	case int:

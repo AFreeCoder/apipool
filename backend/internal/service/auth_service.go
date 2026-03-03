@@ -56,15 +56,20 @@ type JWTClaims struct {
 
 // AuthService 认证服务
 type AuthService struct {
-	userRepo          UserRepository
-	redeemRepo        RedeemCodeRepository
-	refreshTokenCache RefreshTokenCache
-	cfg               *config.Config
-	settingService    *SettingService
-	emailService      *EmailService
-	turnstileService  *TurnstileService
-	emailQueueService *EmailQueueService
-	promoService      *PromoService
+	userRepo           UserRepository
+	redeemRepo         RedeemCodeRepository
+	refreshTokenCache  RefreshTokenCache
+	cfg                *config.Config
+	settingService     *SettingService
+	emailService       *EmailService
+	turnstileService   *TurnstileService
+	emailQueueService  *EmailQueueService
+	promoService       *PromoService
+	defaultSubAssigner DefaultSubscriptionAssigner
+}
+
+type DefaultSubscriptionAssigner interface {
+	AssignOrExtendSubscription(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, bool, error)
 }
 
 // NewAuthService 创建认证服务实例
@@ -78,17 +83,19 @@ func NewAuthService(
 	turnstileService *TurnstileService,
 	emailQueueService *EmailQueueService,
 	promoService *PromoService,
+	defaultSubAssigner DefaultSubscriptionAssigner,
 ) *AuthService {
 	return &AuthService{
-		userRepo:          userRepo,
-		redeemRepo:        redeemRepo,
-		refreshTokenCache: refreshTokenCache,
-		cfg:               cfg,
-		settingService:    settingService,
-		emailService:      emailService,
-		turnstileService:  turnstileService,
-		emailQueueService: emailQueueService,
-		promoService:      promoService,
+		userRepo:           userRepo,
+		redeemRepo:         redeemRepo,
+		refreshTokenCache:  refreshTokenCache,
+		cfg:                cfg,
+		settingService:     settingService,
+		emailService:       emailService,
+		turnstileService:   turnstileService,
+		emailQueueService:  emailQueueService,
+		promoService:       promoService,
+		defaultSubAssigner: defaultSubAssigner,
 	}
 }
 
@@ -188,6 +195,7 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		logger.LegacyPrintf("service.auth", "[Auth] Database error creating user: %v", err)
 		return "", nil, ErrServiceUnavailable
 	}
+	s.assignDefaultSubscriptions(ctx, user.ID)
 
 	// 标记邀请码为已使用（如果使用了邀请码）
 	if invitationRedeemCode != nil {
@@ -306,6 +314,17 @@ func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string) (*S
 	return &SendVerifyCodeResult{
 		Countdown: 60, // 60秒倒计时
 	}, nil
+}
+
+// VerifyTurnstileForRegister 在注册场景下验证 Turnstile。
+// 当邮箱验证开启且已提交验证码时，说明验证码发送阶段已完成 Turnstile 校验，
+// 此处跳过二次校验，避免一次性 token 在注册提交时重复使用导致误报失败。
+func (s *AuthService) VerifyTurnstileForRegister(ctx context.Context, token, remoteIP, verifyCode string) error {
+	if s.IsEmailVerifyEnabled(ctx) && strings.TrimSpace(verifyCode) != "" {
+		logger.LegacyPrintf("service.auth", "%s", "[Auth] Email verify flow detected, skip duplicate Turnstile check on register")
+		return nil
+	}
+	return s.VerifyTurnstile(ctx, token, remoteIP)
 }
 
 // VerifyTurnstile 验证Turnstile token
@@ -466,6 +485,7 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 				}
 			} else {
 				user = newUser
+				s.assignDefaultSubscriptions(ctx, user.ID)
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
@@ -561,6 +581,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				}
 			} else {
 				user = newUser
+				s.assignDefaultSubscriptions(ctx, user.ID)
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
@@ -584,6 +605,23 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 		return nil, nil, fmt.Errorf("generate token pair: %w", err)
 	}
 	return tokenPair, user, nil
+}
+
+func (s *AuthService) assignDefaultSubscriptions(ctx context.Context, userID int64) {
+	if s.settingService == nil || s.defaultSubAssigner == nil || userID <= 0 {
+		return
+	}
+	items := s.settingService.GetDefaultSubscriptions(ctx)
+	for _, item := range items {
+		if _, _, err := s.defaultSubAssigner.AssignOrExtendSubscription(ctx, &AssignSubscriptionInput{
+			UserID:       userID,
+			GroupID:      item.GroupID,
+			ValidityDays: item.ValidityDays,
+			Notes:        "auto assigned by default user subscriptions setting",
+		}); err != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed to assign default subscription: user_id=%d group_id=%d err=%v", userID, item.GroupID, err)
+		}
+	}
 }
 
 // ValidateToken 验证JWT token并返回用户声明

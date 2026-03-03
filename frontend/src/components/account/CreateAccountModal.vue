@@ -175,13 +175,13 @@
       <!-- Account Type Selection (Sora) -->
       <div v-if="form.platform === 'sora'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type">
           <button
             type="button"
-            @click="accountCategory = 'oauth-based'"
+            @click="soraAccountType = 'oauth'; accountCategory = 'oauth-based'; addMethod = 'oauth'"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
-              accountCategory === 'oauth-based'
+              soraAccountType === 'oauth'
                 ? 'border-rose-500 bg-rose-50 dark:bg-rose-900/20'
                 : 'border-gray-200 hover:border-rose-300 dark:border-dark-600 dark:hover:border-rose-700'
             ]"
@@ -189,7 +189,7 @@
             <div
               :class="[
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                accountCategory === 'oauth-based'
+                soraAccountType === 'oauth'
                   ? 'bg-rose-500 text-white'
                   : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
               ]"
@@ -199,6 +199,31 @@
             <div>
               <span class="block text-sm font-medium text-gray-900 dark:text-white">OAuth</span>
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.chatgptOauth') }}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            @click="soraAccountType = 'apikey'; accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              soraAccountType === 'apikey'
+                ? 'border-rose-500 bg-rose-50 dark:bg-rose-900/20'
+                : 'border-gray-200 hover:border-rose-300 dark:border-dark-600 dark:hover:border-rose-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                soraAccountType === 'apikey'
+                  ? 'bg-rose-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="link" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.types.soraApiKey') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.soraApiKeyHint') }}</span>
             </div>
           </button>
         </div>
@@ -879,14 +904,14 @@
             type="text"
             class="input"
             :placeholder="
-              form.platform === 'openai'
+              form.platform === 'openai' || form.platform === 'sora'
                 ? 'https://api.openai.com'
                 : form.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
                   : 'https://api.anthropic.com'
             "
           />
-          <p class="input-hint">{{ baseUrlHint }}</p>
+          <p class="input-hint">{{ form.platform === 'sora' ? t('admin.accounts.soraUpstreamBaseUrlHint') : baseUrlHint }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
@@ -1511,6 +1536,119 @@
           </div>
         </div>
 
+        <!-- RPM Limit -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.rpmLimit.label') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaControl.rpmLimit.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="rpmLimitEnabled = !rpmLimitEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                rpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  rpmLimitEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="rpmLimitEnabled" class="space-y-4">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.baseRpm') }}</label>
+              <input
+                v-model.number="baseRpm"
+                type="number"
+                min="1"
+                max="1000"
+                step="1"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.rpmLimit.baseRpmPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.baseRpmHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  @click="rpmStrategy = 'tiered'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    rpmStrategy === 'tiered'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  <div class="text-center">
+                    <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}</div>
+                    <div class="mt-0.5 text-[10px] opacity-70">{{ t('admin.accounts.quotaControl.rpmLimit.strategyTieredHint') }}</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  @click="rpmStrategy = 'sticky_exempt'"
+                  :class="[
+                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                    rpmStrategy === 'sticky_exempt'
+                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                  ]"
+                >
+                  <div class="text-center">
+                    <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}</div>
+                    <div class="mt-0.5 text-[10px] opacity-70">{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExemptHint') }}</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="rpmStrategy === 'tiered'">
+              <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBuffer') }}</label>
+              <input
+                v-model.number="rpmStickyBuffer"
+                type="number"
+                min="1"
+                step="1"
+                class="input"
+                :placeholder="t('admin.accounts.quotaControl.rpmLimit.stickyBufferPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBufferHint') }}</p>
+            </div>
+
+          </div>
+
+          <!-- 用户消息限速模式（独立于 RPM 开关，始终可见） -->
+          <div class="mt-4">
+            <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueue') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
+              {{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint') }}
+            </p>
+            <div class="flex space-x-2">
+              <button type="button" v-for="opt in umqModeOptions" :key="opt.value"
+                @click="userMsgQueueMode = opt.value"
+                :class="[
+                  'px-3 py-1.5 text-sm rounded-md border transition-colors',
+                  userMsgQueueMode === opt.value
+                    ? 'bg-primary-600 text-white border-primary-600'
+                    : 'bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-dark-500 hover:bg-gray-50 dark:hover:bg-dark-600'
+                ]">
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- TLS Fingerprint -->
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <div class="flex items-center justify-between">
@@ -1666,6 +1804,27 @@
               ]"
             />
           </button>
+        </div>
+      </div>
+
+      <!-- OpenAI WS Mode 三态（off/shared/dedicated） -->
+      <div
+        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.wsMode') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.wsModeDesc') }}
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.wsModeConcurrencyHint') }}
+            </p>
+          </div>
+          <div class="w-52">
+            <Select v-model="openaiResponsesWebSocketV2Mode" :options="openAIWSModeOptions" />
+          </div>
         </div>
       </div>
 
@@ -2173,6 +2332,7 @@ import type {
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
@@ -2180,6 +2340,13 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import {
+  OPENAI_WS_MODE_DEDICATED,
+  OPENAI_WS_MODE_OFF,
+  OPENAI_WS_MODE_SHARED,
+  isOpenAIWSModeEnabled,
+  type OpenAIWSMode
+} from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 
 // Type for exposed OAuthAuthorizationFlow component
@@ -2301,10 +2468,13 @@ const customErrorCodeInput = ref<number | null>(null)
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
 const openaiPassthroughEnabled = ref(false)
+const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const anthropicPassthroughEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const antigravityAccountType = ref<'oauth' | 'upstream'>('oauth') // For antigravity: oauth or upstream
+const soraAccountType = ref<'oauth' | 'apikey'>('oauth') // For sora: oauth or apikey (upstream)
 const upstreamBaseUrl = ref('') // For upstream type: base URL
 const upstreamApiKey = ref('') // For upstream type: API key
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
@@ -2336,6 +2506,16 @@ const windowCostStickyReserve = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
+const rpmLimitEnabled = ref(false)
+const baseRpm = ref<number | null>(null)
+const rpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
+const rpmStickyBuffer = ref<number | null>(null)
+const userMsgQueueMode = ref('')
+const umqModeOptions = computed(() => [
+  { value: '', label: t('admin.accounts.quotaControl.rpmLimit.umqModeOff') },
+  { value: 'throttle', label: t('admin.accounts.quotaControl.rpmLimit.umqModeThrottle') },
+  { value: 'serialize', label: t('admin.accounts.quotaControl.rpmLimit.umqModeSerialize') },
+])
 const tlsFingerprintEnabled = ref(false)
 const sessionIdMaskingEnabled = ref(false)
 const cacheTTLOverrideEnabled = ref(false)
@@ -2356,6 +2536,28 @@ const geminiSelectedTier = computed(() => {
       return geminiTierGcp.value
     default:
       return geminiTierAIStudio.value
+  }
+})
+
+const openAIWSModeOptions = computed(() => [
+  { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
+  { value: OPENAI_WS_MODE_SHARED, label: t('admin.accounts.openai.wsModeShared') },
+  { value: OPENAI_WS_MODE_DEDICATED, label: t('admin.accounts.openai.wsModeDedicated') }
+])
+
+const openaiResponsesWebSocketV2Mode = computed({
+  get: () => {
+    if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+      return openaiAPIKeyResponsesWebSocketV2Mode.value
+    }
+    return openaiOAuthResponsesWebSocketV2Mode.value
+  },
+  set: (mode: OpenAIWSMode) => {
+    if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+      openaiAPIKeyResponsesWebSocketV2Mode.value = mode
+      return
+    }
+    openaiOAuthResponsesWebSocketV2Mode.value = mode
   }
 })
 
@@ -2490,12 +2692,17 @@ watch(
   }
 )
 
-// Sync form.type based on accountCategory, addMethod, and antigravityAccountType
+// Sync form.type based on accountCategory, addMethod, and platform-specific type
 watch(
-  [accountCategory, addMethod, antigravityAccountType],
-  ([category, method, agType]) => {
+  [accountCategory, addMethod, antigravityAccountType, soraAccountType],
+  ([category, method, agType, soraType]) => {
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
+      form.type = 'apikey'
+      return
+    }
+    // Sora apikey 类型（上游透传）
+    if (form.platform === 'sora' && soraType === 'apikey') {
       form.type = 'apikey'
       return
     }
@@ -2541,12 +2748,16 @@ watch(
       interceptWarmupRequests.value = false
     }
     if (newPlatform === 'sora') {
+      // 默认 OAuth，但允许用户选择 API Key
       accountCategory.value = 'oauth-based'
       addMethod.value = 'oauth'
       form.type = 'oauth'
+      soraAccountType.value = 'oauth'
     }
     if (newPlatform !== 'openai') {
       openaiPassthroughEnabled.value = false
+      openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+      openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
     }
     if (newPlatform !== 'anthropic') {
@@ -2918,6 +3129,8 @@ const resetForm = () => {
   interceptWarmupRequests.value = false
   autoPauseOnExpired.value = true
   openaiPassthroughEnabled.value = false
+  openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+  openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   anthropicPassthroughEnabled.value = false
   // Reset quota control state
@@ -2927,6 +3140,11 @@ const resetForm = () => {
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
+  rpmLimitEnabled.value = false
+  baseRpm.value = null
+  rpmStrategy.value = 'tiered'
+  rpmStickyBuffer.value = null
+  userMsgQueueMode.value = ''
   tlsFingerprintEnabled.value = false
   sessionIdMaskingEnabled.value = false
   cacheTTLOverrideEnabled.value = false
@@ -2962,6 +3180,13 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   const extra: Record<string, unknown> = { ...(base || {}) }
+  extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
+  extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
+  extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
+  extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
+  // 清理兼容旧键，统一改用分类型开关。
+  delete extra.responses_websockets_v2_enabled
+  delete extra.openai_ws_enabled
   if (openaiPassthroughEnabled.value) {
     extra.openai_passthrough = true
   } else {
@@ -3007,6 +3232,12 @@ const buildSoraExtra = (
   delete extra.openai_passthrough
   delete extra.openai_oauth_passthrough
   delete extra.codex_cli_only
+  delete extra.openai_oauth_responses_websockets_v2_mode
+  delete extra.openai_apikey_responses_websockets_v2_mode
+  delete extra.openai_oauth_responses_websockets_v2_enabled
+  delete extra.openai_apikey_responses_websockets_v2_enabled
+  delete extra.responses_websockets_v2_enabled
+  delete extra.openai_ws_enabled
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
@@ -3102,9 +3333,22 @@ const handleSubmit = async () => {
     return
   }
 
+  // Sora apikey 账号 base_url 必填 + scheme 校验
+  if (form.platform === 'sora') {
+    const soraBaseUrl = apiKeyBaseUrl.value.trim()
+    if (!soraBaseUrl) {
+      appStore.showError(t('admin.accounts.soraBaseUrlRequired'))
+      return
+    }
+    if (!soraBaseUrl.startsWith('http://') && !soraBaseUrl.startsWith('https://')) {
+      appStore.showError(t('admin.accounts.soraBaseUrlInvalidScheme'))
+      return
+    }
+  }
+
   // Determine default base URL based on platform
   const defaultBaseUrl =
-    (form.platform === 'openai' || form.platform === 'sora')
+    form.platform === 'openai'
       ? 'https://api.openai.com'
       : form.platform === 'gemini'
         ? 'https://generativelanguage.googleapis.com'
@@ -3358,6 +3602,7 @@ const handleOpenAIExchange = async (authCode: string) => {
       const soraCredentials = {
         access_token: credentials.access_token,
         refresh_token: credentials.refresh_token,
+        client_id: credentials.client_id,
         expires_at: credentials.expires_at
       }
 
@@ -3462,6 +3707,7 @@ const handleOpenAIValidateRT = async (refreshTokenInput: string) => {
           const soraCredentials = {
             access_token: credentials.access_token,
             refresh_token: credentials.refresh_token,
+            client_id: credentials.client_id,
             expires_at: credentials.expires_at
           }
           const soraName = shouldCreateOpenAI ? `${accountName} (Sora)` : accountName
@@ -3808,6 +4054,20 @@ const handleAnthropicExchange = async (authCode: string) => {
       extra.session_idle_timeout_minutes = sessionIdleTimeout.value ?? 5
     }
 
+    // Add RPM limit settings
+    if (rpmLimitEnabled.value && baseRpm.value != null && baseRpm.value > 0) {
+      extra.base_rpm = baseRpm.value
+      extra.rpm_strategy = rpmStrategy.value
+      if (rpmStickyBuffer.value != null && rpmStickyBuffer.value > 0) {
+        extra.rpm_sticky_buffer = rpmStickyBuffer.value
+      }
+    }
+
+    // UMQ mode（独立于 RPM）
+    if (userMsgQueueMode.value) {
+      extra.user_msg_queue_mode = userMsgQueueMode.value
+    }
+
     // Add TLS fingerprint settings
     if (tlsFingerprintEnabled.value) {
       extra.enable_tls_fingerprint = true
@@ -3904,6 +4164,20 @@ const handleCookieAuth = async (sessionKey: string) => {
         if (sessionLimitEnabled.value && maxSessions.value != null && maxSessions.value > 0) {
           extra.max_sessions = maxSessions.value
           extra.session_idle_timeout_minutes = sessionIdleTimeout.value ?? 5
+        }
+
+        // Add RPM limit settings
+        if (rpmLimitEnabled.value && baseRpm.value != null && baseRpm.value > 0) {
+          extra.base_rpm = baseRpm.value
+          extra.rpm_strategy = rpmStrategy.value
+          if (rpmStickyBuffer.value != null && rpmStickyBuffer.value > 0) {
+            extra.rpm_sticky_buffer = rpmStickyBuffer.value
+          }
+        }
+
+        // UMQ mode（独立于 RPM）
+        if (userMsgQueueMode.value) {
+          extra.user_msg_queue_mode = userMsgQueueMode.value
         }
 
         // Add TLS fingerprint settings

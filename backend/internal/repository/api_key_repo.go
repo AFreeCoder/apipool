@@ -171,8 +171,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 	// 则会更新已删除的记录。
 	// 这里选择 Update().Where()，确保只有未软删除记录能被更新。
 	// 同时显式设置 updated_at，避免二次查询带来的并发可见性问题。
+	client := clientFromContext(ctx, r.client)
 	now := time.Now()
-	builder := r.client.APIKey.Update().
+	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetName(key.Name).
 		SetStatus(key.Status).
@@ -445,20 +446,22 @@ func userEntityToService(u *dbent.User) *service.User {
 		return nil
 	}
 	return &service.User{
-		ID:                  u.ID,
-		Email:               u.Email,
-		Username:            u.Username,
-		Notes:               u.Notes,
-		PasswordHash:        u.PasswordHash,
-		Role:                u.Role,
-		Balance:             u.Balance,
-		Concurrency:         u.Concurrency,
-		Status:              u.Status,
-		TotpSecretEncrypted: u.TotpSecretEncrypted,
-		TotpEnabled:         u.TotpEnabled,
-		TotpEnabledAt:       u.TotpEnabledAt,
-		CreatedAt:           u.CreatedAt,
-		UpdatedAt:           u.UpdatedAt,
+		ID:                    u.ID,
+		Email:                 u.Email,
+		Username:              u.Username,
+		Notes:                 u.Notes,
+		PasswordHash:          u.PasswordHash,
+		Role:                  u.Role,
+		Balance:               u.Balance,
+		Concurrency:           u.Concurrency,
+		Status:                u.Status,
+		SoraStorageQuotaBytes: u.SoraStorageQuotaBytes,
+		SoraStorageUsedBytes:  u.SoraStorageUsedBytes,
+		TotpSecretEncrypted:   u.TotpSecretEncrypted,
+		TotpEnabled:           u.TotpEnabled,
+		TotpEnabledAt:         u.TotpEnabledAt,
+		CreatedAt:             u.CreatedAt,
+		UpdatedAt:             u.UpdatedAt,
 	}
 }
 
@@ -486,6 +489,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		SoraImagePrice540:               g.SoraImagePrice540,
 		SoraVideoPricePerRequest:        g.SoraVideoPricePerRequest,
 		SoraVideoPricePerRequestHD:      g.SoraVideoPricePerRequestHd,
+		SoraStorageQuotaBytes:           g.SoraStorageQuotaBytes,
 		DefaultValidityDays:             g.DefaultValidityDays,
 		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
 		FallbackGroupID:                 g.FallbackGroupID,

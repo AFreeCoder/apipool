@@ -206,6 +206,29 @@ const routes: RouteRecordRaw[] = [
       descriptionKey: 'purchase.description'
     }
   },
+  {
+    path: '/sora',
+    name: 'Sora',
+    component: () => import('@/views/user/SoraView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Sora',
+      titleKey: 'sora.title',
+      descriptionKey: 'sora.description'
+    }
+  },
+  {
+    path: '/custom/:id',
+    name: 'CustomPage',
+    component: () => import('@/views/user/CustomPageView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Custom Page',
+      titleKey: 'customPage.title',
+    }
+  },
 
   // ==================== Admin Routes ====================
   {
@@ -333,6 +356,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/data-management',
+    name: 'AdminDataManagement',
+    component: () => import('@/views/admin/DataManagementView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Data Management',
+      titleKey: 'admin.dataManagement.title',
+      descriptionKey: 'admin.dataManagement.description'
+    }
+  },
+  {
     path: '/admin/settings',
     name: 'AdminSettings',
     component: () => import('@/views/admin/SettingsView.vue'),
@@ -408,7 +443,20 @@ router.beforeEach((to, _from, next) => {
 
   // Set page title
   const appStore = useAppStore()
-  document.title = resolveDocumentTitle(to.meta.title, appStore.siteName, to.meta.titleKey as string)
+  // For custom pages, use menu item label as document title
+  if (to.name === 'CustomPage') {
+    const id = to.params.id as string
+    const items = appStore.cachedPublicSettings?.custom_menu_items ?? []
+    const menuItem = items.find((item) => item.id === id)
+    if (menuItem?.label) {
+      const siteName = appStore.siteName || 'Sub2API'
+      document.title = `${menuItem.label} - ${siteName}`
+    } else {
+      document.title = resolveDocumentTitle(to.meta.title, appStore.siteName, to.meta.titleKey as string)
+    }
+  } else {
+    document.title = resolveDocumentTitle(to.meta.title, appStore.siteName, to.meta.titleKey as string)
+  }
 
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth !== false // Default to true
