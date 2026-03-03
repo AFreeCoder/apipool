@@ -213,6 +213,9 @@ services:
         --save 60 1
         --appendonly yes
         --appendfsync everysec
+        --activedefrag yes
+        --active-defrag-ignore-bytes 100mb
+        --active-defrag-threshold-lower 10
         ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}
     environment:
       - TZ=${TZ:-Asia/Shanghai}

@@ -38,6 +38,8 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-1024}
+      - REDIS_MIN_IDLE_CONNS=${REDIS_MIN_IDLE_CONNS:-10}
       - REDIS_ENABLE_TLS=${REDIS_ENABLE_TLS:-false}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@sub2api.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
@@ -116,6 +118,9 @@ services:
         --save 60 1
         --appendonly yes
         --appendfsync everysec
+        --activedefrag yes
+        --active-defrag-ignore-bytes 100mb
+        --active-defrag-threshold-lower 10
         ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}
     environment:
       - TZ=${TZ:-Asia/Shanghai}
