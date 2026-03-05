@@ -113,9 +113,8 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
 import quickStartMd from '@/docs/quick-start.md?raw'
-import apiGuideMd from '@/docs/api-guide.md?raw'
-import clientSetupMd from '@/docs/client-setup.md?raw'
 import faqMd from '@/docs/faq.md?raw'
+import rechargeAndPricingMd from '@/docs/recharge-and-pricing.md?raw'
 
 // Markdown 渲染配置
 marked.setOptions({
@@ -133,8 +132,7 @@ function renderMarkdown(content: string): string {
 // 文档列表配置
 const docsList = [
   { slug: 'quick-start', title: '快速开始', content: quickStartMd },
-  { slug: 'api-guide', title: 'API 接入指南', content: apiGuideMd },
-  { slug: 'client-setup', title: '客户端配置', content: clientSetupMd },
+  { slug: 'recharge-and-pricing', title: '充值及费率说明', content: rechargeAndPricingMd },
   { slug: 'faq', title: '常见问题', content: faqMd },
 ]
 
