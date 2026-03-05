@@ -282,4 +282,9 @@ onMounted(() => {
 .docs-content :deep(img) {
   @apply my-4 max-w-full rounded-lg;
 }
+
+/* 引用块内图片（客服二维码等）缩小显示 */
+.docs-content :deep(blockquote img) {
+  @apply my-2 max-w-48 rounded-lg;
+}
 </style>
