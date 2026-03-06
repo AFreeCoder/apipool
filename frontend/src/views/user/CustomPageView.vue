@@ -88,19 +88,16 @@ let themeObserver: MutationObserver | null = null
 const menuItemId = computed(() => route.params.id as string)
 
 const menuItem = computed(() => {
+  const id = menuItemId.value
+  // Try public settings first (contains user-visible items)
   const publicItems = appStore.cachedPublicSettings?.custom_menu_items ?? []
-  const adminItems = authStore.isAdmin ? (adminSettingsStore.customMenuItems ?? []) : []
-  const allItems = [...publicItems]
-  for (const item of adminItems) {
-    if (!allItems.some((existing) => existing.id === item.id)) {
-      allItems.push(item)
-    }
+  const found = publicItems.find((item) => item.id === id) ?? null
+  if (found) return found
+  // For admin users, also check admin settings (contains admin-only items)
+  if (authStore.isAdmin) {
+    return adminSettingsStore.customMenuItems.find((item) => item.id === id) ?? null
   }
-  const found = allItems.find((item) => item.id === menuItemId.value) ?? null
-  if (found && found.visibility === 'admin' && !authStore.isAdmin) {
-    return null
-  }
-  return found
+  return null
 })
 
 const embeddedUrl = computed(() => {
@@ -131,20 +128,12 @@ onMounted(async () => {
     })
   }
 
-  const promises: Promise<unknown>[] = []
-  if (!appStore.publicSettingsLoaded) {
-    promises.push(appStore.fetchPublicSettings())
-  }
-  if (authStore.isAdmin) {
-    promises.push(adminSettingsStore.fetch())
-  }
-  if (promises.length > 0) {
-    loading.value = true
-    try {
-      await Promise.all(promises)
-    } finally {
-      loading.value = false
-    }
+  if (appStore.publicSettingsLoaded) return
+  loading.value = true
+  try {
+    await appStore.fetchPublicSettings()
+  } finally {
+    loading.value = false
   }
 })
 
@@ -171,7 +160,7 @@ onUnmounted(() => {
 
 .custom-open-fab {
   @apply absolute right-3 top-3 z-10;
-  @apply shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80;
+  @apply shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-dark-800/80;
 }
 
 .custom-embed-frame {

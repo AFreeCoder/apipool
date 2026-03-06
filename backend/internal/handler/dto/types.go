@@ -47,6 +47,17 @@ type APIKey struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 
+	// Rate limit fields
+	RateLimit5h   float64    `json:"rate_limit_5h"`
+	RateLimit1d   float64    `json:"rate_limit_1d"`
+	RateLimit7d   float64    `json:"rate_limit_7d"`
+	Usage5h       float64    `json:"usage_5h"`
+	Usage1d       float64    `json:"usage_1d"`
+	Usage7d       float64    `json:"usage_7d"`
+	Window5hStart *time.Time `json:"window_5h_start"`
+	Window1dStart *time.Time `json:"window_1d_start"`
+	Window7dStart *time.Time `json:"window_7d_start"`
+
 	User  *User  `json:"user,omitempty"`
 	Group *Group `json:"group,omitempty"`
 }
@@ -120,6 +131,7 @@ type Account struct {
 	Extra              map[string]any `json:"extra"`
 	ProxyID            *int64         `json:"proxy_id"`
 	Concurrency        int            `json:"concurrency"`
+	LoadFactor         *int           `json:"load_factor,omitempty"`
 	Priority           int            `json:"priority"`
 	RateMultiplier     float64        `json:"rate_multiplier"`
 	Status             string         `json:"status"`
@@ -173,6 +185,10 @@ type Account struct {
 	// 启用后将所有 cache creation tokens 归入指定的 TTL 类型计费
 	CacheTTLOverrideEnabled *bool   `json:"cache_ttl_override_enabled,omitempty"`
 	CacheTTLOverrideTarget  *string `json:"cache_ttl_override_target,omitempty"`
+
+	// API Key 账号配额限制
+	QuotaLimit *float64 `json:"quota_limit,omitempty"`
+	QuotaUsed  *float64 `json:"quota_used,omitempty"`
 
 	Proxy         *Proxy         `json:"proxy,omitempty"`
 	AccountGroups []AccountGroup `json:"account_groups,omitempty"`

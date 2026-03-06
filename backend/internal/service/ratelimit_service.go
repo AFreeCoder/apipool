@@ -146,13 +146,29 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			} else {
 				slog.Info("oauth_401_force_refresh_set", "account_id", account.ID, "platform", account.Platform)
 			}
+			// 3. 临时不可调度，替代 SetError（保持 status=active 让刷新服务能拾取）
+			msg := "Authentication failed (401): invalid or expired credentials"
+			if upstreamMsg != "" {
+				msg = "OAuth 401: " + upstreamMsg
+			}
+			cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
+			if cooldownMinutes <= 0 {
+				cooldownMinutes = 10
+			}
+			until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
+			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, msg); err != nil {
+				slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+			}
+			shouldDisable = true
+		} else {
+			// 非 OAuth 账号（APIKey）：保持原有 SetError 行为
+			msg := "Authentication failed (401): invalid or expired credentials"
+			if upstreamMsg != "" {
+				msg = "Authentication failed (401): " + upstreamMsg
+			}
+			s.handleAuthError(ctx, account, msg)
+			shouldDisable = true
 		}
-		msg := "Authentication failed (401): invalid or expired credentials"
-		if upstreamMsg != "" {
-			msg = "Authentication failed (401): " + upstreamMsg
-		}
-		s.handleAuthError(ctx, account, msg)
-		shouldDisable = true
 	case 402:
 		// 支付要求：余额不足或计费问题，停止调度
 		msg := "Payment required (402): insufficient balance or billing issue"
@@ -660,7 +676,17 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			}
 		}
 
-		// 没有重置时间，使用默认5分钟
+		// Anthropic 平台：没有限流重置时间的 429 可能是非真实限流（如 Extra usage required），
+		// 不标记账号限流状态，直接透传错误给客户端
+		if account.Platform == PlatformAnthropic {
+			slog.Warn("rate_limit_429_no_reset_time_skipped",
+				"account_id", account.ID,
+				"platform", account.Platform,
+				"reason", "no rate limit reset time in headers, likely not a real rate limit")
+			return
+		}
+
+		// 其他平台：没有重置时间，使用默认5分钟
 		resetAt := time.Now().Add(5 * time.Minute)
 		slog.Warn("rate_limit_no_reset_time", "account_id", account.ID, "platform", account.Platform, "using_default", "5m")
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
@@ -1065,6 +1091,22 @@ func (s *RateLimitService) tryTempUnschedulable(ctx context.Context, account *Ac
 	if !account.IsTempUnschedulableEnabled() {
 		return false
 	}
+	// 401 首次命中可临时不可调度（给 token 刷新窗口）；
+	// 若历史上已因 401 进入过临时不可调度，则本次应升级为 error（返回 false 交由默认错误逻辑处理）。
+	if statusCode == http.StatusUnauthorized {
+		reason := account.TempUnschedulableReason
+		// 缓存可能没有 reason，从 DB 回退读取
+		if reason == "" {
+			if dbAcc, err := s.accountRepo.GetByID(ctx, account.ID); err == nil && dbAcc != nil {
+				reason = dbAcc.TempUnschedulableReason
+			}
+		}
+		if wasTempUnschedByStatusCode(reason, statusCode) {
+			slog.Info("401_escalated_to_error", "account_id", account.ID,
+				"reason", "previous temp-unschedulable was also 401")
+			return false
+		}
+	}
 	rules := account.GetTempUnschedulableRules()
 	if len(rules) == 0 {
 		return false
@@ -1094,6 +1136,22 @@ func (s *RateLimitService) tryTempUnschedulable(ctx context.Context, account *Ac
 	}
 
 	return false
+}
+
+func wasTempUnschedByStatusCode(reason string, statusCode int) bool {
+	if statusCode <= 0 {
+		return false
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return false
+	}
+
+	var state TempUnschedState
+	if err := json.Unmarshal([]byte(reason), &state); err != nil {
+		return false
+	}
+	return state.StatusCode == statusCode
 }
 
 func matchTempUnschedKeyword(bodyLower string, keywords []string) string {

@@ -28,6 +28,7 @@ type Account struct {
 	// RateMultiplier 账号计费倍率（>=0，允许 0 表示该账号计费为 0）。
 	// 使用指针用于兼容旧版本调度缓存（Redis）中缺字段的情况：nil 表示按 1.0 处理。
 	RateMultiplier     *float64
+	LoadFactor         *int // 调度负载因子；nil 表示使用 Concurrency
 	Status             string
 	ErrorMessage       string
 	LastUsedAt         *time.Time
@@ -86,6 +87,19 @@ func (a *Account) BillingRateMultiplier() float64 {
 		return 1.0
 	}
 	return *a.RateMultiplier
+}
+
+func (a *Account) EffectiveLoadFactor() int {
+	if a == nil {
+		return 1
+	}
+	if a.LoadFactor != nil && *a.LoadFactor > 0 {
+		return *a.LoadFactor
+	}
+	if a.Concurrency > 0 {
+		return a.Concurrency
+	}
+	return 1
 }
 
 func (a *Account) IsSchedulable() bool {
@@ -853,15 +867,21 @@ func (a *Account) IsOpenAIResponsesWebSocketV2Enabled() bool {
 }
 
 const (
-	OpenAIWSIngressModeOff       = "off"
-	OpenAIWSIngressModeShared    = "shared"
-	OpenAIWSIngressModeDedicated = "dedicated"
+	OpenAIWSIngressModeOff         = "off"
+	OpenAIWSIngressModeShared      = "shared"
+	OpenAIWSIngressModeDedicated   = "dedicated"
+	OpenAIWSIngressModeCtxPool     = "ctx_pool"
+	OpenAIWSIngressModePassthrough = "passthrough"
 )
 
 func normalizeOpenAIWSIngressMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case OpenAIWSIngressModeOff:
 		return OpenAIWSIngressModeOff
+	case OpenAIWSIngressModeCtxPool:
+		return OpenAIWSIngressModeCtxPool
+	case OpenAIWSIngressModePassthrough:
+		return OpenAIWSIngressModePassthrough
 	case OpenAIWSIngressModeShared:
 		return OpenAIWSIngressModeShared
 	case OpenAIWSIngressModeDedicated:
@@ -873,18 +893,21 @@ func normalizeOpenAIWSIngressMode(mode string) string {
 
 func normalizeOpenAIWSIngressDefaultMode(mode string) string {
 	if normalized := normalizeOpenAIWSIngressMode(mode); normalized != "" {
+		if normalized == OpenAIWSIngressModeShared || normalized == OpenAIWSIngressModeDedicated {
+			return OpenAIWSIngressModeCtxPool
+		}
 		return normalized
 	}
-	return OpenAIWSIngressModeShared
+	return OpenAIWSIngressModeCtxPool
 }
 
-// ResolveOpenAIResponsesWebSocketV2Mode 返回账号在 WSv2 ingress 下的有效模式（off/shared/dedicated）。
+// ResolveOpenAIResponsesWebSocketV2Mode 返回账号在 WSv2 ingress 下的有效模式（off/ctx_pool/passthrough）。
 //
 // 优先级：
 // 1. 分类型 mode 新字段（string）
 // 2. 分类型 enabled 旧字段（bool）
 // 3. 兼容 enabled 旧字段（bool）
-// 4. defaultMode（非法时回退 shared）
+// 4. defaultMode（非法时回退 ctx_pool）
 func (a *Account) ResolveOpenAIResponsesWebSocketV2Mode(defaultMode string) string {
 	resolvedDefault := normalizeOpenAIWSIngressDefaultMode(defaultMode)
 	if a == nil || !a.IsOpenAI() {
@@ -919,7 +942,7 @@ func (a *Account) ResolveOpenAIResponsesWebSocketV2Mode(defaultMode string) stri
 			return "", false
 		}
 		if enabled {
-			return OpenAIWSIngressModeShared, true
+			return OpenAIWSIngressModeCtxPool, true
 		}
 		return OpenAIWSIngressModeOff, true
 	}
@@ -945,6 +968,10 @@ func (a *Account) ResolveOpenAIResponsesWebSocketV2Mode(defaultMode string) stri
 	}
 	if mode, ok := resolveBoolMode("openai_ws_enabled"); ok {
 		return mode
+	}
+	// 兼容旧值：shared/dedicated 语义都归并到 ctx_pool。
+	if resolvedDefault == OpenAIWSIngressModeShared || resolvedDefault == OpenAIWSIngressModeDedicated {
+		return OpenAIWSIngressModeCtxPool
 	}
 	return resolvedDefault
 }
@@ -1102,6 +1129,38 @@ func (a *Account) GetCacheTTLOverrideTarget() string {
 		}
 	}
 	return "5m"
+}
+
+// GetQuotaLimit 获取 API Key 账号的配额限制（美元）
+// 返回 0 表示未启用
+func (a *Account) GetQuotaLimit() float64 {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["quota_limit"]; ok {
+		return parseExtraFloat64(v)
+	}
+	return 0
+}
+
+// GetQuotaUsed 获取 API Key 账号的已用配额（美元）
+func (a *Account) GetQuotaUsed() float64 {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["quota_used"]; ok {
+		return parseExtraFloat64(v)
+	}
+	return 0
+}
+
+// IsQuotaExceeded 检查 API Key 账号配额是否已超限
+func (a *Account) IsQuotaExceeded() bool {
+	limit := a.GetQuotaLimit()
+	if limit <= 0 {
+		return false
+	}
+	return a.GetQuotaUsed() >= limit
 }
 
 // GetWindowCostLimit 获取 5h 窗口费用阈值（美元）

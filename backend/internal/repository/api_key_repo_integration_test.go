@@ -26,7 +26,7 @@ func (s *APIKeyRepoSuite) SetupTest() {
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.client = tx.Client()
-	s.repo = NewAPIKeyRepository(s.client).(*apiKeyRepository)
+	s.repo = newAPIKeyRepositoryWithSQL(s.client, tx)
 }
 
 func TestAPIKeyRepoSuite(t *testing.T) {
@@ -158,7 +158,7 @@ func (s *APIKeyRepoSuite) TestListByUserID() {
 	s.mustCreateApiKey(user.ID, "sk-list-1", "Key 1", nil)
 	s.mustCreateApiKey(user.ID, "sk-list-2", "Key 2", nil)
 
-	keys, page, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 10})
+	keys, page, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{})
 	s.Require().NoError(err, "ListByUserID")
 	s.Require().Len(keys, 2)
 	s.Require().Equal(int64(2), page.Total)
@@ -170,7 +170,7 @@ func (s *APIKeyRepoSuite) TestListByUserID_Pagination() {
 		s.mustCreateApiKey(user.ID, "sk-page-"+string(rune('a'+i)), "Key", nil)
 	}
 
-	keys, page, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 2})
+	keys, page, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 2}, service.APIKeyListFilters{})
 	s.Require().NoError(err)
 	s.Require().Len(keys, 2)
 	s.Require().Equal(int64(5), page.Total)
@@ -314,7 +314,7 @@ func (s *APIKeyRepoSuite) TestCRUD_Search_ClearGroupID() {
 	s.Require().Equal(service.StatusDisabled, got2.Status)
 	s.Require().Nil(got2.GroupID)
 
-	keys, page, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 10})
+	keys, page, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{})
 	s.Require().NoError(err, "ListByUserID")
 	s.Require().Equal(int64(1), page.Total)
 	s.Require().Len(keys, 1)
@@ -421,7 +421,7 @@ func (s *APIKeyRepoSuite) TestIncrementQuotaUsed_DeletedKey() {
 // 注意：此测试使用 testEntClient（非事务隔离），数据会真正写入数据库。
 func TestIncrementQuotaUsed_Concurrent(t *testing.T) {
 	client := testEntClient(t)
-	repo := NewAPIKeyRepository(client).(*apiKeyRepository)
+	repo := NewAPIKeyRepository(client, integrationDB).(*apiKeyRepository)
 	ctx := context.Background()
 
 	// 创建测试用户和 API Key

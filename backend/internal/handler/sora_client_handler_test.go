@@ -996,7 +996,7 @@ func (r *stubAPIKeyRepoForHandler) GetByKeyForAuth(context.Context, string) (*se
 }
 func (r *stubAPIKeyRepoForHandler) Update(context.Context, *service.APIKey) error { return nil }
 func (r *stubAPIKeyRepoForHandler) Delete(context.Context, int64) error           { return nil }
-func (r *stubAPIKeyRepoForHandler) ListByUserID(_ context.Context, _ int64, _ pagination.PaginationParams) ([]service.APIKey, *pagination.PaginationResult, error) {
+func (r *stubAPIKeyRepoForHandler) ListByUserID(_ context.Context, _ int64, _ pagination.PaginationParams, _ service.APIKeyListFilters) ([]service.APIKey, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
 func (r *stubAPIKeyRepoForHandler) VerifyOwnership(context.Context, int64, []int64) ([]int64, error) {
@@ -1031,6 +1031,15 @@ func (r *stubAPIKeyRepoForHandler) IncrementQuotaUsed(_ context.Context, _ int64
 }
 func (r *stubAPIKeyRepoForHandler) UpdateLastUsed(context.Context, int64, time.Time) error {
 	return nil
+}
+func (r *stubAPIKeyRepoForHandler) IncrementRateLimitUsage(context.Context, int64, float64) error {
+	return nil
+}
+func (r *stubAPIKeyRepoForHandler) ResetRateLimitWindows(context.Context, int64) error {
+	return nil
+}
+func (r *stubAPIKeyRepoForHandler) GetRateLimitData(context.Context, int64) (*service.APIKeyRateLimitData, error) {
+	return nil, nil
 }
 
 // newTestAPIKeyService 创建测试用的 APIKeyService
@@ -2089,6 +2098,12 @@ func (r *stubAccountRepoForHandler) ListSchedulableByPlatforms(context.Context, 
 func (r *stubAccountRepoForHandler) ListSchedulableByGroupIDAndPlatforms(context.Context, int64, []string) ([]service.Account, error) {
 	return r.accounts, nil
 }
+func (r *stubAccountRepoForHandler) ListSchedulableUngroupedByPlatform(_ context.Context, _ string) ([]service.Account, error) {
+	return r.accounts, nil
+}
+func (r *stubAccountRepoForHandler) ListSchedulableUngroupedByPlatforms(_ context.Context, _ []string) ([]service.Account, error) {
+	return r.accounts, nil
+}
 func (r *stubAccountRepoForHandler) SetRateLimited(context.Context, int64, time.Time) error {
 	return nil
 }
@@ -2115,6 +2130,14 @@ func (r *stubAccountRepoForHandler) UpdateExtra(context.Context, int64, map[stri
 }
 func (r *stubAccountRepoForHandler) BulkUpdate(context.Context, []int64, service.AccountBulkUpdate) (int64, error) {
 	return 0, nil
+}
+
+func (r *stubAccountRepoForHandler) IncrementQuotaUsed(context.Context, int64, float64) error {
+	return nil
+}
+
+func (r *stubAccountRepoForHandler) ResetQuotaUsed(context.Context, int64) error {
+	return nil
 }
 
 // ==================== Stub: SoraClient (用于 SoraGatewayService) ====================

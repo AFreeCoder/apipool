@@ -20,7 +20,52 @@ jobs:
             set -e
 
             APP_DIR="/opt/sub2api"
+            DEPLOY_DIR="$APP_DIR/deploy"
             BACKUP_DIR="/opt/sub2api/backups"
+            REPO_URL="https://github.com/AFreeCoder/apipool.git"
+
+            require_command() {
+              command -v "$1" >/dev/null 2>&1 || {
+                echo "缺少命令: $1" >&2
+                exit 1
+              }
+            }
+
+            wait_for_health() {
+              name="$1"
+              timeout="${2:-180}"
+              elapsed=0
+              while [ "$elapsed" -lt "$timeout" ]; do
+                state="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$name" 2>/dev/null || true)"
+                case "$state" in
+                  healthy|running)
+                    echo "$name 状态正常: $state"
+                    return 0
+                    ;;
+                  unhealthy|exited|dead)
+                    echo "$name 状态异常: $state" >&2
+                    docker logs --tail 200 "$name" || true
+                    return 1
+                    ;;
+                esac
+                sleep 5
+                elapsed=$((elapsed + 5))
+              done
+
+              echo "等待 $name 健康检查超时" >&2
+              docker logs --tail 200 "$name" || true
+              return 1
+            }
+
+            require_command git
+            require_command docker
+            require_command gzip
+
+            FREE_KB="$(df -Pk /opt | awk 'NR==2 {print $4}')"
+            if [ -z "$FREE_KB" ] || [ "$FREE_KB" -lt $((5 * 1024 * 1024)) ]; then
+              echo "/opt 可用磁盘不足 5GB，停止部署" >&2
+              exit 1
+            fi
 
             # ============================================================
             # 部署前备份（必须在代码更新和 compose up 之前执行）
@@ -28,11 +73,18 @@ jobs:
             # ============================================================
             mkdir -p "$BACKUP_DIR"
             if docker ps --filter "name=^sub2api-postgres$" --format '{{.Names}}' | grep -q .; then
+              DB_USER="$(docker exec sub2api-postgres printenv POSTGRES_USER)"
+              DB_NAME="$(docker exec sub2api-postgres printenv POSTGRES_DB)"
+              if [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
+                echo "无法从 postgres 容器读取 POSTGRES_USER / POSTGRES_DB，停止部署" >&2
+                exit 1
+              fi
+
               BACKUP_FILE="${BACKUP_DIR}/pre-deploy-$(date +%Y%m%d_%H%M%S).sql.gz"
               echo "开始部署前备份..."
-              docker exec sub2api-postgres pg_dump -U sub2api -d sub2api --clean --if-exists \
+              docker exec sub2api-postgres pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists \
                 | gzip > "$BACKUP_FILE"
-              if [ -s "$BACKUP_FILE" ]; then
+              if [ -s "$BACKUP_FILE" ] && gzip -t "$BACKUP_FILE"; then
                 echo "备份成功: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
                 # 清理超过 7 天的 pre-deploy 备份
                 find "$BACKUP_DIR" -name "pre-deploy-*.sql.gz" -mtime +7 -delete
@@ -47,18 +99,31 @@ jobs:
 
             # 首次部署：克隆仓库
             if [ ! -d "$APP_DIR/.git" ]; then
-              git clone https://github.com/AFreeCoder/sub2api.git "$APP_DIR"
+              git clone "$REPO_URL" "$APP_DIR"
             fi
 
             cd "$APP_DIR"
+
+            CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
+            if [ "$CURRENT_REMOTE" != "$REPO_URL" ]; then
+              git remote set-url origin "$REPO_URL"
+            fi
 
             # 拉取最新代码
             git fetch origin main
             git reset --hard origin/main
 
             # 构建并重启服务（从源码构建镜像）
-            cd deploy
-            docker compose -f docker-compose.deploy.yml up -d --build
+            cd "$DEPLOY_DIR"
+            if [ ! -f .env ]; then
+              echo "缺少 $DEPLOY_DIR/.env，停止部署" >&2
+              exit 1
+            fi
+            docker compose -f docker-compose.deploy.yml config -q
+            docker compose -f docker-compose.deploy.yml up -d --build --remove-orphans
+            wait_for_health sub2api-postgres 180
+            wait_for_health sub2api-redis 180
+            wait_for_health sub2api 300
 
             # 清理悬空镜像
             docker image prune -f

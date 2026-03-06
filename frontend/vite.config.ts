@@ -10,6 +10,7 @@ import { resolve } from 'path'
 function injectPublicSettings(backendUrl: string): Plugin {
   return {
     name: 'inject-public-settings',
+    apply: 'serve',
     transformIndexHtml: {
       order: 'pre',
       async handler(html) {
@@ -111,6 +112,10 @@ export default defineConfig(({ mode }) => {
       port: devPort,
       proxy: {
         '/api': {
+          target: backendUrl,
+          changeOrigin: true
+        },
+        '/v1': {
           target: backendUrl,
           changeOrigin: true
         },

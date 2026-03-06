@@ -8,6 +8,26 @@
 
       <!-- Settings Form -->
       <form v-else @submit.prevent="saveSettings" class="space-y-6">
+        <!-- Tab Navigation -->
+        <div class="sticky top-0 z-10 overflow-x-auto scrollbar-hide">
+          <nav class="settings-tabs">
+            <button
+              v-for="tab in settingsTabs"
+              :key="tab.key"
+              type="button"
+              :class="['settings-tab', activeTab === tab.key && 'settings-tab-active']"
+              @click="activeTab = tab.key"
+            >
+              <span class="settings-tab-icon">
+                <Icon :name="tab.icon" size="sm" />
+              </span>
+              <span>{{ t(`admin.settings.tabs.${tab.key}`) }}</span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- Tab: Security — Admin API Key -->
+        <div v-show="activeTab === 'security'" class="space-y-6">
         <!-- Admin API Key Settings -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -146,7 +166,10 @@
             </div>
           </div>
         </div>
+        </div><!-- /Tab: Security — Admin API Key -->
 
+        <!-- Tab: Gateway — Stream Timeout -->
+        <div v-show="activeTab === 'gateway'" class="space-y-6">
         <!-- Stream Timeout Settings -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -284,7 +307,10 @@
             </template>
           </div>
         </div>
+        </div><!-- /Tab: Gateway — Stream Timeout (continued below with Claude Code & Scheduling) -->
 
+        <!-- Tab: Security — Registration, Turnstile, LinuxDo -->
+        <div v-show="activeTab === 'security'" class="space-y-6">
         <!-- Registration Settings -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -322,6 +348,56 @@
                 </p>
               </div>
               <Toggle v-model="form.email_verify_enabled" />
+            </div>
+
+            <!-- Email Suffix Whitelist -->
+            <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+              <label class="font-medium text-gray-900 dark:text-white">{{
+                t('admin.settings.registration.emailSuffixWhitelist')
+              }}</label>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.registration.emailSuffixWhitelistHint') }}
+              </p>
+              <div
+                class="mt-3 rounded-lg border border-gray-300 bg-white p-2 dark:border-dark-500 dark:bg-dark-700"
+              >
+                <div class="flex flex-wrap items-center gap-2">
+                  <span
+                    v-for="suffix in registrationEmailSuffixWhitelistTags"
+                    :key="suffix"
+                    class="inline-flex items-center gap-1 rounded bg-gray-100 px-2 py-1 text-xs font-mono text-gray-700 dark:bg-dark-600 dark:text-gray-200"
+                  >
+                    <span class="text-gray-400 dark:text-gray-500">@</span>
+                    <span>{{ suffix }}</span>
+                    <button
+                      type="button"
+                      class="rounded-full text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-dark-500 dark:hover:text-white"
+                      @click="removeRegistrationEmailSuffixWhitelistTag(suffix)"
+                    >
+                      <Icon name="x" size="xs" class="h-3.5 w-3.5" :stroke-width="2" />
+                    </button>
+                  </span>
+
+                  <div
+                    class="flex min-w-[220px] flex-1 items-center gap-1 rounded border border-transparent px-2 py-1 focus-within:border-primary-300 dark:focus-within:border-primary-700"
+                  >
+                    <span class="font-mono text-sm text-gray-400 dark:text-gray-500">@</span>
+                    <input
+                      v-model="registrationEmailSuffixWhitelistDraft"
+                      type="text"
+                      class="w-full bg-transparent text-sm font-mono text-gray-900 outline-none placeholder:text-gray-400 dark:text-white dark:placeholder:text-gray-500"
+                      :placeholder="t('admin.settings.registration.emailSuffixWhitelistPlaceholder')"
+                      @input="handleRegistrationEmailSuffixWhitelistDraftInput"
+                      @keydown="handleRegistrationEmailSuffixWhitelistDraftKeydown"
+                      @blur="commitRegistrationEmailSuffixWhitelistDraft"
+                      @paste="handleRegistrationEmailSuffixWhitelistPaste"
+                    />
+                  </div>
+                </div>
+              </div>
+              <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.registration.emailSuffixWhitelistInputHint') }}
+              </p>
             </div>
 
             <!-- Promo Code -->
@@ -568,7 +644,10 @@
             </div>
           </div>
         </div>
+        </div><!-- /Tab: Security — Registration, Turnstile, LinuxDo -->
 
+        <!-- Tab: Users -->
+        <div v-show="activeTab === 'users'" class="space-y-6">
         <!-- Default Settings -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -707,7 +786,10 @@
             </div>
           </div>
         </div>
+        </div><!-- /Tab: Users -->
 
+        <!-- Tab: Gateway — Claude Code, Scheduling -->
+        <div v-show="activeTab === 'gateway'" class="space-y-6">
         <!-- Claude Code Settings -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -737,6 +819,37 @@
           </div>
         </div>
 
+        <!-- Gateway Scheduling Settings -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.scheduling.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.scheduling.description') }}
+            </p>
+          </div>
+          <div class="p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.scheduling.allowUngroupedKey') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.scheduling.allowUngroupedKeyHint') }}
+                </p>
+              </div>
+              <label class="toggle">
+                <input v-model="form.allow_ungrouped_key_scheduling" type="checkbox" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        </div><!-- /Tab: Gateway — Claude Code, Scheduling -->
+
+        <!-- Tab: General -->
+        <div v-show="activeTab === 'general'" class="space-y-6">
         <!-- Site Settings -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -875,147 +988,6 @@
                 </p>
               </div>
               <Toggle v-model="form.hide_ccs_import_button" />
-            </div>
-          </div>
-        </div>
-
-        <!-- SMTP Settings - Only show when email verification is enabled -->
-        <div v-if="form.email_verify_enabled" class="card">
-          <div
-            class="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-dark-700"
-          >
-            <div>
-              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t('admin.settings.smtp.title') }}
-              </h2>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {{ t('admin.settings.smtp.description') }}
-              </p>
-            </div>
-            <button
-              type="button"
-              @click="testSmtpConnection"
-              :disabled="testingSmtp"
-              class="btn btn-secondary btn-sm"
-            >
-              <svg v-if="testingSmtp" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle
-                  class="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  stroke-width="4"
-                ></circle>
-                <path
-                  class="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
-              </svg>
-              {{
-                testingSmtp
-                  ? t('admin.settings.smtp.testing')
-                  : t('admin.settings.smtp.testConnection')
-              }}
-            </button>
-          </div>
-          <div class="space-y-6 p-6">
-            <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <div>
-                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.smtp.host') }}
-                </label>
-                <input
-                  v-model="form.smtp_host"
-                  type="text"
-                  class="input"
-                  :placeholder="t('admin.settings.smtp.hostPlaceholder')"
-                />
-              </div>
-              <div>
-                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.smtp.port') }}
-                </label>
-                <input
-                  v-model.number="form.smtp_port"
-                  type="number"
-                  min="1"
-                  max="65535"
-                  class="input"
-                  :placeholder="t('admin.settings.smtp.portPlaceholder')"
-                />
-              </div>
-              <div>
-                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.smtp.username') }}
-                </label>
-                <input
-                  v-model="form.smtp_username"
-                  type="text"
-                  class="input"
-                  :placeholder="t('admin.settings.smtp.usernamePlaceholder')"
-                />
-              </div>
-              <div>
-                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.smtp.password') }}
-                </label>
-                <input
-                  v-model="form.smtp_password"
-                  type="password"
-                  class="input"
-                  :placeholder="
-                    form.smtp_password_configured
-                      ? t('admin.settings.smtp.passwordConfiguredPlaceholder')
-                      : t('admin.settings.smtp.passwordPlaceholder')
-                  "
-                />
-                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{
-                    form.smtp_password_configured
-                      ? t('admin.settings.smtp.passwordConfiguredHint')
-                      : t('admin.settings.smtp.passwordHint')
-                  }}
-                </p>
-              </div>
-              <div>
-                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.smtp.fromEmail') }}
-                </label>
-                <input
-                  v-model="form.smtp_from_email"
-                  type="email"
-                  class="input"
-                  :placeholder="t('admin.settings.smtp.fromEmailPlaceholder')"
-                />
-              </div>
-              <div>
-                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.smtp.fromName') }}
-                </label>
-                <input
-                  v-model="form.smtp_from_name"
-                  type="text"
-                  class="input"
-                  :placeholder="t('admin.settings.smtp.fromNamePlaceholder')"
-                />
-              </div>
-            </div>
-
-            <!-- Use TLS Toggle -->
-            <div
-              class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
-            >
-              <div>
-                <label class="font-medium text-gray-900 dark:text-white">{{
-                  t('admin.settings.smtp.useTls')
-                }}</label>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.smtp.useTlsHint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.smtp_use_tls" />
             </div>
           </div>
         </div>
@@ -1231,6 +1203,168 @@
           </div>
         </div>
 
+        </div><!-- /Tab: General -->
+
+        <!-- Tab: Email -->
+        <div v-show="activeTab === 'email'" class="space-y-6">
+        <!-- Email disabled hint - show when email_verify_enabled is off -->
+        <div v-if="!form.email_verify_enabled" class="card">
+          <div class="p-6">
+            <div class="flex items-start gap-3">
+              <Icon name="mail" size="md" class="mt-0.5 flex-shrink-0 text-gray-400 dark:text-gray-500" />
+              <div>
+                <h3 class="font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.settings.emailTabDisabledTitle') }}
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.emailTabDisabledHint') }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SMTP Settings - Only show when email verification is enabled -->
+        <div v-if="form.email_verify_enabled" class="card">
+          <div
+            class="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+          >
+            <div>
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('admin.settings.smtp.title') }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.smtp.description') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="testSmtpConnection"
+              :disabled="testingSmtp"
+              class="btn btn-secondary btn-sm"
+            >
+              <svg v-if="testingSmtp" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              {{
+                testingSmtp
+                  ? t('admin.settings.smtp.testing')
+                  : t('admin.settings.smtp.testConnection')
+              }}
+            </button>
+          </div>
+          <div class="space-y-6 p-6">
+            <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.smtp.host') }}
+                </label>
+                <input
+                  v-model="form.smtp_host"
+                  type="text"
+                  class="input"
+                  :placeholder="t('admin.settings.smtp.hostPlaceholder')"
+                />
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.smtp.port') }}
+                </label>
+                <input
+                  v-model.number="form.smtp_port"
+                  type="number"
+                  min="1"
+                  max="65535"
+                  class="input"
+                  :placeholder="t('admin.settings.smtp.portPlaceholder')"
+                />
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.smtp.username') }}
+                </label>
+                <input
+                  v-model="form.smtp_username"
+                  type="text"
+                  class="input"
+                  :placeholder="t('admin.settings.smtp.usernamePlaceholder')"
+                />
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.smtp.password') }}
+                </label>
+                <input
+                  v-model="form.smtp_password"
+                  type="password"
+                  class="input"
+                  :placeholder="
+                    form.smtp_password_configured
+                      ? t('admin.settings.smtp.passwordConfiguredPlaceholder')
+                      : t('admin.settings.smtp.passwordPlaceholder')
+                  "
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    form.smtp_password_configured
+                      ? t('admin.settings.smtp.passwordConfiguredHint')
+                      : t('admin.settings.smtp.passwordHint')
+                  }}
+                </p>
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.smtp.fromEmail') }}
+                </label>
+                <input
+                  v-model="form.smtp_from_email"
+                  type="email"
+                  class="input"
+                  :placeholder="t('admin.settings.smtp.fromEmailPlaceholder')"
+                />
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.smtp.fromName') }}
+                </label>
+                <input
+                  v-model="form.smtp_from_name"
+                  type="text"
+                  class="input"
+                  :placeholder="t('admin.settings.smtp.fromNamePlaceholder')"
+                />
+              </div>
+            </div>
+
+            <!-- Use TLS Toggle -->
+            <div
+              class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
+            >
+              <div>
+                <label class="font-medium text-gray-900 dark:text-white">{{
+                  t('admin.settings.smtp.useTls')
+                }}</label>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.smtp.useTlsHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.smtp_use_tls" />
+            </div>
+          </div>
+        </div>
+
         <!-- Send Test Email - Only show when email verification is enabled -->
         <div v-if="form.email_verify_enabled" class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -1289,6 +1423,7 @@
             </div>
           </div>
         </div>
+        </div><!-- /Tab: Email -->
 
         <!-- Save Button -->
         <div class="flex justify-end">
@@ -1335,9 +1470,27 @@ import Toggle from '@/components/common/Toggle.vue'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { useAppStore } from '@/stores'
+import { useAdminSettingsStore } from '@/stores/adminSettings'
+import {
+  isRegistrationEmailSuffixDomainValid,
+  normalizeRegistrationEmailSuffixDomain,
+  normalizeRegistrationEmailSuffixDomains,
+  parseRegistrationEmailSuffixWhitelistInput
+} from '@/utils/registrationEmailPolicy'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const adminSettingsStore = useAdminSettingsStore()
+
+type SettingsTab = 'general' | 'security' | 'users' | 'gateway' | 'email'
+const activeTab = ref<SettingsTab>('general')
+const settingsTabs = [
+  { key: 'general'  as SettingsTab, icon: 'home'   as const },
+  { key: 'security' as SettingsTab, icon: 'shield' as const },
+  { key: 'users'    as SettingsTab, icon: 'user'   as const },
+  { key: 'gateway'  as SettingsTab, icon: 'server' as const },
+  { key: 'email'    as SettingsTab, icon: 'mail'   as const },
+]
 const { copyToClipboard } = useClipboard()
 
 const loading = ref(true)
@@ -1345,6 +1498,8 @@ const saving = ref(false)
 const testingSmtp = ref(false)
 const sendingTestEmail = ref(false)
 const testEmailAddress = ref('')
+const registrationEmailSuffixWhitelistTags = ref<string[]>([])
+const registrationEmailSuffixWhitelistDraft = ref('')
 
 // Admin API Key 状态
 const adminApiKeyLoading = ref(true)
@@ -1384,6 +1539,7 @@ type SettingsForm = SystemSettings & {
 const form = reactive<SettingsForm>({
   registration_enabled: true,
   email_verify_enabled: false,
+  registration_email_suffix_whitelist: [],
   promo_code_enabled: true,
   invitation_code_enabled: false,
   password_reset_enabled: false,
@@ -1438,7 +1594,9 @@ const form = reactive<SettingsForm>({
   ops_query_mode_default: 'auto',
   ops_metrics_interval_seconds: 60,
   // Claude Code version check
-  min_claude_code_version: ''
+  min_claude_code_version: '',
+  // 分组隔离
+  allow_ungrouped_key_scheduling: false
 })
 
 const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[]>(() =>
@@ -1451,6 +1609,74 @@ const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[
     rate: group.rate_multiplier
   }))
 )
+
+const registrationEmailSuffixWhitelistSeparatorKeys = new Set([' ', ',', '，', 'Enter', 'Tab'])
+
+function removeRegistrationEmailSuffixWhitelistTag(suffix: string) {
+  registrationEmailSuffixWhitelistTags.value = registrationEmailSuffixWhitelistTags.value.filter(
+    (item) => item !== suffix
+  )
+}
+
+function addRegistrationEmailSuffixWhitelistTag(raw: string) {
+  const suffix = normalizeRegistrationEmailSuffixDomain(raw)
+  if (
+    !isRegistrationEmailSuffixDomainValid(suffix) ||
+    registrationEmailSuffixWhitelistTags.value.includes(suffix)
+  ) {
+    return
+  }
+  registrationEmailSuffixWhitelistTags.value = [
+    ...registrationEmailSuffixWhitelistTags.value,
+    suffix
+  ]
+}
+
+function commitRegistrationEmailSuffixWhitelistDraft() {
+  if (!registrationEmailSuffixWhitelistDraft.value) {
+    return
+  }
+  addRegistrationEmailSuffixWhitelistTag(registrationEmailSuffixWhitelistDraft.value)
+  registrationEmailSuffixWhitelistDraft.value = ''
+}
+
+function handleRegistrationEmailSuffixWhitelistDraftInput() {
+  registrationEmailSuffixWhitelistDraft.value = normalizeRegistrationEmailSuffixDomain(
+    registrationEmailSuffixWhitelistDraft.value
+  )
+}
+
+function handleRegistrationEmailSuffixWhitelistDraftKeydown(event: KeyboardEvent) {
+  if (event.isComposing) {
+    return
+  }
+
+  if (registrationEmailSuffixWhitelistSeparatorKeys.has(event.key)) {
+    event.preventDefault()
+    commitRegistrationEmailSuffixWhitelistDraft()
+    return
+  }
+
+  if (
+    event.key === 'Backspace' &&
+    !registrationEmailSuffixWhitelistDraft.value &&
+    registrationEmailSuffixWhitelistTags.value.length > 0
+  ) {
+    registrationEmailSuffixWhitelistTags.value.pop()
+  }
+}
+
+function handleRegistrationEmailSuffixWhitelistPaste(event: ClipboardEvent) {
+  const text = event.clipboardData?.getData('text') || ''
+  if (!text.trim()) {
+    return
+  }
+  event.preventDefault()
+  const tokens = parseRegistrationEmailSuffixWhitelistInput(text)
+  for (const token of tokens) {
+    addRegistrationEmailSuffixWhitelistTag(token)
+  }
+}
 
 // LinuxDo OAuth redirect URL suggestion
 const linuxdoRedirectUrlSuggestion = computed(() => {
@@ -1514,6 +1740,10 @@ async function loadSettings() {
             validity_days: item.validity_days
           }))
       : []
+    registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
+      settings.registration_email_suffix_whitelist
+    )
+    registrationEmailSuffixWhitelistDraft.value = ''
     form.smtp_password = ''
     form.turnstile_secret_key = ''
     form.linuxdo_connect_client_secret = ''
@@ -1583,6 +1813,9 @@ async function saveSettings() {
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
       email_verify_enabled: form.email_verify_enabled,
+      registration_email_suffix_whitelist: registrationEmailSuffixWhitelistTags.value.map(
+        (suffix) => `@${suffix}`
+      ),
       promo_code_enabled: form.promo_code_enabled,
       invitation_code_enabled: form.invitation_code_enabled,
       password_reset_enabled: form.password_reset_enabled,
@@ -1623,15 +1856,21 @@ async function saveSettings() {
       fallback_model_antigravity: form.fallback_model_antigravity,
       enable_identity_patch: form.enable_identity_patch,
       identity_patch_prompt: form.identity_patch_prompt,
-      min_claude_code_version: form.min_claude_code_version
+      min_claude_code_version: form.min_claude_code_version,
+      allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling
     }
     const updated = await adminAPI.settings.updateSettings(payload)
     Object.assign(form, updated)
+    registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
+      updated.registration_email_suffix_whitelist
+    )
+    registrationEmailSuffixWhitelistDraft.value = ''
     form.smtp_password = ''
     form.turnstile_secret_key = ''
     form.linuxdo_connect_client_secret = ''
-    // Refresh cached public settings so sidebar/header update immediately
+    // Refresh cached settings so sidebar/header update immediately
     await appStore.fetchPublicSettings(true)
+    await adminSettingsStore.fetch(true)
     appStore.showSuccess(t('admin.settings.settingsSaved'))
   } catch (error: any) {
     appStore.showError(
@@ -1802,5 +2041,57 @@ onMounted(() => {
 
 .default-sub-delete-btn {
   @apply h-[42px];
+}
+
+/* ============ Settings Tab Navigation ============ */
+.settings-tabs {
+  @apply inline-flex min-w-full gap-1 rounded-2xl
+         border border-gray-100 bg-white/80 p-1.5 backdrop-blur-sm
+         dark:border-dark-700/50 dark:bg-dark-800/80;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.04), 0 1px 2px rgb(0 0 0 / 0.02);
+}
+
+@media (min-width: 640px) {
+  .settings-tabs {
+    @apply flex;
+  }
+}
+
+.settings-tab {
+  @apply relative flex flex-1 items-center justify-center gap-2
+         whitespace-nowrap rounded-xl px-4 py-2.5
+         text-sm font-medium
+         text-gray-500 dark:text-dark-400
+         transition-all duration-200 ease-out;
+}
+
+.settings-tab:hover:not(.settings-tab-active) {
+  @apply text-gray-700 dark:text-gray-300;
+  background: rgb(0 0 0 / 0.03);
+}
+
+:root.dark .settings-tab:hover:not(.settings-tab-active) {
+  background: rgb(255 255 255 / 0.04);
+}
+
+.settings-tab-active {
+  @apply text-primary-600 dark:text-primary-400;
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.08), rgba(20, 184, 166, 0.03));
+  box-shadow: 0 1px 2px rgba(20, 184, 166, 0.1);
+}
+
+:root.dark .settings-tab-active {
+  background: linear-gradient(135deg, rgba(45, 212, 191, 0.12), rgba(45, 212, 191, 0.05));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+}
+
+.settings-tab-icon {
+  @apply flex h-7 w-7 items-center justify-center rounded-lg
+         transition-all duration-200;
+}
+
+.settings-tab-active .settings-tab-icon {
+  @apply bg-primary-500/15 text-primary-600
+         dark:bg-primary-400/15 dark:text-primary-400;
 }
 </style>

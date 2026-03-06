@@ -36,6 +36,7 @@ export async function list(
     status?: string
     group?: string
     search?: string
+    lite?: string
   },
   options?: {
     signal?: AbortSignal
@@ -66,6 +67,7 @@ export async function listWithEtag(
     type?: string
     status?: string
     search?: string
+    lite?: string
   },
   options?: {
     signal?: AbortSignal
@@ -234,6 +236,18 @@ export async function getUsage(id: number): Promise<AccountUsageInfo> {
 export async function clearRateLimit(id: number): Promise<Account> {
   const { data } = await apiClient.post<Account>(
     `/admin/accounts/${id}/clear-rate-limit`
+  )
+  return data
+}
+
+/**
+ * Reset account quota usage
+ * @param id - Account ID
+ * @returns Updated account
+ */
+export async function resetAccountQuota(id: number): Promise<Account> {
+  const { data } = await apiClient.post<Account>(
+    `/admin/accounts/${id}/reset-quota`
   )
   return data
 }
@@ -574,6 +588,7 @@ export const accountsAPI = {
   getTodayStats,
   getBatchTodayStats,
   clearRateLimit,
+  resetAccountQuota,
   getTempUnschedulableStatus,
   resetTempUnschedulable,
   setSchedulable,
