@@ -134,6 +134,10 @@ func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool) codexTran
 		result.Modified = true
 	}
 
+	if normalizeCodexOAuthInput(reqBody, needsToolContinuation) {
+		result.Modified = true
+	}
+
 	// 续链场景保留 item_reference 与 id，避免 call_id 上下文丢失。
 	if input, ok := reqBody["input"].([]any); ok {
 		input = filterCodexInput(input, needsToolContinuation)
@@ -142,6 +146,217 @@ func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool) codexTran
 	}
 
 	return result
+}
+
+func normalizeCodexOAuthInput(reqBody map[string]any, preserveReferences bool) bool {
+	rawInput, ok := reqBody["input"]
+	if !ok || rawInput == nil {
+		return false
+	}
+
+	switch input := rawInput.(type) {
+	case string:
+		reqBody["input"] = []any{
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{
+						"type": "input_text",
+						"text": input,
+					},
+				},
+			},
+		}
+		return true
+	case []any:
+		if len(input) == 0 {
+			return false
+		}
+		if isCodexOAuthMessageList(input) {
+			normalized, changed := normalizeCodexOAuthMessageList(input, preserveReferences)
+			if changed {
+				reqBody["input"] = normalized
+			}
+			return changed
+		}
+		if shouldPreserveCodexOAuthInputItems(input) {
+			return false
+		}
+		normalizedContent, _ := normalizeCodexOAuthContentItems(input, preserveReferences)
+		reqBody["input"] = []any{
+			map[string]any{
+				"role":    "user",
+				"content": normalizedContent,
+			},
+		}
+		return true
+	case map[string]any:
+		if _, ok := input["role"]; ok {
+			normalizedMessage, _ := normalizeCodexOAuthMessage(input, preserveReferences)
+			reqBody["input"] = []any{normalizedMessage}
+			return true
+		}
+		if shouldPreserveCodexOAuthInputItem(input) {
+			return false
+		}
+		normalizedItem, _ := normalizeCodexOAuthContentItem(input, preserveReferences)
+		reqBody["input"] = []any{
+			map[string]any{
+				"role":    "user",
+				"content": []any{normalizedItem},
+			},
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func isCodexOAuthMessageList(input []any) bool {
+	if len(input) == 0 {
+		return false
+	}
+	for _, item := range input {
+		message, ok := item.(map[string]any)
+		if !ok {
+			return false
+		}
+		if _, ok := message["role"]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeCodexOAuthMessageList(input []any, preserveReferences bool) ([]any, bool) {
+	normalized := make([]any, 0, len(input))
+	changed := false
+	for _, item := range input {
+		message, ok := item.(map[string]any)
+		if !ok {
+			normalized = append(normalized, item)
+			continue
+		}
+		normalizedMessage, messageChanged := normalizeCodexOAuthMessage(message, preserveReferences)
+		normalized = append(normalized, normalizedMessage)
+		changed = changed || messageChanged
+	}
+	return normalized, changed
+}
+
+func normalizeCodexOAuthMessage(message map[string]any, preserveReferences bool) (map[string]any, bool) {
+	rawContent, ok := message["content"]
+	if !ok || rawContent == nil {
+		return message, false
+	}
+
+	switch content := rawContent.(type) {
+	case string:
+		next := cloneAnyMap(message)
+		next["content"] = []any{
+			map[string]any{
+				"type": "input_text",
+				"text": content,
+			},
+		}
+		return next, true
+	case []any:
+		normalizedContent, contentChanged := normalizeCodexOAuthContentItems(content, preserveReferences)
+		if !contentChanged {
+			return message, false
+		}
+		next := cloneAnyMap(message)
+		next["content"] = normalizedContent
+		return next, true
+	default:
+		return message, false
+	}
+}
+
+func shouldPreserveCodexOAuthInputItems(input []any) bool {
+	for _, item := range input {
+		message, ok := item.(map[string]any)
+		if !ok {
+			return true
+		}
+		if shouldPreserveCodexOAuthInputItem(message) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldPreserveCodexOAuthInputItem(item map[string]any) bool {
+	itemType, _ := item["type"].(string)
+	switch strings.TrimSpace(itemType) {
+	case "function_call_output", "item_reference", "tool_call", "function_call":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeCodexOAuthContentItems(input []any, preserveReferences bool) ([]any, bool) {
+	normalized := make([]any, 0, len(input))
+	changed := false
+	for _, item := range input {
+		contentItem, ok := item.(map[string]any)
+		if !ok {
+			normalized = append(normalized, item)
+			continue
+		}
+		normalizedItem, itemChanged := normalizeCodexOAuthContentItem(contentItem, preserveReferences)
+		normalized = append(normalized, normalizedItem)
+		changed = changed || itemChanged
+	}
+	return normalized, changed
+}
+
+func normalizeCodexOAuthContentItem(item map[string]any, preserveReferences bool) (map[string]any, bool) {
+	next := item
+	changed := false
+
+	if itemType, _ := next["type"].(string); strings.TrimSpace(itemType) == "text" {
+		next = cloneAnyMap(next)
+		next["type"] = "input_text"
+		changed = true
+	}
+
+	if preserveReferences {
+		return next, changed
+	}
+
+	if _, ok := next["id"]; ok {
+		if !changed {
+			next = cloneAnyMap(next)
+			changed = true
+		}
+		delete(next, "id")
+	}
+
+	itemType, _ := next["type"].(string)
+	if !isCodexToolCallItemType(itemType) {
+		if _, ok := next["call_id"]; ok {
+			if !changed {
+				next = cloneAnyMap(next)
+				changed = true
+			}
+			delete(next, "call_id")
+		}
+	}
+
+	return next, changed
+}
+
+func cloneAnyMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 func normalizeCodexModel(model string) string {

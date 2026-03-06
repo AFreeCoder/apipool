@@ -98,11 +98,70 @@ func TestApplyCodexOAuthTransform_NonContinuationDefaultsStoreFalseAndStripsIDs(
 	input, ok := reqBody["input"].([]any)
 	require.True(t, ok)
 	require.Len(t, input, 1)
-	// 校验 input[0] 为 map，避免类型不匹配触发 errcheck。
-	item, ok := input[0].(map[string]any)
+	// 普通输入会被规范化为 message-list。
+	message, ok := input[0].(map[string]any)
 	require.True(t, ok)
+	require.Equal(t, "user", message["role"])
+	content, ok := message["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	item, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_text", item["type"])
 	_, hasID := item["id"]
 	require.False(t, hasID)
+}
+
+func TestApplyCodexOAuthTransform_ConvertsStringInputToMessageList(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": "Reply with exactly: ok",
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false)
+
+	require.True(t, result.Modified)
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 1)
+	message, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", message["role"])
+	content, ok := message["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	item, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_text", item["type"])
+	require.Equal(t, "Reply with exactly: ok", item["text"])
+}
+
+func TestApplyCodexOAuthTransform_NormalizesMessageListTextContentType(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": []any{
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "text", "text": "hi"},
+				},
+			},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false)
+
+	require.True(t, result.Modified)
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	message, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	content, ok := message["content"].([]any)
+	require.True(t, ok)
+	item, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_text", item["type"])
+	require.Equal(t, "hi", item["text"])
 }
 
 func TestFilterCodexInput_RemovesItemReferenceWhenNotPreserved(t *testing.T) {
