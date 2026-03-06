@@ -3739,7 +3739,7 @@ func extractOpenAIRequestMetaFromBody(body []byte) (model string, stream bool, p
 }
 
 // normalizeOpenAIPassthroughOAuthBody 将透传 OAuth 请求体收敛为旧链路关键行为：
-// 1) store=false 2) stream=true
+// 1) store=false 2) stream=true 3) 将 input 归一化为 ChatGPT internal API 兼容的 message 列表
 func normalizeOpenAIPassthroughOAuthBody(body []byte) ([]byte, bool, error) {
 	if len(body) == 0 {
 		return body, false, nil
@@ -3766,7 +3766,244 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte) ([]byte, bool, error) {
 		changed = true
 	}
 
+	next, inputChanged, err := normalizeOpenAIPassthroughOAuthInput(normalized)
+	if err != nil {
+		return body, false, err
+	}
+	if inputChanged {
+		normalized = next
+		changed = true
+	}
+
 	return normalized, changed, nil
+}
+
+func normalizeOpenAIPassthroughOAuthInput(body []byte) ([]byte, bool, error) {
+	input := gjson.GetBytes(body, "input")
+	if !input.Exists() {
+		return body, false, nil
+	}
+
+	normalizedInput, changed, err := buildNormalizedOpenAIPassthroughOAuthInput(input)
+	if err != nil {
+		return body, false, err
+	}
+	if !changed {
+		return body, false, nil
+	}
+
+	next, err := sjson.SetRawBytes(body, "input", normalizedInput)
+	if err != nil {
+		return body, false, fmt.Errorf("normalize passthrough body input: %w", err)
+	}
+	return next, true, nil
+}
+
+func buildNormalizedOpenAIPassthroughOAuthInput(input gjson.Result) ([]byte, bool, error) {
+	switch {
+	case input.Type == gjson.String:
+		contentRaw, err := marshalOpenAIPassthroughOAuthTextContent(input.String())
+		if err != nil {
+			return nil, false, fmt.Errorf("marshal passthrough oauth input text: %w", err)
+		}
+		messageListRaw, err := marshalOpenAIPassthroughOAuthUserMessageList(contentRaw)
+		if err != nil {
+			return nil, false, fmt.Errorf("marshal passthrough oauth input messages: %w", err)
+		}
+		return messageListRaw, true, nil
+	case input.Type != gjson.JSON:
+		return nil, false, nil
+	case input.IsArray():
+		items := input.Array()
+		if len(items) == 0 {
+			return nil, false, nil
+		}
+		if isOpenAIPassthroughOAuthMessageList(items) {
+			return marshalNormalizedOpenAIPassthroughOAuthMessageList(items)
+		}
+		if shouldPreserveOpenAIPassthroughOAuthInputItems(items) {
+			return nil, false, nil
+		}
+		contentRaw, _, err := marshalNormalizedOpenAIPassthroughOAuthContentList(items)
+		if err != nil {
+			return nil, false, fmt.Errorf("marshal passthrough oauth input content list: %w", err)
+		}
+		messageListRaw, err := marshalOpenAIPassthroughOAuthUserMessageList(contentRaw)
+		if err != nil {
+			return nil, false, fmt.Errorf("marshal passthrough oauth input messages: %w", err)
+		}
+		return messageListRaw, true, nil
+	default:
+		if input.Get("role").Exists() {
+			normalizedMessageRaw, _, err := marshalNormalizedOpenAIPassthroughOAuthMessage(input)
+			if err != nil {
+				return nil, false, fmt.Errorf("marshal passthrough oauth single message: %w", err)
+			}
+			messageListRaw, err := json.Marshal([]json.RawMessage{json.RawMessage(normalizedMessageRaw)})
+			if err != nil {
+				return nil, false, fmt.Errorf("marshal passthrough oauth single message list: %w", err)
+			}
+			return messageListRaw, true, nil
+		}
+		if shouldPreserveOpenAIPassthroughOAuthInputItem(input) {
+			return nil, false, nil
+		}
+		contentRaw, _, err := marshalNormalizedOpenAIPassthroughOAuthContentList([]gjson.Result{input})
+		if err != nil {
+			return nil, false, fmt.Errorf("marshal passthrough oauth single content item: %w", err)
+		}
+		messageListRaw, err := marshalOpenAIPassthroughOAuthUserMessageList(contentRaw)
+		if err != nil {
+			return nil, false, fmt.Errorf("marshal passthrough oauth single content messages: %w", err)
+		}
+		return messageListRaw, true, nil
+	}
+}
+
+func isOpenAIPassthroughOAuthMessageList(items []gjson.Result) bool {
+	if len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		if item.Type != gjson.JSON || !item.Get("role").Exists() {
+			return false
+		}
+	}
+	return true
+}
+
+func marshalNormalizedOpenAIPassthroughOAuthMessageList(items []gjson.Result) ([]byte, bool, error) {
+	normalized := make([]json.RawMessage, 0, len(items))
+	changed := false
+
+	for _, item := range items {
+		normalizedMessageRaw, messageChanged, err := marshalNormalizedOpenAIPassthroughOAuthMessage(item)
+		if err != nil {
+			return nil, false, err
+		}
+		normalized = append(normalized, json.RawMessage(normalizedMessageRaw))
+		changed = changed || messageChanged
+	}
+
+	if !changed {
+		return nil, false, nil
+	}
+
+	messageListRaw, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal passthrough oauth normalized message list: %w", err)
+	}
+	return messageListRaw, true, nil
+}
+
+func marshalNormalizedOpenAIPassthroughOAuthMessage(item gjson.Result) ([]byte, bool, error) {
+	if !item.Exists() || item.Type != gjson.JSON {
+		return nil, false, fmt.Errorf("passthrough oauth message must be json")
+	}
+
+	content := item.Get("content")
+	if !content.Exists() || !content.IsArray() {
+		return []byte(item.Raw), false, nil
+	}
+
+	contentRaw, changed, err := marshalNormalizedOpenAIPassthroughOAuthContentList(content.Array())
+	if err != nil {
+		return nil, false, err
+	}
+	if !changed {
+		return []byte(item.Raw), false, nil
+	}
+
+	next, err := sjson.SetRawBytes([]byte(item.Raw), "content", contentRaw)
+	if err != nil {
+		return nil, false, fmt.Errorf("normalize passthrough oauth message content: %w", err)
+	}
+	return next, true, nil
+}
+
+func shouldPreserveOpenAIPassthroughOAuthInputItems(items []gjson.Result) bool {
+	for _, item := range items {
+		if item.Type != gjson.JSON {
+			return true
+		}
+		if shouldPreserveOpenAIPassthroughOAuthInputItem(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldPreserveOpenAIPassthroughOAuthInputItem(item gjson.Result) bool {
+	if !item.Exists() || item.Type != gjson.JSON {
+		return true
+	}
+
+	itemType := strings.TrimSpace(item.Get("type").String())
+	switch itemType {
+	case "function_call_output", "item_reference", "tool_call", "function_call":
+		return true
+	default:
+		return false
+	}
+}
+
+func marshalNormalizedOpenAIPassthroughOAuthContentList(items []gjson.Result) ([]byte, bool, error) {
+	normalized := make([]json.RawMessage, 0, len(items))
+	changed := false
+
+	for _, item := range items {
+		normalizedItemRaw, itemChanged, err := normalizeOpenAIPassthroughOAuthContentItem(item)
+		if err != nil {
+			return nil, false, err
+		}
+		normalized = append(normalized, json.RawMessage(normalizedItemRaw))
+		changed = changed || itemChanged
+	}
+
+	contentRaw, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal passthrough oauth content list: %w", err)
+	}
+	return contentRaw, changed, nil
+}
+
+func normalizeOpenAIPassthroughOAuthContentItem(item gjson.Result) ([]byte, bool, error) {
+	if !item.Exists() || item.Type != gjson.JSON {
+		return []byte(item.Raw), false, nil
+	}
+
+	if strings.TrimSpace(item.Get("type").String()) != "text" {
+		return []byte(item.Raw), false, nil
+	}
+
+	next, err := sjson.SetBytes([]byte(item.Raw), "type", "input_text")
+	if err != nil {
+		return nil, false, fmt.Errorf("normalize passthrough oauth content item type: %w", err)
+	}
+	return next, true, nil
+}
+
+func marshalOpenAIPassthroughOAuthTextContent(text string) ([]byte, error) {
+	return json.Marshal([]map[string]string{
+		{
+			"type": "input_text",
+			"text": text,
+		},
+	})
+}
+
+func marshalOpenAIPassthroughOAuthUserMessageList(contentRaw []byte) ([]byte, error) {
+	type oauthPassthroughMessage struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+
+	return json.Marshal([]oauthPassthroughMessage{
+		{
+			Role:    "user",
+			Content: json.RawMessage(contentRaw),
+		},
+	})
 }
 
 func detectOpenAIPassthroughInstructionsRejectReason(reqModel string, body []byte) string {
