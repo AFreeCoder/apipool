@@ -110,7 +110,7 @@ jobs:
             fi
 
             # 拉取最新代码
-            git fetch origin main
+            git fetch --tags origin main
             git reset --hard origin/main
 
             # 构建并重启服务（从源码构建镜像）
@@ -119,8 +119,28 @@ jobs:
               echo "缺少 $DEPLOY_DIR/.env，停止部署" >&2
               exit 1
             fi
+            FILE_VERSION="$(tr -d '\r\n' < "$APP_DIR/backend/cmd/server/VERSION")"
+            APP_VERSION="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
+            if [ -z "$APP_VERSION" ]; then
+              APP_VERSION="$FILE_VERSION"
+            fi
+            if [ -z "$APP_VERSION" ]; then
+              echo "无法读取版本号文件 $APP_DIR/backend/cmd/server/VERSION，停止部署" >&2
+              exit 1
+            fi
+            if [ -n "$FILE_VERSION" ] && [ "$FILE_VERSION" != "$APP_VERSION" ]; then
+              echo "VERSION 文件($FILE_VERSION)与最新 tag($APP_VERSION)不一致，部署版本以最新 tag 为准"
+            fi
+            APP_COMMIT="$(git rev-parse --short=12 HEAD)"
+            APP_BUILD_DATE="$(git log -1 --format=%cI HEAD)"
+            echo "构建版本: ${APP_VERSION} (${APP_COMMIT})"
             docker compose -f docker-compose.deploy.yml config -q
-            docker compose -f docker-compose.deploy.yml up -d --build --remove-orphans
+            docker compose -f docker-compose.deploy.yml build \
+              --build-arg VERSION="$APP_VERSION" \
+              --build-arg COMMIT="$APP_COMMIT" \
+              --build-arg DATE="$APP_BUILD_DATE" \
+              sub2api
+            docker compose -f docker-compose.deploy.yml up -d --remove-orphans
             wait_for_health sub2api-postgres 180
             wait_for_health sub2api-redis 180
             wait_for_health sub2api 300
