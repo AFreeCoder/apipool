@@ -316,9 +316,15 @@ func normalizeCodexOAuthContentItem(item map[string]any, preserveReferences bool
 	next := item
 	changed := false
 
-	if itemType, _ := next["type"].(string); strings.TrimSpace(itemType) == "text" {
+	if itemType, _ := next["type"].(string); isLegacyCodexTextContentType(itemType) {
 		next = cloneAnyMap(next)
 		next["type"] = "input_text"
+		if text, ok := extractLegacyCodexText(next); ok {
+			next["text"] = text
+		}
+		delete(next, "content")
+		delete(next, "message")
+		delete(next, "role")
 		changed = true
 	}
 
@@ -346,6 +352,47 @@ func normalizeCodexOAuthContentItem(item map[string]any, preserveReferences bool
 	}
 
 	return next, changed
+}
+
+func isLegacyCodexTextContentType(itemType string) bool {
+	switch strings.TrimSpace(itemType) {
+	case "text", "message":
+		return true
+	default:
+		return false
+	}
+}
+
+func extractLegacyCodexText(item map[string]any) (string, bool) {
+	if item == nil {
+		return "", false
+	}
+	if text, ok := item["text"].(string); ok && strings.TrimSpace(text) != "" {
+		return text, true
+	}
+	if text, ok := item["message"].(string); ok && strings.TrimSpace(text) != "" {
+		return text, true
+	}
+	if text, ok := item["content"].(string); ok && strings.TrimSpace(text) != "" {
+		return text, true
+	}
+	content, ok := item["content"].([]any)
+	if !ok {
+		return "", false
+	}
+	for _, rawPart := range content {
+		part, ok := rawPart.(map[string]any)
+		if !ok {
+			continue
+		}
+		if text, ok := part["text"].(string); ok && strings.TrimSpace(text) != "" {
+			return text, true
+		}
+		if text, ok := part["content"].(string); ok && strings.TrimSpace(text) != "" {
+			return text, true
+		}
+	}
+	return "", false
 }
 
 func cloneAnyMap(src map[string]any) map[string]any {

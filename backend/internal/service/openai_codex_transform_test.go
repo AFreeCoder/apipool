@@ -164,6 +164,72 @@ func TestApplyCodexOAuthTransform_NormalizesMessageListTextContentType(t *testin
 	require.Equal(t, "hi", item["text"])
 }
 
+func TestApplyCodexOAuthTransform_NormalizesMessageContentTypeAlias(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": []any{
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "message", "text": "hi", "id": "msg_part_1"},
+				},
+			},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false)
+
+	require.True(t, result.Modified)
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	message, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	content, ok := message["content"].([]any)
+	require.True(t, ok)
+	item, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_text", item["type"])
+	require.Equal(t, "hi", item["text"])
+	_, hasID := item["id"]
+	require.False(t, hasID)
+}
+
+func TestApplyCodexOAuthTransform_FlattensNestedMessageContentItem(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": []any{
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{
+						"type":    "message",
+						"role":    "user",
+						"content": []any{map[string]any{"type": "text", "text": "nested hi"}},
+					},
+				},
+			},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false)
+
+	require.True(t, result.Modified)
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	message, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	content, ok := message["content"].([]any)
+	require.True(t, ok)
+	item, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_text", item["type"])
+	require.Equal(t, "nested hi", item["text"])
+	_, hasRole := item["role"]
+	require.False(t, hasRole)
+	_, hasContent := item["content"]
+	require.False(t, hasContent)
+}
+
 func TestFilterCodexInput_RemovesItemReferenceWhenNotPreserved(t *testing.T) {
 	input := []any{
 		map[string]any{"type": "item_reference", "id": "ref1"},
