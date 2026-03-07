@@ -134,7 +134,7 @@ func TestApplyCodexOAuthTransform_ConvertsStringInputToMessageList(t *testing.T)
 		"input": "Reply with exactly: ok",
 	}
 
-	result := applyCodexOAuthTransform(reqBody, false)
+	result := applyCodexOAuthTransform(reqBody, false, false)
 
 	require.True(t, result.Modified)
 	input, ok := reqBody["input"].([]any)
@@ -165,7 +165,7 @@ func TestApplyCodexOAuthTransform_NormalizesMessageListTextContentType(t *testin
 		},
 	}
 
-	result := applyCodexOAuthTransform(reqBody, false)
+	result := applyCodexOAuthTransform(reqBody, false, false)
 
 	require.True(t, result.Modified)
 	input, ok := reqBody["input"].([]any)
@@ -193,7 +193,7 @@ func TestApplyCodexOAuthTransform_NormalizesMessageContentTypeAlias(t *testing.T
 		},
 	}
 
-	result := applyCodexOAuthTransform(reqBody, false)
+	result := applyCodexOAuthTransform(reqBody, false, false)
 
 	require.True(t, result.Modified)
 	input, ok := reqBody["input"].([]any)
@@ -227,7 +227,7 @@ func TestApplyCodexOAuthTransform_FlattensNestedMessageContentItem(t *testing.T)
 		},
 	}
 
-	result := applyCodexOAuthTransform(reqBody, false)
+	result := applyCodexOAuthTransform(reqBody, false, false)
 
 	require.True(t, result.Modified)
 	input, ok := reqBody["input"].([]any)
