@@ -277,12 +277,18 @@ func init() {
 	announcement.DefaultStatus = announcementDescStatus.Default.(string)
 	// announcement.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	announcement.StatusValidator = announcementDescStatus.Validators[0].(func(string) error)
+	// announcementDescNotifyMode is the schema descriptor for notify_mode field.
+	announcementDescNotifyMode := announcementFields[3].Descriptor()
+	// announcement.DefaultNotifyMode holds the default value on creation for the notify_mode field.
+	announcement.DefaultNotifyMode = announcementDescNotifyMode.Default.(string)
+	// announcement.NotifyModeValidator is a validator for the "notify_mode" field. It is called by the builders before save.
+	announcement.NotifyModeValidator = announcementDescNotifyMode.Validators[0].(func(string) error)
 	// announcementDescCreatedAt is the schema descriptor for created_at field.
-	announcementDescCreatedAt := announcementFields[8].Descriptor()
+	announcementDescCreatedAt := announcementFields[9].Descriptor()
 	// announcement.DefaultCreatedAt holds the default value on creation for the created_at field.
 	announcement.DefaultCreatedAt = announcementDescCreatedAt.Default.(func() time.Time)
 	// announcementDescUpdatedAt is the schema descriptor for updated_at field.
-	announcementDescUpdatedAt := announcementFields[9].Descriptor()
+	announcementDescUpdatedAt := announcementFields[10].Descriptor()
 	// announcement.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	announcement.DefaultUpdatedAt = announcementDescUpdatedAt.Default.(func() time.Time)
 	// announcement.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
@@ -447,6 +453,16 @@ func init() {
 	groupDescSortOrder := groupFields[26].Descriptor()
 	// group.DefaultSortOrder holds the default value on creation for the sort_order field.
 	group.DefaultSortOrder = groupDescSortOrder.Default.(int)
+	// groupDescAllowMessagesDispatch is the schema descriptor for allow_messages_dispatch field.
+	groupDescAllowMessagesDispatch := groupFields[27].Descriptor()
+	// group.DefaultAllowMessagesDispatch holds the default value on creation for the allow_messages_dispatch field.
+	group.DefaultAllowMessagesDispatch = groupDescAllowMessagesDispatch.Default.(bool)
+	// groupDescDefaultMappedModel is the schema descriptor for default_mapped_model field.
+	groupDescDefaultMappedModel := groupFields[28].Descriptor()
+	// group.DefaultDefaultMappedModel holds the default value on creation for the default_mapped_model field.
+	group.DefaultDefaultMappedModel = groupDescDefaultMappedModel.Default.(string)
+	// group.DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
+	group.DefaultMappedModelValidator = groupDescDefaultMappedModel.Validators[0].(func(string) error)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
 	idempotencyrecordMixinFields0 := idempotencyrecordMixin[0].Fields()
 	_ = idempotencyrecordMixinFields0

@@ -1530,6 +1530,14 @@ export default {
         fallbackHint: '非 Claude Code 请求将使用此分组，留空则直接拒绝',
         noFallback: '不降级（直接拒绝）'
       },
+      openaiMessages: {
+        title: 'OpenAI Messages 调度配置',
+        allowDispatch: '允许 /v1/messages 调度',
+        allowDispatchHint: '启用后，此 OpenAI 分组的 API Key 可以通过 /v1/messages 端点调度请求',
+        defaultModel: '默认映射模型',
+        defaultModelPlaceholder: '例如: gpt-4.1',
+        defaultModelHint: '当账号未配置模型映射时，所有请求模型将映射到此模型'
+      },
       invalidRequestFallback: {
         title: '无效请求兜底分组',
         hint: '仅当上游明确返回 prompt too long 时才会触发，留空表示不兜底',
@@ -2640,6 +2648,12 @@ export default {
       allProtocols: '全部协议',
       allStatus: '全部状态',
       searchProxies: '搜索代理...',
+      protocols: {
+        http: 'HTTP',
+        https: 'HTTPS',
+        socks5: 'SOCKS5',
+        socks5h: 'SOCKS5H (远程 DNS)',
+      },
       name: '名称',
       protocol: '协议',
       host: '主机',
@@ -2866,6 +2880,7 @@ export default {
       columns: {
         title: '标题',
         status: '状态',
+        notifyMode: '通知方式',
         targeting: '展示条件',
         timeRange: '有效期',
         createdAt: '创建时间',
@@ -2876,10 +2891,16 @@ export default {
         active: '展示中',
         archived: '已归档'
       },
+      notifyModeLabels: {
+        silent: '静默',
+        popup: '弹窗'
+      },
       form: {
         title: '标题',
         content: '内容（支持 Markdown）',
         status: '状态',
+        notifyMode: '通知方式',
+        notifyModeHint: '弹窗模式会自动弹出通知给用户',
         startsAt: '开始时间',
         endsAt: '结束时间',
         startsAtHint: '留空表示立即生效',
@@ -4128,6 +4149,18 @@ export default {
         thresholdWindowMinutesHint: '超时计数的时间窗口（1-60分钟）',
         saved: '流超时设置保存成功',
         saveFailed: '保存流超时设置失败'
+      },
+      rectifier: {
+        title: '请求整流器',
+        description: '当上游返回特定错误时，自动修正请求参数并重试，提高请求成功率',
+        enabled: '启用请求整流器',
+        enabledHint: '总开关，关闭后所有整流功能均不生效',
+        thinkingSignature: 'Thinking 签名整流',
+        thinkingSignatureHint: '当上游返回 thinking block 签名校验错误时，自动去除签名并重试',
+        thinkingBudget: 'Thinking Budget 整流',
+        thinkingBudgetHint: '当上游返回 budget_tokens 约束错误（≥1024）时，自动将 budget 设为 32000 并重试',
+        saved: '整流器设置保存成功',
+        saveFailed: '保存整流器设置失败'
       },
       saveSettings: '保存设置',
       saving: '保存中...',

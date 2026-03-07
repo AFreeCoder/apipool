@@ -251,6 +251,7 @@ var (
 		{Name: "title", Type: field.TypeString, Size: 200},
 		{Name: "content", Type: field.TypeString, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "status", Type: field.TypeString, Size: 20, Default: "draft"},
+		{Name: "notify_mode", Type: field.TypeString, Size: 20, Default: "silent"},
 		{Name: "targeting", Type: field.TypeJSON, Nullable: true, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "starts_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "ends_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
@@ -273,17 +274,17 @@ var (
 			{
 				Name:    "announcement_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{AnnouncementsColumns[9]},
+				Columns: []*schema.Column{AnnouncementsColumns[10]},
 			},
 			{
 				Name:    "announcement_starts_at",
 				Unique:  false,
-				Columns: []*schema.Column{AnnouncementsColumns[5]},
+				Columns: []*schema.Column{AnnouncementsColumns[6]},
 			},
 			{
 				Name:    "announcement_ends_at",
 				Unique:  false,
-				Columns: []*schema.Column{AnnouncementsColumns[6]},
+				Columns: []*schema.Column{AnnouncementsColumns[7]},
 			},
 		},
 	}
@@ -407,6 +408,8 @@ var (
 		{Name: "mcp_xml_inject", Type: field.TypeBool, Default: true},
 		{Name: "supported_model_scopes", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "sort_order", Type: field.TypeInt, Default: 0},
+		{Name: "allow_messages_dispatch", Type: field.TypeBool, Default: false},
+		{Name: "default_mapped_model", Type: field.TypeString, Size: 100, Default: ""},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{

@@ -899,6 +899,7 @@
       :api-key="selectedKey?.key || ''"
       :base-url="publicSettings?.api_base_url || ''"
       :platform="selectedKey?.group?.platform || null"
+      :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
       @close="closeUseKeyModal"
     />
 
@@ -1638,17 +1639,21 @@ const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
       headers: { "Authorization": "Bearer {{apiKey}}" }
     },
     extractor: function(response) {
+      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
+      const unit = response?.unit ?? response?.quota?.unit ?? "USD";
       return {
-        isValid: response.is_active || true,
-        remaining: response.balance,
-        unit: "USD"
+        isValid: response?.is_active ?? response?.isValid ?? true,
+        remaining,
+        unit
       };
     }
   })`
+  const providerName = (publicSettings.value?.site_name || 'APIPool').trim() || 'APIPool'
+
   const params = new URLSearchParams({
     resource: 'provider',
     app: app,
-    name: 'apipool',
+    name: providerName,
     homepage: baseUrl,
     endpoint: endpoint,
     apiKey: row.key,

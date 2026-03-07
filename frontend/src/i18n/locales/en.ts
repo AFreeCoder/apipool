@@ -1443,6 +1443,14 @@ export default {
         fallbackHint: 'Non-Claude Code requests will use this group. Leave empty to reject directly.',
         noFallback: 'No Fallback (Reject)'
       },
+      openaiMessages: {
+        title: 'OpenAI Messages Dispatch',
+        allowDispatch: 'Allow /v1/messages dispatch',
+        allowDispatchHint: 'When enabled, API keys in this OpenAI group can dispatch requests through /v1/messages endpoint',
+        defaultModel: 'Default mapped model',
+        defaultModelPlaceholder: 'e.g., gpt-4.1',
+        defaultModelHint: 'When account has no model mapping configured, all request models will be mapped to this model'
+      },
       invalidRequestFallback: {
         title: 'Invalid Request Fallback Group',
         hint: 'Triggered only when upstream explicitly returns prompt too long. Leave empty to disable fallback.',
@@ -2704,6 +2712,7 @@ export default {
       columns: {
         title: 'Title',
         status: 'Status',
+        notifyMode: 'Notify Mode',
         targeting: 'Targeting',
         timeRange: 'Schedule',
         createdAt: 'Created At',
@@ -2714,10 +2723,16 @@ export default {
         active: 'Active',
         archived: 'Archived'
       },
+      notifyModeLabels: {
+        silent: 'Silent',
+        popup: 'Popup'
+      },
       form: {
         title: 'Title',
         content: 'Content (Markdown supported)',
         status: 'Status',
+        notifyMode: 'Notify Mode',
+        notifyModeHint: 'Popup mode will show a popup notification to users',
         startsAt: 'Starts At',
         endsAt: 'Ends At',
         startsAtHint: 'Leave empty to start immediately',
@@ -3960,6 +3975,18 @@ export default {
         thresholdWindowMinutesHint: 'Time window for counting timeouts (1-60 minutes)',
         saved: 'Stream timeout settings saved',
         saveFailed: 'Failed to save stream timeout settings'
+      },
+      rectifier: {
+        title: 'Request Rectifier',
+        description: 'Automatically fix request parameters and retry when upstream returns specific errors',
+        enabled: 'Enable Request Rectifier',
+        enabledHint: 'Master switch - disabling turns off all rectification features',
+        thinkingSignature: 'Thinking Signature Rectifier',
+        thinkingSignatureHint: 'Automatically strip signatures and retry when upstream returns thinking block signature validation errors',
+        thinkingBudget: 'Thinking Budget Rectifier',
+        thinkingBudgetHint: 'Automatically set budget to 32000 and retry when upstream returns budget_tokens constraint error (≥1024)',
+        saved: 'Rectifier settings saved',
+        saveFailed: 'Failed to save rectifier settings'
       },
       saveSettings: 'Save Settings',
       saving: 'Saving...',
