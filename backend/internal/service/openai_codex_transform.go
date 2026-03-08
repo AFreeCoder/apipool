@@ -2,6 +2,9 @@ package service
 
 import (
 	"strings"
+	"sync"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 var codexModelMap = map[string]string{
@@ -72,6 +75,8 @@ type codexTransformResult struct {
 	NormalizedModel string
 	PromptCacheKey  string
 }
+
+var loggedUnknownCodexOAuthInputItemTypes sync.Map
 
 func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool, isCompact bool) codexTransformResult {
 	result := codexTransformResult{}
@@ -350,16 +355,49 @@ func shouldPreserveCodexOAuthInputItems(input []any) bool {
 
 func shouldPreserveCodexOAuthInputItem(item map[string]any) bool {
 	itemType, _ := item["type"].(string)
-	// 已知可安全嵌入 message content 的类型走 content 路径，
-	// 其余一律视为 top-level transcript item 保留，避免被塞进 content 后上游 400。
-	switch strings.TrimSpace(itemType) {
+	normalizedType := strings.TrimSpace(itemType)
+	if isKnownCodexOAuthContentItemType(normalizedType) {
+		return false
+	}
+	if !isKnownCodexOAuthTopLevelItemType(normalizedType) {
+		logUnknownCodexOAuthInputItemType(normalizedType)
+	}
+	return true
+}
+
+func isKnownCodexOAuthContentItemType(itemType string) bool {
+	// 已知可安全嵌入 message content 的类型走 content 路径。
+	switch itemType {
 	case "", "text", "message", "input_text", "input_image", "input_file",
 		"output_text", "refusal", "computer_screenshot", "summary_text",
 		"image_url", "image":
-		return false
-	default:
 		return true
+	default:
+		return false
 	}
+}
+
+func isKnownCodexOAuthTopLevelItemType(itemType string) bool {
+	// 常见的 top-level transcript item：保留原状，不打印噪声日志。
+	switch itemType {
+	case "reasoning", "function_call_output", "item_reference", "tool_call", "function_call", "web_search_call":
+		return true
+	default:
+		return false
+	}
+}
+
+func logUnknownCodexOAuthInputItemType(itemType string) {
+	if itemType == "" {
+		return
+	}
+	if _, loaded := loggedUnknownCodexOAuthInputItemTypes.LoadOrStore(itemType, struct{}{}); loaded {
+		return
+	}
+	logger.LegacyPrintf("service.openai_gateway",
+		"[Codex OAuth] Unknown input item type preserved as top-level transcript item: %s",
+		itemType,
+	)
 }
 
 func normalizeCodexOAuthContentItems(input []any, preserveReferences bool) ([]any, bool) {

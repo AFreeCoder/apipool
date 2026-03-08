@@ -565,6 +565,46 @@ func TestApplyCodexOAuthTransform_MixedContentItemsAndReasoningPreservesOrder(t 
 	require.Equal(t, "thanks", lastText["text"])
 }
 
+func TestApplyCodexOAuthTransform_UnknownTopLevelItemPreserved(t *testing.T) {
+	// 黑名单策略：未知 type 不应被塞进 message content，而应保留为 top-level item。
+
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": []any{
+			map[string]any{"type": "text", "text": "before"},
+			map[string]any{
+				"type":    "future_custom_item",
+				"id":      "future_1",
+				"payload": map[string]any{"value": 1},
+			},
+			map[string]any{"type": "text", "text": "after"},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false, false)
+	require.True(t, result.Modified)
+
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 3)
+
+	firstMsg, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", firstMsg["role"])
+
+	unknown, ok := input[1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "future_custom_item", unknown["type"])
+	require.Equal(t, "future_1", unknown["id"])
+	payload, ok := unknown["payload"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, 1, payload["value"])
+
+	lastMsg, ok := input[2].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", lastMsg["role"])
+}
+
 func TestFilterCodexInput_PreservesReasoningItem(t *testing.T) {
 	// filterCodexInput 不应删除 reasoning item 的任何字段。
 
