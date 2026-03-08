@@ -187,7 +187,11 @@ func normalizeCodexOAuthInput(reqBody map[string]any, preserveReferences bool) b
 			return changed
 		}
 		if shouldPreserveCodexOAuthInputItems(input) {
-			return false
+			normalized, changed := normalizeCodexOAuthMixedInput(input, preserveReferences)
+			if changed {
+				reqBody["input"] = normalized
+			}
+			return changed
 		}
 		normalizedContent, _ := normalizeCodexOAuthContentItems(input, preserveReferences)
 		reqBody["input"] = []any{
@@ -251,6 +255,57 @@ func normalizeCodexOAuthMessageList(input []any, preserveReferences bool) ([]any
 	return normalized, changed
 }
 
+// normalizeCodexOAuthMixedInput 处理包含 message、top-level transcript item（如 reasoning）
+// 与裸 content item 混合的 input 数组：
+// 1. message 做 normalize
+// 2. transcript item 原样保留
+// 3. 裸 content item 按顺序聚合回 user message，避免被错误当作 transcript item 透传
+func normalizeCodexOAuthMixedInput(input []any, preserveReferences bool) ([]any, bool) {
+	normalized := make([]any, 0, len(input))
+	changed := false
+	pendingContent := make([]any, 0)
+
+	flushPendingContent := func() {
+		if len(pendingContent) == 0 {
+			return
+		}
+		normalized = append(normalized, map[string]any{
+			"role":    "user",
+			"content": pendingContent,
+		})
+		pendingContent = nil
+		changed = true
+	}
+
+	for _, item := range input {
+		m, ok := item.(map[string]any)
+		if !ok {
+			pendingContent = append(pendingContent, item)
+			continue
+		}
+		// 有 role 的是 message，做 normalize
+		if _, hasRole := m["role"]; hasRole {
+			flushPendingContent()
+			normalizedMessage, messageChanged := normalizeCodexOAuthMessage(m, preserveReferences)
+			normalized = append(normalized, normalizedMessage)
+			changed = changed || messageChanged
+			continue
+		}
+		if shouldPreserveCodexOAuthInputItem(m) {
+			flushPendingContent()
+			// 无 role 的 top-level transcript item（reasoning 等）原样保留
+			normalized = append(normalized, m)
+			continue
+		}
+
+		normalizedItem, itemChanged := normalizeCodexOAuthContentItem(m, preserveReferences)
+		pendingContent = append(pendingContent, normalizedItem)
+		changed = changed || itemChanged
+	}
+	flushPendingContent()
+	return normalized, changed
+}
+
 func normalizeCodexOAuthMessage(message map[string]any, preserveReferences bool) (map[string]any, bool) {
 	rawContent, ok := message["content"]
 	if !ok || rawContent == nil {
@@ -295,11 +350,15 @@ func shouldPreserveCodexOAuthInputItems(input []any) bool {
 
 func shouldPreserveCodexOAuthInputItem(item map[string]any) bool {
 	itemType, _ := item["type"].(string)
+	// 已知可安全嵌入 message content 的类型走 content 路径，
+	// 其余一律视为 top-level transcript item 保留，避免被塞进 content 后上游 400。
 	switch strings.TrimSpace(itemType) {
-	case "function_call_output", "item_reference", "tool_call", "function_call":
-		return true
-	default:
+	case "", "text", "message", "input_text", "input_image", "input_file",
+		"output_text", "refusal", "computer_screenshot", "summary_text",
+		"image_url", "image":
 		return false
+	default:
+		return true
 	}
 }
 
@@ -534,6 +593,13 @@ func filterCodexInput(input []any, preserveReferences bool) []any {
 				newItem[key] = value
 			}
 			filtered = append(filtered, newItem)
+			continue
+		}
+
+		// reasoning item 必须原样保留（id、encrypted_content 等字段不能删）。
+		// 其他 top-level transcript item（web_search_call 等）同理。
+		if shouldPreserveCodexOAuthInputItem(m) {
+			filtered = append(filtered, m)
 			continue
 		}
 

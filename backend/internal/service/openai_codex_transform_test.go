@@ -395,3 +395,204 @@ func TestIsInstructionsEmpty(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyCodexOAuthTransform_MixedInputWithReasoningPreservesTopLevel(t *testing.T) {
+	// 模拟 Codex 客户端多轮对话：input 数组中混合了 message 和 top-level reasoning item。
+	// reasoning item 必须保留为顶层，不能被塞进 message 的 content 数组。
+
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": []any{
+			map[string]any{
+				"role":    "user",
+				"content": "say hi",
+			},
+			map[string]any{
+				"type": "reasoning",
+				"id":   "rs_abc123",
+				"summary": []any{
+					map[string]any{"type": "summary_text", "text": "The user greeted me"},
+				},
+				"encrypted_content": "encrypted_data_here",
+			},
+			map[string]any{
+				"role": "assistant",
+				"content": []any{
+					map[string]any{"type": "output_text", "text": "Hello!"},
+				},
+			},
+			map[string]any{
+				"role":    "user",
+				"content": "thanks",
+			},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false, false)
+	require.True(t, result.Modified)
+
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 4, "input 应保持 4 个顶层 item")
+
+	// input[0]: user message，content 应被 normalize 为 input_text
+	msg0, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", msg0["role"])
+	content0, ok := msg0["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content0, 1)
+	ct0, ok := content0[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_text", ct0["type"])
+
+	// input[1]: reasoning item，必须原样保留为顶层，id 和 encrypted_content 不能丢
+	reasoning, ok := input[1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "reasoning", reasoning["type"])
+	require.Equal(t, "rs_abc123", reasoning["id"])
+	require.Equal(t, "encrypted_data_here", reasoning["encrypted_content"])
+	summary, ok := reasoning["summary"].([]any)
+	require.True(t, ok)
+	require.Len(t, summary, 1)
+
+	// input[2]: assistant message
+	msg2, ok := input[2].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "assistant", msg2["role"])
+
+	// input[3]: user message
+	msg3, ok := input[3].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", msg3["role"])
+}
+
+func TestApplyCodexOAuthTransform_ReasoningWithToolContinuation(t *testing.T) {
+	// 续链场景：reasoning + function_call_output 混合，reasoning 的 id 必须保留。
+
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": []any{
+			map[string]any{
+				"type": "reasoning",
+				"id":   "rs_xyz",
+				"summary": []any{
+					map[string]any{"type": "summary_text", "text": "thinking"},
+				},
+			},
+			map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output":  "result",
+				"id":      "fco_1",
+			},
+		},
+		"tool_choice": "auto",
+	}
+
+	applyCodexOAuthTransform(reqBody, false, false)
+
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 2)
+
+	// reasoning item 保留，id 不被删除
+	reasoning, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "reasoning", reasoning["type"])
+	require.Equal(t, "rs_xyz", reasoning["id"])
+}
+
+func TestApplyCodexOAuthTransform_MixedContentItemsAndReasoningPreservesOrder(t *testing.T) {
+	// 混合场景：裸 content item 与 top-level reasoning 混排时，
+	// content item 需要按顺序重新聚合为 user message，reasoning 保持顶层。
+
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": []any{
+			map[string]any{"type": "text", "text": "hi", "id": "text_1"},
+			map[string]any{"type": "input_image", "image_url": "https://example.com/a.png"},
+			map[string]any{
+				"type":              "reasoning",
+				"id":                "rs_mix",
+				"encrypted_content": "enc_mix",
+				"summary": []any{
+					map[string]any{"type": "summary_text", "text": "thoughts"},
+				},
+			},
+			map[string]any{"type": "text", "text": "thanks"},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false, false)
+	require.True(t, result.Modified)
+
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 3, "裸 content item 应在 reasoning 两侧分别聚合为 user message")
+
+	firstMsg, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", firstMsg["role"])
+	firstContent, ok := firstMsg["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, firstContent, 2)
+	firstText, ok := firstContent[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_text", firstText["type"])
+	require.Equal(t, "hi", firstText["text"])
+	_, hasID := firstText["id"]
+	require.False(t, hasID)
+	firstImage, ok := firstContent[1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_image", firstImage["type"])
+
+	reasoning, ok := input[1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "reasoning", reasoning["type"])
+	require.Equal(t, "rs_mix", reasoning["id"])
+	require.Equal(t, "enc_mix", reasoning["encrypted_content"])
+
+	lastMsg, ok := input[2].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", lastMsg["role"])
+	lastContent, ok := lastMsg["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, lastContent, 1)
+	lastText, ok := lastContent[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "input_text", lastText["type"])
+	require.Equal(t, "thanks", lastText["text"])
+}
+
+func TestFilterCodexInput_PreservesReasoningItem(t *testing.T) {
+	// filterCodexInput 不应删除 reasoning item 的任何字段。
+
+	input := []any{
+		map[string]any{
+			"type":              "reasoning",
+			"id":                "rs_abc",
+			"encrypted_content": "encrypted_payload",
+			"summary": []any{
+				map[string]any{"type": "summary_text", "text": "thought process"},
+			},
+		},
+		map[string]any{"type": "output_text", "text": "hello", "id": "out1"},
+	}
+
+	filtered := filterCodexInput(input, false)
+	require.Len(t, filtered, 2)
+
+	// reasoning item 所有字段原样保留
+	reasoning, ok := filtered[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "reasoning", reasoning["type"])
+	require.Equal(t, "rs_abc", reasoning["id"])
+	require.Equal(t, "encrypted_payload", reasoning["encrypted_content"])
+
+	// 普通 item 的 id 仍会被删除（preserveReferences=false）
+	output, ok := filtered[1].(map[string]any)
+	require.True(t, ok)
+	_, hasID := output["id"]
+	require.False(t, hasID)
+}
