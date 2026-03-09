@@ -30,6 +30,10 @@
     <div class="px-6 py-4">
       <div class="space-y-3">
         <div class="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+          <Icon name="hash" size="sm" class="text-gray-400 dark:text-gray-500" />
+          <span>用户 ID: {{ user?.id }}</span>
+        </div>
+        <div class="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
           <Icon name="mail" size="sm" class="text-gray-400 dark:text-gray-500" />
           <span class="truncate">{{ user?.email }}</span>
         </div>
