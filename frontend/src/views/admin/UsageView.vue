@@ -13,8 +13,18 @@
           </div>
         </div>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <ModelDistributionChart :model-stats="modelStats" :loading="chartsLoading" />
-          <GroupDistributionChart :group-stats="groupStats" :loading="chartsLoading" />
+          <ModelDistributionChart
+            v-model:metric="modelDistributionMetric"
+            :model-stats="modelStats"
+            :loading="chartsLoading"
+            :show-metric-toggle="true"
+          />
+          <GroupDistributionChart
+            v-model:metric="groupDistributionMetric"
+            :group-stats="groupStats"
+            :loading="chartsLoading"
+            :show-metric-toggle="true"
+          />
         </div>
         <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
       </div>
@@ -54,7 +64,7 @@
           </div>
         </template>
       </UsageFilters>
-      <UsageTable :data="usageLogs" :loading="loading" :columns="visibleColumns" />
+      <UsageTable :data="usageLogs" :loading="loading" :columns="visibleColumns" @userClick="handleUserClick" />
       <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
     </div>
   </AppLayout>
@@ -65,6 +75,13 @@
     :start-date="startDate"
     :end-date="endDate"
     @close="cleanupDialogVisible = false"
+  />
+  <!-- Balance history modal triggered from usage table user click -->
+  <UserBalanceHistoryModal
+    :show="showBalanceHistoryModal"
+    :user="balanceHistoryUser"
+    :hide-actions="true"
+    @close="showBalanceHistoryModal = false; balanceHistoryUser = null"
   />
 </template>
 
@@ -79,18 +96,36 @@ import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination fro
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
+import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+type DistributionMetric = 'tokens' | 'actual_cost'
+
 const usageStats = ref<AdminUsageStatsResponse | null>(null); const usageLogs = ref<AdminUsageLog[]>([]); const loading = ref(false); const exporting = ref(false)
 const trendData = ref<TrendDataPoint[]>([]); const modelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const granularity = ref<'day' | 'hour'>('day')
+const modelDistributionMetric = ref<DistributionMetric>('tokens')
+const groupDistributionMetric = ref<DistributionMetric>('tokens')
 let abortController: AbortController | null = null; let exportAbortController: AbortController | null = null
 let chartReqSeq = 0
 const exportProgress = reactive({ show: false, progress: 0, current: 0, total: 0, estimatedTime: '' })
 const cleanupDialogVisible = ref(false)
+// Balance history modal state
+const showBalanceHistoryModal = ref(false)
+const balanceHistoryUser = ref<AdminUser | null>(null)
+
+const handleUserClick = async (userId: number) => {
+  try {
+    const user = await adminAPI.users.getById(userId)
+    balanceHistoryUser.value = user
+    showBalanceHistoryModal.value = true
+  } catch {
+    appStore.showError(t('admin.usage.failedToLoadUser'))
+  }
+}
 
 const granularityOptions = computed(() => [{ value: 'day', label: t('admin.dashboard.day') }, { value: 'hour', label: t('admin.dashboard.hour') }])
 // Use local timezone to avoid UTC timezone issues

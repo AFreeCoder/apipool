@@ -652,6 +652,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				accountReleaseFunc()
 			}
 			if err != nil {
+				// Beta policy block: return 400 immediately, no failover
+				var betaBlockedErr *service.BetaBlockedError
+				if errors.As(err, &betaBlockedErr) {
+					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", betaBlockedErr.Message)
+					return
+				}
+
 				var promptTooLongErr *service.PromptTooLongError
 				if errors.As(err, &promptTooLongErr) {
 					reqLog.Warn("gateway.prompt_too_long_from_antigravity",
@@ -972,33 +979,45 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 			var rateLimits []gin.H
 			if apiKey.RateLimit5h > 0 {
 				used := rateLimitData.EffectiveUsage5h()
-				rateLimits = append(rateLimits, gin.H{
+				entry := gin.H{
 					"window":       "5h",
 					"limit":        apiKey.RateLimit5h,
 					"used":         used,
 					"remaining":    max(0, apiKey.RateLimit5h-used),
 					"window_start": rateLimitData.Window5hStart,
-				})
+				}
+				if rateLimitData.Window5hStart != nil && !service.IsWindowExpired(rateLimitData.Window5hStart, service.RateLimitWindow5h) {
+					entry["reset_at"] = rateLimitData.Window5hStart.Add(service.RateLimitWindow5h)
+				}
+				rateLimits = append(rateLimits, entry)
 			}
 			if apiKey.RateLimit1d > 0 {
 				used := rateLimitData.EffectiveUsage1d()
-				rateLimits = append(rateLimits, gin.H{
+				entry := gin.H{
 					"window":       "1d",
 					"limit":        apiKey.RateLimit1d,
 					"used":         used,
 					"remaining":    max(0, apiKey.RateLimit1d-used),
 					"window_start": rateLimitData.Window1dStart,
-				})
+				}
+				if rateLimitData.Window1dStart != nil && !service.IsWindowExpired(rateLimitData.Window1dStart, service.RateLimitWindow1d) {
+					entry["reset_at"] = rateLimitData.Window1dStart.Add(service.RateLimitWindow1d)
+				}
+				rateLimits = append(rateLimits, entry)
 			}
 			if apiKey.RateLimit7d > 0 {
 				used := rateLimitData.EffectiveUsage7d()
-				rateLimits = append(rateLimits, gin.H{
+				entry := gin.H{
 					"window":       "7d",
 					"limit":        apiKey.RateLimit7d,
 					"used":         used,
 					"remaining":    max(0, apiKey.RateLimit7d-used),
 					"window_start": rateLimitData.Window7dStart,
-				})
+				}
+				if rateLimitData.Window7dStart != nil && !service.IsWindowExpired(rateLimitData.Window7dStart, service.RateLimitWindow7d) {
+					entry["reset_at"] = rateLimitData.Window7dStart.Add(service.RateLimitWindow7d)
+				}
+				rateLimits = append(rateLimits, entry)
 			}
 			if len(rateLimits) > 0 {
 				resp["rate_limits"] = rateLimits

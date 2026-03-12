@@ -12,17 +12,23 @@ import "encoding/json"
 
 // AnthropicRequest is the request body for POST /v1/messages.
 type AnthropicRequest struct {
-	Model       string             `json:"model"`
-	MaxTokens   int                `json:"max_tokens"`
-	System      json.RawMessage    `json:"system,omitempty"` // string or []AnthropicContentBlock
-	Messages    []AnthropicMessage `json:"messages"`
-	Tools       []AnthropicTool    `json:"tools,omitempty"`
-	Stream      bool               `json:"stream,omitempty"`
-	Temperature *float64           `json:"temperature,omitempty"`
-	TopP        *float64           `json:"top_p,omitempty"`
-	StopSeqs    []string           `json:"stop_sequences,omitempty"`
-	Thinking    *AnthropicThinking `json:"thinking,omitempty"`
-	ToolChoice  json.RawMessage    `json:"tool_choice,omitempty"`
+	Model        string                 `json:"model"`
+	MaxTokens    int                    `json:"max_tokens"`
+	System       json.RawMessage        `json:"system,omitempty"` // string or []AnthropicContentBlock
+	Messages     []AnthropicMessage     `json:"messages"`
+	Tools        []AnthropicTool        `json:"tools,omitempty"`
+	Stream       bool                   `json:"stream,omitempty"`
+	Temperature  *float64               `json:"temperature,omitempty"`
+	TopP         *float64               `json:"top_p,omitempty"`
+	StopSeqs     []string               `json:"stop_sequences,omitempty"`
+	Thinking     *AnthropicThinking     `json:"thinking,omitempty"`
+	ToolChoice   json.RawMessage        `json:"tool_choice,omitempty"`
+	OutputConfig *AnthropicOutputConfig `json:"output_config,omitempty"`
+}
+
+// AnthropicOutputConfig controls output generation parameters.
+type AnthropicOutputConfig struct {
+	Effort string `json:"effort,omitempty"` // "low" | "medium" | "high"
 }
 
 // AnthropicThinking configures extended thinking in the Anthropic API.
@@ -47,6 +53,9 @@ type AnthropicContentBlock struct {
 	// type=thinking
 	Thinking string `json:"thinking,omitempty"`
 
+	// type=image
+	Source *AnthropicImageSource `json:"source,omitempty"`
+
 	// type=tool_use
 	ID    string          `json:"id,omitempty"`
 	Name  string          `json:"name,omitempty"`
@@ -56,6 +65,13 @@ type AnthropicContentBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"` // string or []AnthropicContentBlock
 	IsError   bool            `json:"is_error,omitempty"`
+}
+
+// AnthropicImageSource describes the source data for an image content block.
+type AnthropicImageSource struct {
+	Type      string `json:"type"` // "base64"
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 // AnthropicTool describes a tool available to the model.
@@ -146,6 +162,7 @@ type ResponsesRequest struct {
 	Store           *bool               `json:"store,omitempty"`
 	Reasoning       *ResponsesReasoning `json:"reasoning,omitempty"`
 	ToolChoice      json.RawMessage     `json:"tool_choice,omitempty"`
+	ServiceTier     string              `json:"service_tier,omitempty"`
 }
 
 // ResponsesReasoning configures reasoning effort in the Responses API.
@@ -176,8 +193,9 @@ type ResponsesInputItem struct {
 
 // ResponsesContentPart is a typed content part in a Responses message.
 type ResponsesContentPart struct {
-	Type string `json:"type"` // "input_text" | "output_text" | "input_image"
-	Text string `json:"text,omitempty"`
+	Type     string `json:"type"` // "input_text" | "output_text" | "input_image"
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"` // data URI for input_image
 }
 
 // ResponsesTool describes a tool in the Responses API.
@@ -309,6 +327,148 @@ type ResponsesStreamEvent struct {
 
 	// Sequence number for ordering events
 	SequenceNumber int `json:"sequence_number,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI Chat Completions API types
+// ---------------------------------------------------------------------------
+
+// ChatCompletionsRequest is the request body for POST /v1/chat/completions.
+type ChatCompletionsRequest struct {
+	Model               string             `json:"model"`
+	Messages            []ChatMessage      `json:"messages"`
+	MaxTokens           *int               `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int               `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64           `json:"temperature,omitempty"`
+	TopP                *float64           `json:"top_p,omitempty"`
+	Stream              bool               `json:"stream,omitempty"`
+	StreamOptions       *ChatStreamOptions `json:"stream_options,omitempty"`
+	Tools               []ChatTool         `json:"tools,omitempty"`
+	ToolChoice          json.RawMessage    `json:"tool_choice,omitempty"`
+	ReasoningEffort     string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high"
+	ServiceTier         string             `json:"service_tier,omitempty"`
+	Stop                json.RawMessage    `json:"stop,omitempty"` // string or []string
+
+	// Legacy function calling (deprecated but still supported)
+	Functions    []ChatFunction  `json:"functions,omitempty"`
+	FunctionCall json.RawMessage `json:"function_call,omitempty"`
+}
+
+// ChatStreamOptions configures streaming behavior.
+type ChatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
+}
+
+// ChatMessage is a single message in the Chat Completions conversation.
+type ChatMessage struct {
+	Role       string          `json:"role"` // "system" | "user" | "assistant" | "tool" | "function"
+	Content    json.RawMessage `json:"content,omitempty"`
+	Name       string          `json:"name,omitempty"`
+	ToolCalls  []ChatToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+
+	// Legacy function calling
+	FunctionCall *ChatFunctionCall `json:"function_call,omitempty"`
+}
+
+// ChatContentPart is a typed content part in a multi-modal message.
+type ChatContentPart struct {
+	Type     string        `json:"type"` // "text" | "image_url"
+	Text     string        `json:"text,omitempty"`
+	ImageURL *ChatImageURL `json:"image_url,omitempty"`
+}
+
+// ChatImageURL contains the URL for an image content part.
+type ChatImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"` // "auto" | "low" | "high"
+}
+
+// ChatTool describes a tool available to the model.
+type ChatTool struct {
+	Type     string        `json:"type"` // "function"
+	Function *ChatFunction `json:"function,omitempty"`
+}
+
+// ChatFunction describes a function tool definition.
+type ChatFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	Strict      *bool           `json:"strict,omitempty"`
+}
+
+// ChatToolCall represents a tool call made by the assistant.
+// Index is only populated in streaming chunks (omitted in non-streaming responses).
+type ChatToolCall struct {
+	Index    *int             `json:"index,omitempty"`
+	ID       string           `json:"id,omitempty"`
+	Type     string           `json:"type,omitempty"` // "function"
+	Function ChatFunctionCall `json:"function"`
+}
+
+// ChatFunctionCall contains the function name and arguments.
+type ChatFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ChatCompletionsResponse is the non-streaming response from POST /v1/chat/completions.
+type ChatCompletionsResponse struct {
+	ID                string       `json:"id"`
+	Object            string       `json:"object"` // "chat.completion"
+	Created           int64        `json:"created"`
+	Model             string       `json:"model"`
+	Choices           []ChatChoice `json:"choices"`
+	Usage             *ChatUsage   `json:"usage,omitempty"`
+	SystemFingerprint string       `json:"system_fingerprint,omitempty"`
+	ServiceTier       string       `json:"service_tier,omitempty"`
+}
+
+// ChatChoice is a single completion choice.
+type ChatChoice struct {
+	Index        int         `json:"index"`
+	Message      ChatMessage `json:"message"`
+	FinishReason string      `json:"finish_reason"` // "stop" | "length" | "tool_calls" | "content_filter"
+}
+
+// ChatUsage holds token counts in Chat Completions format.
+type ChatUsage struct {
+	PromptTokens        int               `json:"prompt_tokens"`
+	CompletionTokens    int               `json:"completion_tokens"`
+	TotalTokens         int               `json:"total_tokens"`
+	PromptTokensDetails *ChatTokenDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+// ChatTokenDetails provides a breakdown of token usage.
+type ChatTokenDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+// ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.
+type ChatCompletionsChunk struct {
+	ID                string            `json:"id"`
+	Object            string            `json:"object"` // "chat.completion.chunk"
+	Created           int64             `json:"created"`
+	Model             string            `json:"model"`
+	Choices           []ChatChunkChoice `json:"choices"`
+	Usage             *ChatUsage        `json:"usage,omitempty"`
+	SystemFingerprint string            `json:"system_fingerprint,omitempty"`
+	ServiceTier       string            `json:"service_tier,omitempty"`
+}
+
+// ChatChunkChoice is a single choice in a streaming chunk.
+type ChatChunkChoice struct {
+	Index        int       `json:"index"`
+	Delta        ChatDelta `json:"delta"`
+	FinishReason *string   `json:"finish_reason"` // pointer: null when not final
+}
+
+// ChatDelta carries incremental content in a streaming chunk.
+type ChatDelta struct {
+	Role      string         `json:"role,omitempty"`
+	Content   *string        `json:"content,omitempty"` // pointer: omit when not present, null vs "" matters
+	ToolCalls []ChatToolCall `json:"tool_calls,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

@@ -251,6 +251,58 @@
           </template>
         </div>
 
+        <!-- Pool Mode Section -->
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.poolModeHint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="poolModeEnabled = !poolModeEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  poolModeEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <div v-if="poolModeEnabled" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+            <p class="text-xs text-blue-700 dark:text-blue-400">
+              <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
+              {{ t('admin.accounts.poolModeInfo') }}
+            </p>
+          </div>
+          <div v-if="poolModeEnabled" class="mt-3">
+            <label class="input-label">{{ t('admin.accounts.poolModeRetryCount') }}</label>
+            <input
+              v-model.number="poolModeRetryCount"
+              type="number"
+              min="0"
+              :max="MAX_POOL_MODE_RETRY_COUNT"
+              step="1"
+              class="input"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{
+                t('admin.accounts.poolModeRetryCountHint', {
+                  default: DEFAULT_POOL_MODE_RETRY_COUNT,
+                  max: MAX_POOL_MODE_RETRY_COUNT
+                })
+              }}
+            </p>
+          </div>
+        </div>
+
         <!-- Custom Error Codes Section -->
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
@@ -904,7 +956,22 @@
       </div>
 
       <!-- API Key 账号配额限制 -->
-      <QuotaLimitCard v-if="account?.type === 'apikey'" v-model="editQuotaLimit" />
+      <div v-if="account?.type === 'apikey'" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
+        <div class="mb-3">
+          <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaLimit') }}</h3>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.quotaLimitHint') }}
+          </p>
+        </div>
+        <QuotaLimitCard
+          :totalLimit="editQuotaLimit"
+          :dailyLimit="editQuotaDailyLimit"
+          :weeklyLimit="editQuotaWeeklyLimit"
+          @update:totalLimit="editQuotaLimit = $event"
+          @update:dailyLimit="editQuotaDailyLimit = $event"
+          @update:weeklyLimit="editQuotaWeeklyLimit = $event"
+        />
+      </div>
 
       <!-- OpenAI OAuth Codex 官方客户端限制开关 -->
       <div
@@ -1483,6 +1550,10 @@ const editApiKey = ref('')
 const modelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const DEFAULT_POOL_MODE_RETRY_COUNT = 3
+const MAX_POOL_MODE_RETRY_COUNT = 10
+const poolModeEnabled = ref(false)
+const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const customErrorCodesEnabled = ref(false)
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
@@ -1535,6 +1606,8 @@ const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OF
 const codexCLIOnlyEnabled = ref(false)
 const anthropicPassthroughEnabled = ref(false)
 const editQuotaLimit = ref<number | null>(null)
+const editQuotaDailyLimit = ref<number | null>(null)
+const editQuotaWeeklyLimit = ref<number | null>(null)
 const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
   // TODO: ctx_pool 选项暂时隐藏，待测试完成后恢复
@@ -1641,6 +1714,20 @@ const expiresAtInput = computed({
 })
 
 // Watchers
+const normalizePoolModeRetryCount = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_POOL_MODE_RETRY_COUNT
+  }
+  const normalized = Math.trunc(value)
+  if (normalized < 0) {
+    return 0
+  }
+  if (normalized > MAX_POOL_MODE_RETRY_COUNT) {
+    return MAX_POOL_MODE_RETRY_COUNT
+  }
+  return normalized
+}
+
 watch(
   () => props.account,
   (newAccount) => {
@@ -1704,8 +1791,14 @@ watch(
       if (newAccount.type === 'apikey') {
         const quotaVal = extra?.quota_limit as number | undefined
         editQuotaLimit.value = (quotaVal && quotaVal > 0) ? quotaVal : null
+        const dailyVal = extra?.quota_daily_limit as number | undefined
+        editQuotaDailyLimit.value = (dailyVal && dailyVal > 0) ? dailyVal : null
+        const weeklyVal = extra?.quota_weekly_limit as number | undefined
+        editQuotaWeeklyLimit.value = (weeklyVal && weeklyVal > 0) ? weeklyVal : null
       } else {
         editQuotaLimit.value = null
+        editQuotaDailyLimit.value = null
+        editQuotaWeeklyLimit.value = null
       }
 
       // Load antigravity model mapping (Antigravity 只支持映射模式)
@@ -1782,6 +1875,12 @@ watch(
           allowedModels.value = []
         }
 
+        // Load pool mode
+        poolModeEnabled.value = credentials.pool_mode === true
+        poolModeRetryCount.value = normalizePoolModeRetryCount(
+          Number(credentials.pool_mode_retry_count ?? DEFAULT_POOL_MODE_RETRY_COUNT)
+        )
+
         // Load custom error codes
         customErrorCodesEnabled.value = credentials.custom_error_codes_enabled === true
         const existingErrorCodes = credentials.custom_error_codes as number[] | undefined
@@ -1828,6 +1927,8 @@ watch(
           modelMappings.value = []
           allowedModels.value = []
         }
+        poolModeEnabled.value = false
+        poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
         customErrorCodesEnabled.value = false
         selectedErrorCodes.value = []
       }
@@ -2288,6 +2389,15 @@ const handleSubmit = async () => {
         newCredentials.model_mapping = currentCredentials.model_mapping
       }
 
+      // Add pool mode if enabled
+      if (poolModeEnabled.value) {
+        newCredentials.pool_mode = true
+        newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+      } else {
+        delete newCredentials.pool_mode
+        delete newCredentials.pool_mode_retry_count
+      }
+
       // Add custom error codes if enabled
       if (customErrorCodesEnabled.value) {
         newCredentials.custom_error_codes_enabled = true
@@ -2524,6 +2634,16 @@ const handleSubmit = async () => {
         newExtra.quota_limit = editQuotaLimit.value
       } else {
         delete newExtra.quota_limit
+      }
+      if (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) {
+        newExtra.quota_daily_limit = editQuotaDailyLimit.value
+      } else {
+        delete newExtra.quota_daily_limit
+      }
+      if (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0) {
+        newExtra.quota_weekly_limit = editQuotaWeeklyLimit.value
+      } else {
+        delete newExtra.quota_weekly_limit
       }
       updatePayload.extra = newExtra
     }

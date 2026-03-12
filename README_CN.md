@@ -154,14 +154,14 @@ mkdir -p sub2api-deploy && cd sub2api-deploy
 curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
 
 # 启动服务
-docker-compose -f docker-compose.local.yml up -d
+docker-compose up -d
 
 # 查看日志
-docker-compose -f docker-compose.local.yml logs -f sub2api
+docker-compose logs -f sub2api
 ```
 
 **脚本功能：**
-- 下载 `docker-compose.local.yml` 和 `.env.example`
+- 下载 `docker-compose.local.yml`（本地保存为 `docker-compose.yml`）和 `.env.example`
 - 自动生成安全凭证（JWT_SECRET、TOTP_ENCRYPTION_KEY、POSTGRES_PASSWORD）
 - 创建 `.env` 文件并填充自动生成的密钥
 - 创建数据目录（使用本地目录，便于备份和迁移）
@@ -587,6 +587,28 @@ sub2api/
     ├── config.example.yaml   # 二进制部署完整配置文件
     └── install.sh            # 一键安装脚本
 ```
+
+## 免责声明
+
+> **使用本项目前请仔细阅读：**
+>
+> :rotating_light: **服务条款风险**: 使用本项目可能违反 Anthropic 的服务条款。请在使用前仔细阅读 Anthropic 的用户协议，使用本项目的一切风险由用户自行承担。
+>
+> :book: **免责声明**: 本项目仅供技术学习和研究使用，作者不对因使用本项目导致的账户封禁、服务中断或其他损失承担任何责任。
+
+---
+
+## Star History
+
+<a href="https://star-history.com/#Wei-Shaw/sub2api&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Wei-Shaw/sub2api&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Wei-Shaw/sub2api&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Wei-Shaw/sub2api&type=Date" />
+ </picture>
+</a>
+
+---
 
 ## 许可证
 

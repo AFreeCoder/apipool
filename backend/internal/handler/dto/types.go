@@ -57,6 +57,9 @@ type APIKey struct {
 	Window5hStart *time.Time `json:"window_5h_start"`
 	Window1dStart *time.Time `json:"window_1d_start"`
 	Window7dStart *time.Time `json:"window_7d_start"`
+	Reset5hAt     *time.Time `json:"reset_5h_at,omitempty"`
+	Reset1dAt     *time.Time `json:"reset_1d_at,omitempty"`
+	Reset7dAt     *time.Time `json:"reset_7d_at,omitempty"`
 
 	User  *User  `json:"user,omitempty"`
 	Group *Group `json:"group,omitempty"`
@@ -193,8 +196,12 @@ type Account struct {
 	CacheTTLOverrideTarget  *string `json:"cache_ttl_override_target,omitempty"`
 
 	// API Key 账号配额限制
-	QuotaLimit *float64 `json:"quota_limit,omitempty"`
-	QuotaUsed  *float64 `json:"quota_used,omitempty"`
+	QuotaLimit       *float64 `json:"quota_limit,omitempty"`
+	QuotaUsed        *float64 `json:"quota_used,omitempty"`
+	QuotaDailyLimit  *float64 `json:"quota_daily_limit,omitempty"`
+	QuotaDailyUsed   *float64 `json:"quota_daily_used,omitempty"`
+	QuotaWeeklyLimit *float64 `json:"quota_weekly_limit,omitempty"`
+	QuotaWeeklyUsed  *float64 `json:"quota_weekly_used,omitempty"`
 
 	Proxy         *Proxy         `json:"proxy,omitempty"`
 	AccountGroups []AccountGroup `json:"account_groups,omitempty"`
@@ -315,6 +322,8 @@ type UsageLog struct {
 	AccountID int64  `json:"account_id"`
 	RequestID string `json:"request_id"`
 	Model     string `json:"model"`
+	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
+	ServiceTier *string `json:"service_tier,omitempty"`
 	// ReasoningEffort is the request's reasoning effort level (OpenAI Responses API).
 	// nil means not provided / not applicable.
 	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
