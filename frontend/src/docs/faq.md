@@ -20,6 +20,7 @@
 
 ### OpenAI（Codex）分组支持模型列表
 
+- GPT-5.4
 - GPT-5.3-Codex
 - GPT-5.2-Codex
 - GPT-5.2
