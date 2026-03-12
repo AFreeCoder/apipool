@@ -217,7 +217,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	userReleaseFunc, err := geminiConcurrency.AcquireUserSlotWithWait(c, authSubject.UserID, authSubject.Concurrency, stream, &streamStarted)
 	if err != nil {
 		reqLog.Warn("gemini.user_slot_acquire_failed", zap.Error(err))
-		googleError(c, http.StatusTooManyRequests, err.Error())
+		status, message := mapGeminiConcurrencyAcquireError(err, "user")
+		googleError(c, status, message)
 		return
 	}
 	if waitCounted {
@@ -436,7 +437,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			)
 			if err != nil {
 				reqLog.Warn("gemini.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-				googleError(c, http.StatusTooManyRequests, err.Error())
+				status, message := mapGeminiConcurrencyAcquireError(err, "account")
+				googleError(c, status, message)
 				return
 			}
 			if accountWaitCounted {
