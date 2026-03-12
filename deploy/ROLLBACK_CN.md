@@ -130,10 +130,12 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh image deploy-sub2api:r
 ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh source <commit>'
 ```
 
-如果本次需要回到“上游合入前”的稳定点，可用当时线上好版本：
+如果本次需要回到“部署前的稳定点”，先从服务器记录里拿到部署前 commit，再执行源码回退：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh source ca7aa410144321d9084bbf18fb2fa8a4aef7662d'
+ssh digitalocean 'cat /opt/sub2api/backups/last-rollback-image.txt'
+ssh digitalocean 'cd /opt/sub2api && git reflog --date=iso --max-count=20'
+ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh source <部署前稳定commit>'
 ```
 
 ## 4. 数据库恢复：最后手段

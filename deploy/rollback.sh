@@ -345,7 +345,7 @@ case "$cmd" in
     ;;
   db-restore)
     shift
-    restore_db "${1:-}"
+    restore_db "$@"
     ;;
   -h|--help|help|"")
     usage
