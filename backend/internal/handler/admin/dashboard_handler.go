@@ -490,22 +490,19 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 		UserIDs: userIDs,
 	})
 	cacheKey := string(keyRaw)
-	if cached, ok := dashboardBatchUsersUsageCache.Get(cacheKey); ok {
-		c.Header("X-Snapshot-Cache", "hit")
-		response.Success(c, cached.Payload)
-		return
-	}
-
-	stats, err := h.dashboardService.GetBatchUserUsageStats(c.Request.Context(), userIDs, time.Time{}, time.Time{})
+	cached, hit, err := dashboardBatchUsersUsageCache.GetOrLoad(cacheKey, func() (any, error) {
+		stats, err := h.dashboardService.GetBatchUserUsageStats(c.Request.Context(), userIDs, time.Time{}, time.Time{})
+		if err != nil {
+			return nil, err
+		}
+		return gin.H{"stats": stats}, nil
+	})
 	if err != nil {
 		response.Error(c, 500, "Failed to get user usage stats")
 		return
 	}
-
-	payload := gin.H{"stats": stats}
-	dashboardBatchUsersUsageCache.Set(cacheKey, payload)
-	c.Header("X-Snapshot-Cache", "miss")
-	response.Success(c, payload)
+	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
+	response.Success(c, cached.Payload)
 }
 
 // BatchAPIKeysUsageRequest represents the request body for batch api key usage stats
@@ -534,20 +531,17 @@ func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 		APIKeyIDs: apiKeyIDs,
 	})
 	cacheKey := string(keyRaw)
-	if cached, ok := dashboardBatchAPIKeysUsageCache.Get(cacheKey); ok {
-		c.Header("X-Snapshot-Cache", "hit")
-		response.Success(c, cached.Payload)
-		return
-	}
-
-	stats, err := h.dashboardService.GetBatchAPIKeyUsageStats(c.Request.Context(), apiKeyIDs, time.Time{}, time.Time{})
+	cached, hit, err := dashboardBatchAPIKeysUsageCache.GetOrLoad(cacheKey, func() (any, error) {
+		stats, err := h.dashboardService.GetBatchAPIKeyUsageStats(c.Request.Context(), apiKeyIDs, time.Time{}, time.Time{})
+		if err != nil {
+			return nil, err
+		}
+		return gin.H{"stats": stats}, nil
+	})
 	if err != nil {
 		response.Error(c, 500, "Failed to get API key usage stats")
 		return
 	}
-
-	payload := gin.H{"stats": stats}
-	dashboardBatchAPIKeysUsageCache.Set(cacheKey, payload)
-	c.Header("X-Snapshot-Cache", "miss")
-	response.Success(c, payload)
+	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
+	response.Success(c, cached.Payload)
 }

@@ -20,39 +20,63 @@
 |------|------|
 | 后端 | Go 1.25.7, Gin, Ent ORM |
 | 前端 | Vue 3 + TypeScript, Vite, Pinia, TailwindCSS |
-| 数据库 | PostgreSQL 16 |
-| 缓存 | Redis 7 |
+| 数据库 | PostgreSQL 18 |
+| 缓存 | Redis 8 |
 | 包管理 | 后端: go modules / 前端: npm（CI 用 pnpm） |
 
 ## 部署
 
-部署在 **silicon** 服务器上，使用 Docker Compose 方式运行。
+部署在 **DigitalOcean** 服务器上，通过 GitHub Actions 自动部署（push to `main` 触发）。
+
+当前生产部署特征：
+
+- 单实例 Docker Compose 部署
+- 发布前自动做数据库备份
+- 发布前自动给当前线上镜像打回退 tag
+- 应用进程支持优雅退出，容器设置了 `stop_grace_period`
+- 但 **不是零中断滚动发布**；发布或重启时会重建单个 `sub2api` 容器，通常只有短暂中断窗口
 
 ```bash
-ssh silicon                   # 登录服务器
-docker compose up -d          # 启动服务
-docker compose down           # 停止服务
-docker compose logs -f        # 查看日志
-docker compose pull && docker compose up -d  # 更新镜像
+ssh digitalocean               # 登录服务器
+cd /opt/sub2api/deploy
+
+# 常用运维命令
+docker compose -f docker-compose.deploy.yml up -d       # 启动服务
+docker compose -f docker-compose.deploy.yml down         # 停止服务
+docker compose -f docker-compose.deploy.yml logs -f      # 查看日志
+docker compose -f docker-compose.deploy.yml restart      # 重启服务
 ```
+
+### 备份与回滚
+
+生产环境已经验证可正常执行以下动作：
+
+- `cd /opt/sub2api/deploy && ./rollback.sh prep`
+  部署前生成 `pre-deploy-*.sql.gz` 数据库备份，并刷新 `deploy-sub2api:rollback-latest`
+- `cd /opt/sub2api/deploy && ./rollback.sh image`
+  出现问题时快速回到上一个线上镜像
+- `cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-image`
+  必要时恢复数据库，并显式指定恢复后启动的应用版本
+
+详细说明见 [deploy/ROLLBACK_CN.md](/Users/afreecoder/project/apipool/deploy/ROLLBACK_CN.md)。
 
 ## 本地开发
 
 ### Docker 基础服务
 
 ```bash
-# PostgreSQL 16
+# PostgreSQL 18
 docker run -d --name apipool-postgres \
   -e POSTGRES_USER=sub2api \
   -e POSTGRES_PASSWORD=sub2api \
   -e POSTGRES_DB=sub2api \
   -p 5432:5432 \
-  postgres:16-alpine
+  postgres:18-alpine
 
-# Redis 7
+# Redis 8
 docker run -d --name apipool-redis \
   -p 6379:6379 \
-  redis:7-alpine
+  redis:8-alpine
 ```
 
 ### 本地环境凭据
@@ -78,7 +102,7 @@ cd backend
 DATABASE_HOST=127.0.0.1 DATABASE_PORT=5432 \
 DATABASE_USER=sub2api DATABASE_PASSWORD=sub2api DATABASE_DBNAME=sub2api \
 REDIS_HOST=127.0.0.1 REDIS_PORT=6379 \
-SERVER_MODE=debug \
+SERVER_MODE=debug SERVER_PORT=8080 \
 go run ./cmd/server/
 
 # 3. 启动前端（另开终端）
@@ -93,7 +117,7 @@ npm run dev
 
 | Workflow | 触发条件 | 内容 |
 |----------|----------|------|
-| deploy.yml | push to main | SSH 部署到服务器 |
+| deploy.yml | push to main | SSH 部署到 DigitalOcean |
 | backend-ci.yml | push, PR | 单元测试 + 集成测试 + golangci-lint v2.7 |
 | security-scan.yml | push, PR, 每周一 | govulncheck + gosec + pnpm audit |
 | release.yml | tag `v*` | 构建发布 |
@@ -125,6 +149,7 @@ git fetch upstream && git merge upstream/main
 
 ## 常见坑点
 
+- **后端默认端口是 3000**：本地开发必须加 `SERVER_PORT=8080`，否则会和前端 Vite 的 3000 端口冲突
 - **pnpm-lock.yaml 必须同步提交**：改了 `package.json` 后执行 `cd frontend && pnpm install && git add pnpm-lock.yaml`
 - **npm 与 pnpm 的 node_modules 冲突**：`rm -rf node_modules && pnpm install`
 - **Go interface 新增方法**：必须补全所有 Stub/Mock struct 的实现

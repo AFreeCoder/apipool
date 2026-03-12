@@ -9,15 +9,20 @@
 - 数据库容器：`sub2api-postgres`
 - Redis 容器：`sub2api-redis`
 
-截至 2026-03-08，线上数据库迁移最高版本为 `067_add_account_load_factor.sql`。本次上游同步新增的迁移只有：
+截至 2026-03-12，本次上游同步新增的迁移包括：
 
 - `068_add_announcement_notify_mode.sql`
 - `069_add_group_messages_dispatch.sql`
+- `070_add_scheduled_test_auto_recover.sql`
+- `070_add_usage_log_service_tier.sql`
+- `071_add_gemini25_flash_image_to_model_mapping.sql`
 
-这两个迁移都是“新增列 + 默认值”，因此在当前版本上，旧代码大概率可以直接运行在新 schema 上。结论是：
+这些迁移整体仍偏向“新增列 / 新映射 / 新配置”，但已经不适合再简单假设“任意旧代码都能无风险运行在新 schema 上”。当前推荐回退原则是：
 
-- 第一优先级：只回退应用容器
-- 最后手段：才回退数据库
+- 第一优先级：先回退应用版本
+- 第二优先级：确认问题是否真的指向数据库状态
+- 最后手段：才恢复数据库
+- 如果要恢复数据库，必须同时明确“恢复后要启动哪个应用版本”
 
 ## 1. 部署前固定动作
 
@@ -53,6 +58,18 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh prep'
 
 - 给当前运行中的 `deploy-sub2api:latest` 打回退 tag
 - 生成一份 `pre-deploy-*.sql.gz` 数据库备份
+
+如果线上启用了本地 Sora 存储，或者依赖 `/app/data` 中的本地配置 / 媒体 / 日志，还应额外备份 `sub2api_data` 卷：
+
+```bash
+ssh digitalocean '
+  mkdir -p /opt/sub2api/backups &&
+  docker run --rm \
+    -v sub2api_data:/data \
+    -v /opt/sub2api/backups:/backup \
+    alpine sh -c "cd /data && tar czf /backup/sub2api-data-$(date +%Y%m%d_%H%M%S).tar.gz ."
+'
+```
 
 如果只想单独做其中一步：
 
@@ -126,6 +143,7 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh source ca7aa410144321d
 - 确认 migration 本身执行错误
 - 新版本写入了错误数据，旧代码无法自恢复
 - 应用热回退后问题依然存在，并且证据指向数据库状态
+- 需要把数据状态回退到部署前快照
 
 通过 GitHub Actions 正式部署时，部署工作流会在构建前自动生成：
 
@@ -137,23 +155,44 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh source ca7aa410144321d
 
 恢复步骤：
 
-默认恢复最近的一份 `pre-deploy` 或 `scheduled` 备份：
+1. 先确定恢复后要启动哪个应用版本。
+   优先使用镜像回退：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore'
+ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-image'
 ```
 
-如果要恢复指定备份文件：
+如果要恢复后直接切到某个指定回退镜像：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore /opt/sub2api/backups/pre-deploy-YYYYmmdd_HHMMSS.sql.gz'
+ssh digitalocean "cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-image --image-tag deploy-sub2api:rollback-YYYYmmdd_HHMMSS-<commit>"
+```
+
+如果没有可用回退镜像，而是要回到某个 git commit：
+
+```bash
+ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-source <commit>'
+```
+
+如果你已经确认“当前应用版本本身没问题，只需要恢复数据库”，才允许显式使用：
+
+```bash
+ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore --allow-current-app'
+```
+
+如果要恢复指定备份文件，把备份路径放在命令里即可：
+
+```bash
+ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore /opt/sub2api/backups/pre-deploy-YYYYmmdd_HHMMSS.sql.gz --with-image'
 ```
 
 注意：
 
-- 先停应用，再恢复数据库
-- 不要在数据库恢复过程中让应用继续写入
-- 恢复完成后优先检查 `sub2api` 健康状态和关键接口
+- `db-restore` 现在要求显式声明恢复后的应用策略，防止数据库恢复完又把当前坏版本重新拉起。
+- 如果问题来自代码或配置，不要只做 `db-restore`；应优先用 `image` 或 `source` 回退应用。
+- 数据库恢复过程中必须保持应用停止状态，避免继续写入。
+- 如果线上依赖 `/app/data` 本地数据，数据库回退前后要一并考虑卷级快照和恢复。
+- 恢复完成后优先检查 `sub2api` 健康状态、登录、网关转发、管理后台查询。
 
 ## 5. 故障分类与动作建议
 
@@ -191,7 +230,9 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore /opt/sub2ap
 
 动作：
 
+- 先决定恢复后要启动的应用版本
 - 再走第 4 节“数据库恢复”
+- 不要只恢复数据库后直接拉起当前坏版本
 
 ## 6. 回退后必须做的事
 

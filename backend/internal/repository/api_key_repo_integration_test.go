@@ -262,6 +262,48 @@ func (s *APIKeyRepoSuite) TestSearchAPIKeys_NoUserID() {
 	s.Require().Len(found, 1)
 }
 
+func (s *APIKeyRepoSuite) TestIncrementRateLimitUsage_UsesSlidingWindows() {
+	user := s.mustCreateUser("ratelimit-sliding@test.com")
+	key := s.mustCreateApiKey(user.ID, "sk-rate-sliding", "Rate Sliding", nil)
+
+	before := time.Now()
+	err := s.repo.IncrementRateLimitUsage(s.ctx, key.ID, 1.5)
+	s.Require().NoError(err)
+
+	data, err := s.repo.GetRateLimitData(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(data.Window1dStart)
+	s.Require().NotNil(data.Window7dStart)
+	s.Require().WithinDuration(before, *data.Window1dStart, time.Minute)
+	s.Require().WithinDuration(before, *data.Window7dStart, time.Minute)
+}
+
+func (s *APIKeyRepoSuite) TestResetRateLimitWindows_UsesSlidingWindows() {
+	user := s.mustCreateUser("ratelimit-reset@test.com")
+	key := s.mustCreateApiKey(user.ID, "sk-rate-reset", "Rate Reset", nil)
+
+	expired := time.Now().Add(-8 * 24 * time.Hour)
+	_, err := s.repo.sql.ExecContext(s.ctx, `
+		UPDATE api_keys
+		SET usage_1d = 3, usage_7d = 7, window_1d_start = $1, window_7d_start = $1
+		WHERE id = $2
+	`, expired, key.ID)
+	s.Require().NoError(err)
+
+	before := time.Now()
+	err = s.repo.ResetRateLimitWindows(s.ctx, key.ID)
+	s.Require().NoError(err)
+
+	data, err := s.repo.GetRateLimitData(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(0.0, data.Usage1d)
+	s.Require().Equal(0.0, data.Usage7d)
+	s.Require().NotNil(data.Window1dStart)
+	s.Require().NotNil(data.Window7dStart)
+	s.Require().WithinDuration(before, *data.Window1dStart, time.Minute)
+	s.Require().WithinDuration(before, *data.Window7dStart, time.Minute)
+}
+
 // --- ClearGroupIDByGroupID ---
 
 func (s *APIKeyRepoSuite) TestClearGroupIDByGroupID() {

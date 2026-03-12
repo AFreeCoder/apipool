@@ -201,7 +201,59 @@ rollback_source() {
 restore_db() {
   ensure_paths
 
-  backup_file="${1:-}"
+  backup_file=""
+  restore_mode=""
+  image_tag="${IMAGE_REPO}:rollback-latest"
+  source_commit=""
+
+  set_restore_mode() {
+    mode="$1"
+    if [ -n "$restore_mode" ] && [ "$restore_mode" != "$mode" ]; then
+      fail "db-restore 只能选择一种恢复后应用策略"
+    fi
+    restore_mode="$mode"
+  }
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --with-image)
+        set_restore_mode "image"
+        shift
+        ;;
+      --image-tag)
+        [ -n "${2:-}" ] || fail "用法: rollback.sh db-restore [backup-file] --with-image [--image-tag <rollback-tag>]"
+        image_tag="$2"
+        shift 2
+        ;;
+      --with-source)
+        [ -n "${2:-}" ] || fail "用法: rollback.sh db-restore [backup-file] --with-source <commit>"
+        set_restore_mode "source"
+        source_commit="$2"
+        shift 2
+        ;;
+      --allow-current-app)
+        set_restore_mode "current"
+        shift
+        ;;
+      --help|-h)
+        fail "用法: rollback.sh db-restore [backup-file] (--with-image [--image-tag <rollback-tag>] | --with-source <commit> | --allow-current-app)"
+        ;;
+      --*)
+        fail "未知参数: $1"
+        ;;
+      *)
+        [ -z "$backup_file" ] || fail "db-restore 只接受一个备份文件参数"
+        backup_file="$1"
+        shift
+        ;;
+    esac
+  done
+
+  [ -n "$restore_mode" ] || fail "db-restore 为高风险操作，请显式指定 --with-image、--with-source <commit>，或在确认当前应用版本安全时使用 --allow-current-app"
+  if [ "$restore_mode" != "image" ] && [ "$image_tag" != "${IMAGE_REPO}:rollback-latest" ]; then
+    fail "--image-tag 只能与 --with-image 一起使用"
+  fi
+
   if [ -z "$backup_file" ]; then
     backup_file="$(
       ls -1t "$BACKUP_DIR"/pre-deploy-*.sql.gz "$BACKUP_DIR"/scheduled-*.sql.gz 2>/dev/null | head -1 || true
@@ -220,11 +272,33 @@ restore_db() {
     docker compose -f "$COMPOSE_FILE" stop "$APP_SERVICE"
   )
 
+  case "$restore_mode" in
+    image)
+      log "数据库恢复完成后将回退到镜像: $image_tag"
+      ;;
+    source)
+      log "数据库恢复完成后将回退到源码提交: $source_commit"
+      ;;
+    current)
+      log "数据库恢复完成后将重启当前应用版本；仅在确认当前代码与备份库兼容时使用"
+      ;;
+  esac
+
   log "开始恢复数据库: $backup_file"
   gunzip -c "$backup_file" | docker exec -i "$POSTGRES_CONTAINER" psql -U "$db_user" -d "$db_name"
   log "数据库恢复完成"
 
-  recreate_app_container
+  case "$restore_mode" in
+    image)
+      rollback_image "$image_tag"
+      ;;
+    source)
+      rollback_source "$source_commit"
+      ;;
+    current)
+      recreate_app_container
+      ;;
+  esac
 }
 
 usage() {
@@ -235,7 +309,9 @@ usage() {
   rollback.sh backup-db
   rollback.sh image [rollback-tag]
   rollback.sh source <commit>
-  rollback.sh db-restore [backup-file]
+  rollback.sh db-restore [backup-file] --with-image [--image-tag <rollback-tag>]
+  rollback.sh db-restore [backup-file] --with-source <commit>
+  rollback.sh db-restore [backup-file] --allow-current-app
 
 说明:
   prep         部署前准备：给当前镜像打回退 tag，并执行 pre-deploy 数据库备份
@@ -244,6 +320,7 @@ usage() {
   image        用回退镜像快速回滚，默认使用 deploy-sub2api:rollback-latest
   source       回退到指定 git commit，重新构建并重启 sub2api
   db-restore   恢复数据库，默认取最新 pre-deploy 或 scheduled 备份
+               需要显式指定恢复后的应用策略，避免数据库恢复后误起当前坏版本
 EOF
 }
 

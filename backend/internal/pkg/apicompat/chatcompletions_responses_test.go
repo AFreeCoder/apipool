@@ -344,8 +344,7 @@ func TestResponsesToChatCompletions_Reasoning(t *testing.T) {
 
 	var content string
 	require.NoError(t, json.Unmarshal(chat.Choices[0].Message.Content, &content))
-	// Reasoning summary is prepended to text
-	assert.Equal(t, "I thought about it.The answer is 42.", content)
+	assert.Equal(t, "The answer is 42.", content)
 }
 
 func TestResponsesToChatCompletions_Incomplete(t *testing.T) {
@@ -581,9 +580,7 @@ func TestResponsesEventToChatChunks_ReasoningDelta(t *testing.T) {
 		Type:  "response.reasoning_summary_text.delta",
 		Delta: "Thinking...",
 	}, state)
-	require.Len(t, chunks, 1)
-	require.NotNil(t, chunks[0].Choices[0].Delta.Content)
-	assert.Equal(t, "Thinking...", *chunks[0].Choices[0].Delta.Content)
+	require.Nil(t, chunks)
 }
 
 func TestFinalizeResponsesChatStream(t *testing.T) {

@@ -19,7 +19,7 @@ This directory contains files for deploying Sub2API on Linux servers.
 | `.env.example` | Docker environment variables template |
 | `DOCKER.md` | Docker Hub documentation |
 | `ROLLBACK_CN.md` | 生产回退手册（中文，适配当前 DigitalOcean + Docker Compose 部署） |
-| `rollback.sh` | 服务器侧回退脚本，支持部署前 prep、镜像热回退、源码回退、数据库恢复 |
+| `rollback.sh` | 服务器侧回退脚本，支持部署前 prep、镜像热回退、源码回退、数据库恢复（需显式指定恢复后应用策略） |
 | `install.sh` | One-click binary installation script |
 | `install-datamanagementd.sh` | datamanagementd 一键安装脚本 |
 | `sub2api.service` | Systemd service unit file |
