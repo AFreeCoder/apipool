@@ -5,10 +5,14 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/imroc/req/v3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,6 +38,36 @@ func (r *tokenRefreshAccountRepo) SetError(ctx context.Context, id int64, errorM
 
 func (r *tokenRefreshAccountRepo) ClearTempUnschedulable(ctx context.Context, id int64) error {
 	r.clearTempCalls++
+	return nil
+}
+
+type tokenRefreshPlanSweepRepo struct {
+	mockAccountRepoForGemini
+	mergeCalls          int
+	updateExtraCalls    int
+	setSchedulableCalls int
+	lastMergedUpdates   map[string]any
+	lastExtraUpdates    map[string]any
+	lastSchedulableID   int64
+	lastSchedulable     bool
+}
+
+func (r *tokenRefreshPlanSweepRepo) MergeCredentials(_ context.Context, _ int64, updates map[string]any) error {
+	r.mergeCalls++
+	r.lastMergedUpdates = cloneAnyMap(updates)
+	return nil
+}
+
+func (r *tokenRefreshPlanSweepRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
+	r.updateExtraCalls++
+	r.lastExtraUpdates = cloneAnyMap(updates)
+	return nil
+}
+
+func (r *tokenRefreshPlanSweepRepo) SetSchedulable(_ context.Context, id int64, schedulable bool) error {
+	r.setSchedulableCalls++
+	r.lastSchedulableID = id
+	r.lastSchedulable = schedulable
 	return nil
 }
 
@@ -386,7 +420,7 @@ func TestTokenRefreshService_RefreshWithRetry_ClearsTempUnschedulable(t *testing
 	err := service.refreshWithRetry(context.Background(), account, refresher)
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
-	require.Equal(t, 1, repo.clearTempCalls)  // DB 清除
+	require.Equal(t, 1, repo.clearTempCalls)   // DB 清除
 	require.Equal(t, 1, tempCache.deleteCalls) // Redis 缓存也应清除
 }
 
@@ -452,4 +486,124 @@ func TestIsNonRetryableRefreshError(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestTokenRefreshService_MaybeRunOpenAIPlanSync_AutoUnschedulesAfterConsecutiveFree(t *testing.T) {
+	freeFixture := `{
+		"accounts": {
+			"dc284052-xxxx-xxxx-xxxx-9544ffbb46e6": {
+				"account": {
+					"plan_type": "free"
+				}
+			}
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, freeFixture)
+	}))
+	defer server.Close()
+	withTestEndpoint(t, server.URL)
+
+	repo := &tokenRefreshPlanSweepRepo{}
+	svc := &TokenRefreshService{
+		accountRepo:          repo,
+		cfg:                  &config.TokenRefreshConfig{PlanSyncIntervalMinutes: 60, AutoUnscheduleFree: true, FreeUnscheduleThreshold: 2},
+		privacyClientFactory: planTypeTestClientFactory(),
+	}
+	accounts := []Account{{
+		ID:          26,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"access_token":       "test-token",
+			"chatgpt_account_id": "dc284052-xxxx-xxxx-xxxx-9544ffbb46e6",
+			"plan_type":          "free",
+		},
+		Extra: map[string]any{
+			openAIPlanConsecutiveFreeExtraKey: 1,
+		},
+	}}
+
+	svc.maybeRunOpenAIPlanSync(context.Background(), accounts)
+
+	require.Equal(t, 0, repo.mergeCalls, "plan_type 未变化时不应写 credentials")
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.Equal(t, int64(26), repo.lastSchedulableID)
+	require.False(t, repo.lastSchedulable)
+	require.Equal(t, 1, repo.updateExtraCalls)
+	require.Equal(t, 2, repo.lastExtraUpdates[openAIPlanConsecutiveFreeExtraKey])
+	require.Equal(t, openAIPlanCheckSource, repo.lastExtraUpdates[openAIPlanLastCheckSourceExtraKey])
+	require.NotEmpty(t, repo.lastExtraUpdates[openAIPlanLastCheckedAtExtraKey])
+	require.NotEmpty(t, repo.lastExtraUpdates[openAIPlanAutoUnschedAtExtraKey])
+	require.False(t, accounts[0].Schedulable)
+	require.Equal(t, 2, accountExtraInt(&accounts[0], openAIPlanConsecutiveFreeExtraKey))
+}
+
+func TestTokenRefreshService_MaybeRunOpenAIPlanSync_ResetsFreeCounterOnPaidPlan(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, accountsCheckFixture)
+	}))
+	defer server.Close()
+	withTestEndpoint(t, server.URL)
+
+	repo := &tokenRefreshPlanSweepRepo{}
+	svc := &TokenRefreshService{
+		accountRepo:          repo,
+		cfg:                  &config.TokenRefreshConfig{PlanSyncIntervalMinutes: 60, AutoUnscheduleFree: true, FreeUnscheduleThreshold: 2},
+		privacyClientFactory: planTypeTestClientFactory(),
+	}
+	accounts := []Account{{
+		ID:          27,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"access_token":       "test-token",
+			"chatgpt_account_id": "dc284052-xxxx-xxxx-xxxx-9544ffbb46e6",
+			"plan_type":          "free",
+		},
+		Extra: map[string]any{
+			openAIPlanConsecutiveFreeExtraKey: 3,
+		},
+	}}
+
+	svc.maybeRunOpenAIPlanSync(context.Background(), accounts)
+
+	require.Equal(t, 1, repo.mergeCalls)
+	require.Equal(t, "plus", repo.lastMergedUpdates["plan_type"])
+	require.Equal(t, 0, repo.setSchedulableCalls)
+	require.Equal(t, 1, repo.updateExtraCalls)
+	require.Equal(t, 0, repo.lastExtraUpdates[openAIPlanConsecutiveFreeExtraKey])
+	require.Equal(t, "plus", accounts[0].GetCredential("plan_type"))
+}
+
+func TestTokenRefreshService_MaybeRunOpenAIPlanSync_SkipsBeforeInterval(t *testing.T) {
+	repo := &tokenRefreshPlanSweepRepo{}
+	svc := &TokenRefreshService{
+		accountRepo: repo,
+		cfg:         &config.TokenRefreshConfig{PlanSyncIntervalMinutes: 60},
+		privacyClientFactory: func(proxyURL string) (*req.Client, error) {
+			t.Fatal("should not create HTTP client before plan sync interval elapses")
+			return nil, nil
+		},
+		lastOpenAIPlanSyncAt: time.Now(),
+	}
+	accounts := []Account{{
+		ID:       28,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":       "test-token",
+			"chatgpt_account_id": "dc284052-xxxx-xxxx-xxxx-9544ffbb46e6",
+		},
+	}}
+
+	svc.maybeRunOpenAIPlanSync(context.Background(), accounts)
+
+	require.Zero(t, repo.mergeCalls)
+	require.Zero(t, repo.updateExtraCalls)
+	require.Zero(t, repo.setSchedulableCalls)
 }

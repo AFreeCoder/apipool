@@ -183,6 +183,9 @@ func (m *mockAccountRepoForPlatform) UpdateSessionWindow(ctx context.Context, id
 func (m *mockAccountRepoForPlatform) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	return nil
 }
+func (m *mockAccountRepoForPlatform) MergeCredentials(ctx context.Context, id int64, updates map[string]any) error {
+	return nil
+}
 func (m *mockAccountRepoForPlatform) BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
 	return 0, nil
 }

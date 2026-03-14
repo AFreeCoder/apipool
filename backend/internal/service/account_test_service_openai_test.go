@@ -25,6 +25,9 @@ func (r *openAIAccountTestRepo) UpdateExtra(_ context.Context, _ int64, updates 
 	r.updatedExtra = updates
 	return nil
 }
+func (r *openAIAccountTestRepo) MergeCredentials(_ context.Context, _ int64, _ map[string]any) error {
+	return nil
+}
 
 func (r *openAIAccountTestRepo) SetRateLimited(_ context.Context, id int64, resetAt time.Time) error {
 	r.rateLimitedID = id

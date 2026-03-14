@@ -585,7 +585,7 @@ func enrichCredentialsFromIDToken(item *DataAccount) {
 	}
 
 	setIfMissing("email", userInfo.Email)
-	setIfMissing("plan_type", userInfo.PlanType)
+	// plan_type 不再从 id_token 写入（不可靠），改由 accounts/check 端点同步
 	setIfMissing("chatgpt_account_id", userInfo.ChatGPTAccountID)
 	setIfMissing("chatgpt_user_id", userInfo.ChatGPTUserID)
 	setIfMissing("organization_id", userInfo.OrganizationID)

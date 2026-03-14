@@ -212,6 +212,9 @@ func (r *stubAccountRepo) UpdateSessionWindow(ctx context.Context, id int64, sta
 func (r *stubAccountRepo) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	return nil
 }
+func (r *stubAccountRepo) MergeCredentials(ctx context.Context, id int64, updates map[string]any) error {
+	return nil
+}
 func (r *stubAccountRepo) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
 	return 0, nil
 }

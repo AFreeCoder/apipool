@@ -229,6 +229,9 @@ func (h *OpenAIOAuthHandler) RefreshAccountToken(c *gin.Context) {
 		return
 	}
 
+	// 刷新成功后同步 plan_type（失败不阻塞）
+	h.adminService.SyncOpenAIPlanType(c.Request.Context(), updatedAccount)
+
 	response.Success(c, dto.AccountFromService(updatedAccount))
 }
 
@@ -299,6 +302,9 @@ func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+
+	// 新建成功后同步 plan_type，避免首次创建后长时间为空
+	h.adminService.SyncOpenAIPlanType(c.Request.Context(), account)
 
 	response.Success(c, dto.AccountFromService(account))
 }

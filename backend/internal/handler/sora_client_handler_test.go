@@ -2128,6 +2128,9 @@ func (r *stubAccountRepoForHandler) UpdateSessionWindow(context.Context, int64, 
 func (r *stubAccountRepoForHandler) UpdateExtra(context.Context, int64, map[string]any) error {
 	return nil
 }
+func (r *stubAccountRepoForHandler) MergeCredentials(context.Context, int64, map[string]any) error {
+	return nil
+}
 func (r *stubAccountRepoForHandler) BulkUpdate(context.Context, []int64, service.AccountBulkUpdate) (int64, error) {
 	return 0, nil
 }

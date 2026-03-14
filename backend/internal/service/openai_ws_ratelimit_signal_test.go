@@ -47,6 +47,9 @@ func (r *openAIWSRateLimitSignalRepo) UpdateExtra(_ context.Context, _ int64, up
 	r.updateExtra = append(r.updateExtra, copied)
 	return nil
 }
+func (r *openAIWSRateLimitSignalRepo) MergeCredentials(_ context.Context, _ int64, _ map[string]any) error {
+	return nil
+}
 
 func (r *openAICodexSnapshotAsyncRepo) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
 	if r.rateLimitCh != nil {
@@ -63,6 +66,9 @@ func (r *openAICodexSnapshotAsyncRepo) UpdateExtra(_ context.Context, _ int64, u
 		}
 		r.updateExtraCh <- copied
 	}
+	return nil
+}
+func (r *openAICodexSnapshotAsyncRepo) MergeCredentials(_ context.Context, _ int64, _ map[string]any) error {
 	return nil
 }
 

@@ -445,5 +445,9 @@ func (s *stubAdminService) EnsureOpenAIPrivacy(ctx context.Context, account *ser
 	return ""
 }
 
+func (s *stubAdminService) SyncOpenAIPlanType(ctx context.Context, account *service.Account) string {
+	return ""
+}
+
 // Ensure stub implements interface.
 var _ service.AdminService = (*stubAdminService)(nil)

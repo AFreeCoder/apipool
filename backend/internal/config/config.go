@@ -199,6 +199,12 @@ type TokenRefreshConfig struct {
 	RetryBackoffSeconds int `mapstructure:"retry_backoff_seconds"`
 	// 是否允许 OpenAI 刷新器同步覆盖关联的 Sora 账号 token（默认关闭）
 	SyncLinkedSoraAccounts bool `mapstructure:"sync_linked_sora_accounts"`
+	// OpenAI plan_type 巡检间隔（分钟），0 表示关闭独立巡检
+	PlanSyncIntervalMinutes int `mapstructure:"plan_sync_interval_minutes"`
+	// 是否在连续检测到 free 后自动停止调度账号（schedulable=false）
+	AutoUnscheduleFree bool `mapstructure:"auto_unschedule_free"`
+	// 连续多少次成功检测到 free 后自动停止调度
+	FreeUnscheduleThreshold int `mapstructure:"free_unschedule_threshold"`
 }
 
 type PricingConfig struct {
@@ -1490,6 +1496,9 @@ func setDefaults() {
 	viper.SetDefault("token_refresh.max_retries", 3)                   // 最多重试3次
 	viper.SetDefault("token_refresh.retry_backoff_seconds", 2)         // 重试退避基础2秒
 	viper.SetDefault("token_refresh.sync_linked_sora_accounts", false) // 默认不跨平台覆盖 Sora token
+	viper.SetDefault("token_refresh.plan_sync_interval_minutes", 60)   // 每60分钟巡检一次 OpenAI plan_type
+	viper.SetDefault("token_refresh.auto_unschedule_free", true)       // 默认开启：连续检测为 free 后自动停止调度
+	viper.SetDefault("token_refresh.free_unschedule_threshold", 2)     // 连续2次成功检测为 free 后自动停止调度
 
 	// Gemini OAuth - configure via environment variables or config file
 	// GEMINI_OAUTH_CLIENT_ID and GEMINI_OAUTH_CLIENT_SECRET

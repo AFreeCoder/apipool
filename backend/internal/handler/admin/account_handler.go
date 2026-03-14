@@ -867,6 +867,8 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 
 	// OpenAI OAuth: 刷新成功后检查并设置 privacy_mode
 	h.adminService.EnsureOpenAIPrivacy(ctx, updatedAccount)
+	// OpenAI OAuth: 刷新成功后同步 plan_type，确保返回体与后台状态一致
+	h.adminService.SyncOpenAIPlanType(ctx, updatedAccount)
 
 	return updatedAccount, "", nil
 }

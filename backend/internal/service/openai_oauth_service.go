@@ -513,9 +513,7 @@ func (s *OpenAIOAuthService) BuildAccountCredentials(tokenInfo *OpenAITokenInfo)
 	if tokenInfo.OrganizationID != "" {
 		creds["organization_id"] = tokenInfo.OrganizationID
 	}
-	if tokenInfo.PlanType != "" {
-		creds["plan_type"] = tokenInfo.PlanType
-	}
+	// plan_type 不再从 id_token 写入（不可靠），改由 accounts/check 端点同步
 	if strings.TrimSpace(tokenInfo.ClientID) != "" {
 		creds["client_id"] = strings.TrimSpace(tokenInfo.ClientID)
 	}

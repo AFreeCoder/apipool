@@ -549,6 +549,15 @@ token_refresh:
   # Whether OpenAI refresh flow is allowed to sync linked Sora accounts
   # 是否允许 OpenAI 刷新流程同步覆盖 linked_openai_account_id 关联的 Sora 账号 token
   sync_linked_sora_accounts: false
+  # Periodic OpenAI plan_type sweep interval in minutes (0 disables the sweep)
+  # OpenAI plan_type 独立巡检间隔（分钟），0 表示关闭
+  plan_sync_interval_minutes: 60
+  # Automatically set schedulable=false after consecutive confirmed free detections
+  # 连续成功检测到 free 后是否自动停止调度账号（schedulable=false）
+  auto_unschedule_free: true
+  # Number of consecutive successful free detections required before auto unschedule
+  # 连续多少次成功检测到 free 后自动停止调度
+  free_unschedule_threshold: 2
 
 # =============================================================================
 # API Key Auth Cache Configuration

@@ -194,6 +194,9 @@ func (s *accountRepoStub) UpdateSessionWindow(ctx context.Context, id int64, sta
 func (s *accountRepoStub) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	panic("unexpected UpdateExtra call")
 }
+func (s *accountRepoStub) MergeCredentials(ctx context.Context, id int64, updates map[string]any) error {
+	return nil
+}
 
 func (s *accountRepoStub) BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
 	panic("unexpected BulkUpdate call")

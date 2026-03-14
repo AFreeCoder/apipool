@@ -814,6 +814,24 @@ func (s *AccountRepoSuite) TestBulkUpdate_MergeCredentials() {
 	s.Require().Equal("new_value", got.Credentials["new_key"])
 }
 
+func (s *AccountRepoSuite) TestMergeCredentials() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:        "merge-cred",
+		Credentials: map[string]any{"existing": "value", "plan_type": "free"},
+	})
+
+	err := s.repo.MergeCredentials(s.ctx, account.ID, map[string]any{
+		"plan_type": "plus",
+		"checked":   true,
+	})
+	s.Require().NoError(err)
+
+	got, _ := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().Equal("value", got.Credentials["existing"])
+	s.Require().Equal("plus", got.Credentials["plan_type"])
+	s.Require().Equal(true, got.Credentials["checked"])
+}
+
 func (s *AccountRepoSuite) TestBulkUpdate_MergeExtra() {
 	a1 := mustCreateAccount(s.T(), s.client, &service.Account{
 		Name:  "bulk-extra",

@@ -23,6 +23,9 @@ func (r *accountUsageCodexProbeRepo) UpdateExtra(_ context.Context, _ int64, upd
 	}
 	return nil
 }
+func (r *accountUsageCodexProbeRepo) MergeCredentials(_ context.Context, _ int64, _ map[string]any) error {
+	return nil
+}
 
 func (r *accountUsageCodexProbeRepo) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
 	if r.rateLimitCh != nil {

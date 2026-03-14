@@ -24,6 +24,7 @@ type TokenRefreshService struct {
 	// OpenAI privacy: 刷新成功后检查并设置 training opt-out
 	privacyClientFactory PrivacyClientFactory
 	proxyRepo            ProxyRepository
+	lastOpenAIPlanSyncAt time.Time
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -95,6 +96,9 @@ func (s *TokenRefreshService) Start() {
 	slog.Info("token_refresh.service_started",
 		"check_interval_minutes", s.cfg.CheckIntervalMinutes,
 		"refresh_before_expiry_hours", s.cfg.RefreshBeforeExpiryHours,
+		"plan_sync_interval_minutes", s.cfg.PlanSyncIntervalMinutes,
+		"auto_unschedule_free", s.cfg.AutoUnscheduleFree,
+		"free_unschedule_threshold", s.cfg.FreeUnscheduleThreshold,
 	)
 }
 
@@ -189,6 +193,8 @@ func (s *TokenRefreshService) processRefresh() {
 		}
 	}
 
+	s.maybeRunOpenAIPlanSync(ctx, accounts)
+
 	// 无刷新活动时降级为 Debug，有实际刷新活动时保持 Info
 	if needsRefresh == 0 && failed == 0 {
 		slog.Debug("token_refresh.cycle_completed",
@@ -275,6 +281,8 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 					slog.Debug("token_refresh.token_cache_invalidated", "account_id", account.ID)
 				}
 			}
+			// OpenAI OAuth: 刷新成功后同步 plan_type（在 scheduler cache 写入之前，确保缓存包含最新值）
+			s.syncOpenAIPlanType(ctx, account)
 			// 同步更新调度器缓存，确保调度获取的 Account 对象包含最新的 credentials
 			// 这解决了 token 刷新后调度器缓存数据不一致的问题（#445）
 			if s.schedulerCache != nil {
@@ -398,4 +406,10 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 			"privacy_mode", mode,
 		)
 	}
+}
+
+// syncOpenAIPlanType 在 token 刷新成功后同步更新 OpenAI 账号的 plan_type。
+func (s *TokenRefreshService) syncOpenAIPlanType(ctx context.Context, account *Account) {
+	proxyURL := resolveProxyURLSilently(ctx, s.proxyRepo, account.ProxyID)
+	syncOpenAIPlanTypeCore(ctx, s.privacyClientFactory, s.accountRepo, account, proxyURL)
 }

@@ -44,6 +44,9 @@ func (r *snapshotUpdateAccountRepo) UpdateExtra(ctx context.Context, id int64, u
 	}
 	return nil
 }
+func (r *snapshotUpdateAccountRepo) MergeCredentials(ctx context.Context, id int64, updates map[string]any) error {
+	return nil
+}
 
 func (r stubOpenAIAccountRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
 	for i := range r.accounts {

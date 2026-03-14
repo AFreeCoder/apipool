@@ -159,6 +159,9 @@ func (r *openAI429SnapshotRepo) UpdateExtra(_ context.Context, _ int64, updates 
 	r.updatedExtra = updates
 	return nil
 }
+func (r *openAI429SnapshotRepo) MergeCredentials(_ context.Context, _ int64, _ map[string]any) error {
+	return nil
+}
 
 func TestHandle429_OpenAIPersistsCodexSnapshotImmediately(t *testing.T) {
 	repo := &openAI429SnapshotRepo{}

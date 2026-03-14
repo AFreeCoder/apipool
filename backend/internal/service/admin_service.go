@@ -62,6 +62,8 @@ type AdminService interface {
 	SetAccountError(ctx context.Context, id int64, errorMsg string) error
 	// EnsureOpenAIPrivacy 检查 OpenAI OAuth 账号 privacy_mode，未设置则尝试关闭训练数据共享并持久化。
 	EnsureOpenAIPrivacy(ctx context.Context, account *Account) string
+	// SyncOpenAIPlanType 查询 ChatGPT API 获取最新的 plan_type 并原子更新到 credentials。
+	SyncOpenAIPlanType(ctx context.Context, account *Account) string
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
 	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
@@ -2552,12 +2554,7 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 		return ""
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
-	}
+	proxyURL := resolveProxyURLSilently(ctx, s.proxyRepo, account.ProxyID)
 
 	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
 	if mode == "" {
@@ -2566,4 +2563,11 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 
 	_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode})
 	return mode
+}
+
+// SyncOpenAIPlanType 查询 ChatGPT API 获取最新的 plan_type 并原子更新到 credentials。
+// 同时更新传入 account 对象的内存态。仅对 OpenAI OAuth 账号生效，失败不阻塞。
+func (s *adminServiceImpl) SyncOpenAIPlanType(ctx context.Context, account *Account) string {
+	proxyURL := resolveProxyURLSilently(ctx, s.proxyRepo, account.ProxyID)
+	return syncOpenAIPlanTypeCore(ctx, s.privacyClientFactory, s.accountRepo, account, proxyURL)
 }
