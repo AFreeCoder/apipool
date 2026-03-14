@@ -29,6 +29,7 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 	}
 
 	var contentText string
+	var reasoningText string
 	var toolCalls []ChatToolCall
 
 	for _, item := range resp.Output {
@@ -49,8 +50,11 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 				},
 			})
 		case "reasoning":
-			// Chat Completions has no first-class reasoning channel; keep the
-			// assistant output clean instead of leaking summary text into content.
+			for _, s := range item.Summary {
+				if s.Type == "summary_text" && s.Text != "" {
+					reasoningText += s.Text
+				}
+			}
 		case "web_search_call":
 			// silently consumed — results already incorporated into text output
 		}
@@ -63,6 +67,9 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 	if contentText != "" {
 		raw, _ := json.Marshal(contentText)
 		msg.Content = raw
+	}
+	if reasoningText != "" {
+		msg.ReasoningContent = reasoningText
 	}
 
 	finishReason := responsesStatusToChatFinishReason(resp.Status, resp.IncompleteDetails, toolCalls)
@@ -150,6 +157,8 @@ func ResponsesEventToChatChunks(evt *ResponsesStreamEvent, state *ResponsesEvent
 		return resToChatHandleFuncArgsDelta(evt, state)
 	case "response.reasoning_summary_text.delta":
 		return resToChatHandleReasoningDelta(evt, state)
+	case "response.reasoning_summary_text.done":
+		return nil
 	case "response.completed", "response.incomplete", "response.failed":
 		return resToChatHandleCompleted(evt, state)
 	default:
@@ -270,7 +279,11 @@ func resToChatHandleFuncArgsDelta(evt *ResponsesStreamEvent, state *ResponsesEve
 }
 
 func resToChatHandleReasoningDelta(evt *ResponsesStreamEvent, state *ResponsesEventToChatState) []ChatCompletionsChunk {
-	return nil
+	if evt.Delta == "" {
+		return nil
+	}
+	reasoning := evt.Delta
+	return []ChatCompletionsChunk{makeChatDeltaChunk(state, ChatDelta{ReasoningContent: &reasoning})}
 }
 
 func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventToChatState) []ChatCompletionsChunk {

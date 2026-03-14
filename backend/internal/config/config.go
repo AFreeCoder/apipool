@@ -934,9 +934,10 @@ type DashboardAggregationConfig struct {
 
 // DashboardAggregationRetentionConfig 预聚合保留窗口
 type DashboardAggregationRetentionConfig struct {
-	UsageLogsDays int `mapstructure:"usage_logs_days"`
-	HourlyDays    int `mapstructure:"hourly_days"`
-	DailyDays     int `mapstructure:"daily_days"`
+	UsageLogsDays         int `mapstructure:"usage_logs_days"`
+	UsageBillingDedupDays int `mapstructure:"usage_billing_dedup_days"`
+	HourlyDays            int `mapstructure:"hourly_days"`
+	DailyDays             int `mapstructure:"daily_days"`
 }
 
 // UsageCleanupConfig 使用记录清理任务配置
@@ -1303,6 +1304,7 @@ func setDefaults() {
 	viper.SetDefault("dashboard_aggregation.backfill_enabled", false)
 	viper.SetDefault("dashboard_aggregation.backfill_max_days", 31)
 	viper.SetDefault("dashboard_aggregation.retention.usage_logs_days", 90)
+	viper.SetDefault("dashboard_aggregation.retention.usage_billing_dedup_days", 365)
 	viper.SetDefault("dashboard_aggregation.retention.hourly_days", 180)
 	viper.SetDefault("dashboard_aggregation.retention.daily_days", 730)
 	viper.SetDefault("dashboard_aggregation.recompute_days", 2)
@@ -1760,6 +1762,12 @@ func (c *Config) Validate() error {
 		if c.DashboardAgg.Retention.UsageLogsDays <= 0 {
 			return fmt.Errorf("dashboard_aggregation.retention.usage_logs_days must be positive")
 		}
+		if c.DashboardAgg.Retention.UsageBillingDedupDays <= 0 {
+			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be positive")
+		}
+		if c.DashboardAgg.Retention.UsageBillingDedupDays < c.DashboardAgg.Retention.UsageLogsDays {
+			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be greater than or equal to usage_logs_days")
+		}
 		if c.DashboardAgg.Retention.HourlyDays <= 0 {
 			return fmt.Errorf("dashboard_aggregation.retention.hourly_days must be positive")
 		}
@@ -1781,6 +1789,14 @@ func (c *Config) Validate() error {
 		}
 		if c.DashboardAgg.Retention.UsageLogsDays < 0 {
 			return fmt.Errorf("dashboard_aggregation.retention.usage_logs_days must be non-negative")
+		}
+		if c.DashboardAgg.Retention.UsageBillingDedupDays < 0 {
+			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be non-negative")
+		}
+		if c.DashboardAgg.Retention.UsageBillingDedupDays > 0 &&
+			c.DashboardAgg.Retention.UsageLogsDays > 0 &&
+			c.DashboardAgg.Retention.UsageBillingDedupDays < c.DashboardAgg.Retention.UsageLogsDays {
+			return fmt.Errorf("dashboard_aggregation.retention.usage_billing_dedup_days must be greater than or equal to usage_logs_days")
 		}
 		if c.DashboardAgg.Retention.HourlyDays < 0 {
 			return fmt.Errorf("dashboard_aggregation.retention.hourly_days must be non-negative")
