@@ -9,13 +9,16 @@
 - 数据库容器：`sub2api-postgres`
 - Redis 容器：`sub2api-redis`
 
-截至 2026-03-12，本次上游同步新增的迁移包括：
+截至 2026-03-14，近期上游同步新增的迁移包括：
 
 - `068_add_announcement_notify_mode.sql`
 - `069_add_group_messages_dispatch.sql`
 - `070_add_scheduled_test_auto_recover.sql`
 - `070_add_usage_log_service_tier.sql`
 - `071_add_gemini25_flash_image_to_model_mapping.sql`
+- `071_add_usage_billing_dedup.sql`
+- `072_add_usage_billing_dedup_created_at_brin_notx.sql`
+- `073_add_usage_billing_dedup_archive.sql`
 
 这些迁移整体仍偏向“新增列 / 新映射 / 新配置”，但已经不适合再简单假设“任意旧代码都能无风险运行在新 schema 上”。当前推荐回退原则是：
 
@@ -30,7 +33,7 @@
 
 ### 1.1 通过 GitHub Actions 部署
 
-当前 [deploy.yml](/Users/afreecoder/project/apipool/.github/workflows/deploy.yml) 已经在真正构建新镜像前自动执行两件事：
+当前 [deploy.yml](../.github/workflows/deploy.yml) 已经在真正构建新镜像前自动执行两件事：
 
 - 生成 `pre-deploy-YYYYmmdd_HHMMSS.sql.gz` 数据库备份
 - 给当前线上应用镜像打回退 tag

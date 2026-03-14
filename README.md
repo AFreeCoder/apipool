@@ -58,7 +58,7 @@ docker compose -f docker-compose.deploy.yml restart      # 重启服务
 - `cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-image`
   必要时恢复数据库，并显式指定恢复后启动的应用版本
 
-详细说明见 [deploy/ROLLBACK_CN.md](/Users/afreecoder/project/apipool/deploy/ROLLBACK_CN.md)。
+详细说明见 [deploy/ROLLBACK_CN.md](deploy/ROLLBACK_CN.md)。
 
 ## 本地开发
 
