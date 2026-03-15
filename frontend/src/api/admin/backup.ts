@@ -92,11 +92,6 @@ export async function getDownloadURL(id: string): Promise<{ url: string }> {
   return data
 }
 
-// Restore
-export async function restoreBackup(id: string, password: string): Promise<void> {
-  await apiClient.post(`/admin/backups/${id}/restore`, { password }, { timeout: 600000 })
-}
-
 export const backupAPI = {
   getS3Config,
   updateS3Config,
@@ -108,7 +103,6 @@ export const backupAPI = {
   getBackup,
   deleteBackup,
   getDownloadURL,
-  restoreBackup,
 }
 
 export default backupAPI

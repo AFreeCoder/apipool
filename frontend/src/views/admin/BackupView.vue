@@ -162,15 +162,6 @@
                       {{ t('admin.backup.actions.download') }}
                     </button>
                     <button
-                      v-if="record.status === 'completed'"
-                      type="button"
-                      class="btn btn-secondary btn-xs"
-                      :disabled="restoringId === record.id"
-                      @click="restoreBackup(record.id)"
-                    >
-                      {{ restoringId === record.id ? t('common.loading') : t('admin.backup.actions.restore') }}
-                    </button>
-                    <button
                       type="button"
                       class="btn btn-danger btn-xs"
                       @click="removeBackup(record.id)"
@@ -313,7 +304,6 @@ const savingSchedule = ref(false)
 const backups = ref<BackupRecord[]>([])
 const loadingBackups = ref(false)
 const creatingBackup = ref(false)
-const restoringId = ref('')
 const manualExpireDays = ref(14)
 
 // R2 guide
@@ -432,21 +422,6 @@ async function downloadBackup(id: string) {
     window.open(result.url, '_blank')
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
-  }
-}
-
-async function restoreBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.restoreConfirm'))) return
-  const password = window.prompt(t('admin.backup.actions.restorePasswordPrompt'))
-  if (!password) return
-  restoringId.value = id
-  try {
-    await adminAPI.backup.restoreBackup(id, password)
-    appStore.showSuccess(t('admin.backup.actions.restoreSuccess'))
-  } catch (error) {
-    appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
-  } finally {
-    restoringId.value = ''
   }
 }
 
