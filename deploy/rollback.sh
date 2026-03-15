@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/version_resolver.sh"
+
 APP_DIR="${APP_DIR:-/opt/sub2api}"
 DEPLOY_DIR="${DEPLOY_DIR:-$APP_DIR/deploy}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.deploy.yml}"
@@ -63,9 +66,7 @@ current_commit() {
 }
 
 current_version() {
-  if [ -f "$APP_DIR/backend/cmd/server/VERSION" ]; then
-    tr -d '\r\n' < "$APP_DIR/backend/cmd/server/VERSION"
-  fi
+  read_version_file "$APP_DIR" || true
 }
 
 create_rollback_tag() {
@@ -131,14 +132,13 @@ build_app_image_from_current_source() {
   [ -f "$DEPLOY_DIR/.env" ] || fail "缺少 $DEPLOY_DIR/.env"
 
   file_version="$(current_version)"
-  app_version="$file_version"
-  if [ -z "$app_version" ] && [ -d "$APP_DIR/.git" ]; then
-    app_version="$(
-      cd "$APP_DIR"
-      git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//'
-    )"
-  fi
+  tag_version="$(latest_release_tag_version "$APP_DIR" || true)"
+  app_version="$(resolve_app_version "$APP_DIR" || true)"
   [ -n "$app_version" ] || fail "无法读取版本号"
+
+  if [ -n "$file_version" ] && [ -n "$tag_version" ] && [ "$file_version" != "$tag_version" ]; then
+    log "VERSION 文件($file_version)与最新发布 tag($tag_version)不一致，构建版本以 VERSION 文件为准"
+  fi
 
   app_commit="$(
     cd "$APP_DIR"

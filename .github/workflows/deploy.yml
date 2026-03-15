@@ -143,17 +143,15 @@ jobs:
               echo "缺少 $DEPLOY_DIR/.env，停止部署" >&2
               exit 1
             fi
-            FILE_VERSION="$(tr -d '\r\n' < "$APP_DIR/backend/cmd/server/VERSION")"
-            APP_VERSION="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
-            if [ -z "$APP_VERSION" ]; then
-              APP_VERSION="$FILE_VERSION"
-            fi
+            FILE_VERSION="$(bash "$APP_DIR/deploy/version_resolver.sh" file "$APP_DIR" || true)"
+            TAG_VERSION="$(bash "$APP_DIR/deploy/version_resolver.sh" tag "$APP_DIR" || true)"
+            APP_VERSION="$(bash "$APP_DIR/deploy/version_resolver.sh" resolve "$APP_DIR" || true)"
             if [ -z "$APP_VERSION" ]; then
               echo "无法读取版本号文件 $APP_DIR/backend/cmd/server/VERSION，停止部署" >&2
               exit 1
             fi
-            if [ -n "$FILE_VERSION" ] && [ "$FILE_VERSION" != "$APP_VERSION" ]; then
-              echo "VERSION 文件($FILE_VERSION)与最新 tag($APP_VERSION)不一致，部署版本以最新 tag 为准"
+            if [ -n "$FILE_VERSION" ] && [ -n "$TAG_VERSION" ] && [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
+              echo "VERSION 文件($FILE_VERSION)与最新发布 tag($TAG_VERSION)不一致，部署版本以 VERSION 文件为准"
             fi
             APP_COMMIT="$(git rev-parse --short=12 HEAD)"
             APP_BUILD_DATE="$(git log -1 --format=%cI HEAD)"
