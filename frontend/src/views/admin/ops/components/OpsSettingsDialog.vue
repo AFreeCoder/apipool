@@ -131,15 +131,7 @@ const validation = computed(() => {
     }
   }
 
-  // 验证邮件配置
-  if (emailConfig.value) {
-    if (emailConfig.value.alert.enabled && emailConfig.value.alert.recipients.length === 0) {
-      errors.push(t('admin.ops.email.validation.alertRecipientsRequired'))
-    }
-    if (emailConfig.value.report.enabled && emailConfig.value.report.recipients.length === 0) {
-      errors.push(t('admin.ops.email.validation.reportRecipientsRequired'))
-    }
-  }
+  // 邮件配置: 启用但无收件人时不阻断保存, 保存时会自动禁用
 
   // 验证高级设置
   if (advancedSettings.value) {
@@ -181,6 +173,15 @@ async function saveAllSettings() {
 
   saving.value = true
   try {
+    // 无收件人时自动禁用邮件通知
+    if (emailConfig.value) {
+      if (emailConfig.value.alert.enabled && emailConfig.value.alert.recipients.length === 0) {
+        emailConfig.value.alert.enabled = false
+      }
+      if (emailConfig.value.report.enabled && emailConfig.value.report.recipients.length === 0) {
+        emailConfig.value.report.enabled = false
+      }
+    }
     await Promise.all([
       runtimeSettings.value ? opsAPI.updateAlertRuntimeSettings(runtimeSettings.value) : Promise.resolve(),
       emailConfig.value ? opsAPI.updateEmailNotificationConfig(emailConfig.value) : Promise.resolve(),
@@ -541,6 +542,31 @@ async function saveAllSettings() {
                   { value: 60, label: t('admin.ops.settings.refreshInterval60s') }
                 ]"
               />
+            </div>
+          </div>
+
+          <!-- Dashboard Cards -->
+          <div class="space-y-3">
+            <h5 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ t('admin.ops.settings.dashboardCards') }}</h5>
+
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.ops.settings.displayAlertEvents') }}</label>
+                <p class="mt-1 text-xs text-gray-500">
+                  {{ t('admin.ops.settings.displayAlertEventsHint') }}
+                </p>
+              </div>
+              <Toggle v-model="advancedSettings.display_alert_events" />
+            </div>
+
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.ops.settings.displayOpenAITokenStats') }}</label>
+                <p class="mt-1 text-xs text-gray-500">
+                  {{ t('admin.ops.settings.displayOpenAITokenStatsHint') }}
+                </p>
+              </div>
+              <Toggle v-model="advancedSettings.display_openai_token_stats" />
             </div>
           </div>
         </div>

@@ -340,7 +340,6 @@ export default {
     redeemCodes: '兑换码',
     ops: '运维监控',
     promoCodes: '优惠码',
-    dataManagement: '数据管理',
     settings: '系统设置',
     myAccount: '我的账户',
     lightMode: '浅色模式',
@@ -998,6 +997,111 @@ export default {
       systemSettings: '系统设置',
       configureSystem: '配置系统设置',
       failedToLoad: '加载仪表盘数据失败'
+    },
+
+    backup: {
+      title: '数据库备份',
+      description: '全量数据库备份到 S3 兼容存储，支持定时备份与恢复',
+      s3: {
+        title: 'S3 存储配置',
+        description: '配置 S3 兼容存储（支持 Cloudflare R2）',
+        descriptionPrefix: '配置 S3 兼容存储（支持',
+        descriptionSuffix: '）',
+        enabled: '启用 S3 存储',
+        endpoint: '端点地址',
+        region: '区域',
+        bucket: '存储桶',
+        prefix: 'Key 前缀',
+        accessKeyId: 'Access Key ID',
+        secretAccessKey: 'Secret Access Key',
+        secretConfigured: '已配置，留空保持不变',
+        forcePathStyle: '强制路径风格',
+        testConnection: '测试连接',
+        testSuccess: 'S3 连接测试成功',
+        testFailed: 'S3 连接测试失败',
+        saved: 'S3 配置已保存'
+      },
+      schedule: {
+        title: '定时备份',
+        description: '配置自动定时备份',
+        enabled: '启用定时备份',
+        cronExpr: 'Cron 表达式',
+        cronHint: '例如 "0 2 * * *" 表示每天凌晨 2 点',
+        retainDays: '备份过期天数',
+        retainDaysHint: '备份文件超过此天数后自动删除，0 = 永不过期',
+        retainCount: '最大保留份数',
+        retainCountHint: '最多保留的备份数量，0 = 不限制',
+        saved: '定时备份配置已保存'
+      },
+      operations: {
+        title: '备份记录',
+        description: '创建手动备份和管理已有备份记录',
+        createBackup: '创建备份',
+        backing: '备份中...',
+        backupCreated: '备份创建成功',
+        expireDays: '过期天数'
+      },
+      columns: {
+        status: '状态',
+        fileName: '文件名',
+        size: '大小',
+        expiresAt: '过期时间',
+        triggeredBy: '触发方式',
+        startedAt: '开始时间',
+        actions: '操作'
+      },
+      status: {
+        pending: '等待中',
+        running: '执行中',
+        completed: '已完成',
+        failed: '失败'
+      },
+      trigger: {
+        manual: '手动',
+        scheduled: '定时'
+      },
+      neverExpire: '永不过期',
+      empty: '暂无备份记录',
+      actions: {
+        download: '下载',
+        restore: '恢复',
+        restoreConfirm: '确定要从此备份恢复吗？这将覆盖当前数据库！',
+        restorePasswordPrompt: '请输入管理员密码以确认恢复操作',
+        restoreSuccess: '数据库恢复成功',
+        deleteConfirm: '确定要删除此备份吗？',
+        deleted: '备份已删除'
+      },
+      r2Guide: {
+        title: 'Cloudflare R2 配置教程',
+        intro: 'Cloudflare R2 提供 S3 兼容的对象存储，免费额度为 10GB 存储 + 每月 100 万次 A 类请求，非常适合数据库备份。',
+        step1: {
+          title: '创建 R2 存储桶',
+          line1: '登录 Cloudflare Dashboard (dash.cloudflare.com)，左侧菜单选择「R2 对象存储」',
+          line2: '点击「创建存储桶」，输入名称（如 sub2api-backups），选择区域',
+          line3: '点击创建完成'
+        },
+        step2: {
+          title: '创建 API 令牌',
+          line1: '在 R2 页面，点击右上角「管理 R2 API 令牌」',
+          line2: '点击「创建 API 令牌」，权限选择「对象读和写」',
+          line3: '建议指定存储桶范围（仅允许访问备份桶，更安全）',
+          line4: '创建后会显示 Access Key ID 和 Secret Access Key',
+          warning: 'Secret Access Key 只会显示一次，请立即复制保存！'
+        },
+        step3: {
+          title: '获取 S3 端点地址',
+          desc: '在 R2 概览页面找到你的账户 ID（在 URL 或右侧面板中），端点格式为：',
+          accountId: '你的账户 ID'
+        },
+        step4: {
+          title: '填写以下配置',
+          checkEnabled: '勾选',
+          bucketValue: '你创建的存储桶名称',
+          fromStep2: '第 2 步获取的值',
+          unchecked: '不勾选'
+        },
+        freeTier: 'R2 免费额度：10GB 存储 + 每月 100 万次 A 类请求 + 1000 万次 B 类请求，对数据库备份完全够用。'
+      }
     },
 
     dataManagement: {
@@ -1872,6 +1976,23 @@ export default {
       quotaWeeklyLimitHint: '从首次使用起每 7 天自动重置。',
       quotaTotalLimit: '总限额',
       quotaTotalLimitHint: '累计消费上限，不会自动重置 — 使用「重置配额」手动清零。',
+      quotaResetMode: '重置方式',
+      quotaResetModeRolling: '滚动窗口',
+      quotaResetModeFixed: '固定时间',
+      quotaResetHour: '重置时间',
+      quotaWeeklyResetDay: '重置日',
+      quotaResetTimezone: '重置时区',
+      quotaDailyLimitHintFixed: '每天 {hour}:00（{timezone}）重置。',
+      quotaWeeklyLimitHintFixed: '每{day} {hour}:00（{timezone}）重置。',
+      dayOfWeek: {
+        monday: '周一',
+        tuesday: '周二',
+        wednesday: '周三',
+        thursday: '周四',
+        friday: '周五',
+        saturday: '周六',
+        sunday: '周日',
+      },
       quotaLimitAmount: '总限额',
       quotaLimitAmountHint: '累计消费上限，不会自动重置。',
       testConnection: '测试连接',
@@ -1992,6 +2113,15 @@ export default {
       },
       ineligibleWarning:
         '该账号无 Antigravity 使用权限，但仍能进行 API 转发。继续使用请自行承担风险。',
+      forbidden: '已封禁',
+      forbiddenValidation: '需要验证',
+      forbiddenViolation: '违规封禁',
+      openVerification: '打开验证链接',
+      copyLink: '复制链接',
+      linkCopied: '链接已复制',
+      needsReauth: '需要重新授权',
+      rateLimited: '限流中',
+      usageError: '获取失败',
       form: {
         nameLabel: '账号名称',
         namePlaceholder: '请输入账号名称',
@@ -2082,7 +2212,7 @@ export default {
       claudeCode: 'Claude Code',
       claudeConsole: 'Claude Console',
       bedrockLabel: 'AWS Bedrock',
-      bedrockDesc: 'SigV4 签名',
+      bedrockDesc: 'SigV4 / API Key',
       oauthSetupToken: 'OAuth / Setup Token',
       addMethod: '添加方式',
       setupTokenLongLived: 'Setup Token（长期有效）',
@@ -2277,6 +2407,9 @@ export default {
       bedrockRegionRequired: '请选择 AWS Region',
       bedrockSessionTokenHint: '可选，用于临时凭证',
       bedrockSecretKeyLeaveEmpty: '留空以保持当前密钥',
+      bedrockAuthMode: '认证方式',
+      bedrockAuthModeSigv4: 'SigV4 签名',
+      bedrockAuthModeApikey: 'Bedrock API Key',
       bedrockApiKeyLabel: 'Bedrock API Key',
       bedrockApiKeyDesc: 'Bearer Token 认证',
       bedrockApiKeyInput: 'API Key',
@@ -3883,6 +4016,11 @@ export default {
         refreshInterval15s: '15 秒',
         refreshInterval30s: '30 秒',
         refreshInterval60s: '60 秒',
+        dashboardCards: '仪表盘卡片',
+        displayAlertEvents: '展示告警事件',
+        displayAlertEventsHint: '控制运维监控仪表盘中告警事件卡片是否显示，默认开启。',
+        displayOpenAITokenStats: '展示 OpenAI Token 请求统计',
+        displayOpenAITokenStatsHint: '控制运维监控仪表盘中 OpenAI Token 请求统计卡片是否显示，默认关闭。',
         autoRefreshCountdown: '自动刷新：{seconds}s',
         validation: {
           title: '请先修正以下问题',
@@ -3972,6 +4110,8 @@ export default {
         users: '用户默认值',
         gateway: '网关服务',
         email: '邮件设置',
+        backup: '数据备份',
+        data: 'Sora 存储',
       },
       emailTabDisabledTitle: '邮箱验证未启用',
       emailTabDisabledHint: '请在「安全与认证」选项卡中启用邮箱验证后，再配置 SMTP 设置。',
@@ -4060,6 +4200,9 @@ export default {
       site: {
         title: '站点设置',
         description: '自定义站点品牌',
+        backendMode: 'Backend 模式',
+        backendModeDescription:
+          '禁用用户注册、公开页面和自助服务功能。仅管理员可以登录和管理平台。',
         siteName: '站点名称',
         siteNameHint: '显示在邮件和页面标题中',
         siteNamePlaceholder: 'APIPool',
@@ -4300,6 +4443,7 @@ export default {
         scopeAll: '全部账号',
         scopeOAuth: '仅 OAuth 账号',
         scopeAPIKey: '仅 API Key 账号',
+        scopeBedrock: '仅 Bedrock 账号',
         errorMessage: '错误消息',
         errorMessagePlaceholder: '拦截时返回的自定义错误消息',
         errorMessageHint: '留空则使用默认错误消息',
