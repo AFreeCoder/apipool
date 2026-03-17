@@ -2368,6 +2368,23 @@ const closeCreateModal = () => {
   createModelRoutingRules.value = []
 }
 
+const normalizeOptionalLimit = (value: number | string | null | undefined): number | null => {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+    const parsed = Number(trimmed)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  }
+
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
 const handleCreateGroup = async () => {
   if (!createForm.name.trim()) {
     appStore.showError(t('admin.groups.nameRequired'))
@@ -2379,9 +2396,17 @@ const handleCreateGroup = async () => {
     const { sora_storage_quota_gb: createQuotaGb, ...createRest } = createForm
     const requestData = {
       ...createRest,
+      daily_limit_usd: normalizeOptionalLimit(createForm.daily_limit_usd as number | string | null),
+      weekly_limit_usd: normalizeOptionalLimit(createForm.weekly_limit_usd as number | string | null),
+      monthly_limit_usd: normalizeOptionalLimit(createForm.monthly_limit_usd as number | string | null),
       sora_storage_quota_bytes: createQuotaGb ? Math.round(createQuotaGb * 1024 * 1024 * 1024) : 0,
       model_routing: convertRoutingRulesToApiFormat(createModelRoutingRules.value)
     }
+    // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
+    const emptyToNull = (v: any) => v === '' ? null : v
+    requestData.daily_limit_usd = emptyToNull(requestData.daily_limit_usd)
+    requestData.weekly_limit_usd = emptyToNull(requestData.weekly_limit_usd)
+    requestData.monthly_limit_usd = emptyToNull(requestData.monthly_limit_usd)
     await adminAPI.groups.create(requestData)
     appStore.showSuccess(t('admin.groups.groupCreated'))
     closeCreateModal()
@@ -2457,6 +2482,9 @@ const handleUpdateGroup = async () => {
     const { sora_storage_quota_gb: editQuotaGb, ...editRest } = editForm
     const payload = {
       ...editRest,
+      daily_limit_usd: normalizeOptionalLimit(editForm.daily_limit_usd as number | string | null),
+      weekly_limit_usd: normalizeOptionalLimit(editForm.weekly_limit_usd as number | string | null),
+      monthly_limit_usd: normalizeOptionalLimit(editForm.monthly_limit_usd as number | string | null),
       sora_storage_quota_bytes: editQuotaGb ? Math.round(editQuotaGb * 1024 * 1024 * 1024) : 0,
       fallback_group_id: editForm.fallback_group_id === null ? 0 : editForm.fallback_group_id,
       fallback_group_id_on_invalid_request:
@@ -2465,6 +2493,11 @@ const handleUpdateGroup = async () => {
           : editForm.fallback_group_id_on_invalid_request,
       model_routing: convertRoutingRulesToApiFormat(editModelRoutingRules.value)
     }
+    // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
+    const emptyToNull = (v: any) => v === '' ? null : v
+    payload.daily_limit_usd = emptyToNull(payload.daily_limit_usd)
+    payload.weekly_limit_usd = emptyToNull(payload.weekly_limit_usd)
+    payload.monthly_limit_usd = emptyToNull(payload.monthly_limit_usd)
     await adminAPI.groups.update(editingGroup.value.id, payload)
     appStore.showSuccess(t('admin.groups.groupUpdated'))
     closeEditModal()

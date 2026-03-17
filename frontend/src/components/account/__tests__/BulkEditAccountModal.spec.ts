@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import BulkEditAccountModal from '../BulkEditAccountModal.vue'
+import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
@@ -78,30 +79,36 @@ function mountOpenAIModal() {
 }
 
 describe('BulkEditAccountModal', () => {
-  it('antigravity 白名单包含 Gemini 图片模型且过滤掉普通 GPT 模型', () => {
+  it('antigravity 白名单仅保留官方支持模型，并过滤普通 GPT 模型', async () => {
     const wrapper = mountModal()
+    const selector = wrapper.findComponent(ModelWhitelistSelector)
 
-    expect(wrapper.text()).toContain('Gemini 3.1 Flash Image')
-    expect(wrapper.text()).toContain('Gemini 3 Pro Image (Legacy)')
-    expect(wrapper.text()).not.toContain('GPT-5.3 Codex')
+    await selector.find('.cursor-pointer').trigger('click')
+
+    expect(selector.text()).toContain('gemini-3.1-flash-image')
+    expect(selector.text()).not.toContain('gemini-3-pro-image')
+    expect(selector.text()).not.toContain('gpt-5.3-codex')
   })
 
-  it('antigravity 映射预设包含图片映射并过滤 OpenAI 预设', async () => {
+  it('antigravity 映射预设保留 legacy 图片模型映射并过滤 OpenAI 预设', async () => {
     const wrapper = mountModal()
 
     const mappingTab = wrapper.findAll('button').find((btn) => btn.text().includes('admin.accounts.modelMapping'))
     expect(mappingTab).toBeTruthy()
     await mappingTab!.trigger('click')
 
-    expect(wrapper.text()).toContain('Gemini 3.1 Image')
-    expect(wrapper.text()).toContain('G3 Image→3.1')
+    expect(wrapper.text()).toContain('3.1-Flash-Image透传')
+    expect(wrapper.text()).toContain('3-Pro-Image→3.1')
     expect(wrapper.text()).not.toContain('GPT-5.3 Codex')
   })
 
-  it('openai 白名单使用 GPT-5.2 别名而不是日期版快照 ID', () => {
+  it('openai 白名单使用 GPT-5.2 别名而不是日期版快照 ID', async () => {
     const wrapper = mountOpenAIModal()
+    const selector = wrapper.findComponent(ModelWhitelistSelector)
 
-    expect(wrapper.find('input[type="checkbox"][value="gpt-5.2"]').exists()).toBe(true)
-    expect(wrapper.find('input[type="checkbox"][value="gpt-5.2-2025-12-11"]').exists()).toBe(false)
+    await selector.find('.cursor-pointer').trigger('click')
+
+    expect(selector.text()).toContain('gpt-5.2')
+    expect(selector.text()).not.toContain('gpt-5.2-2025-12-11')
   })
 })

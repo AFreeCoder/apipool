@@ -139,7 +139,9 @@
                     class="rounded px-2 py-0.5 text-xs"
                     :class="statusClass(record.status)"
                   >
-                    {{ t(`admin.backup.status.${record.status}`) }}
+                    {{ record.status === 'running' && record.progress
+                      ? t(`admin.backup.progress.${record.progress}`)
+                      : t(`admin.backup.status.${record.status}`) }}
                   </span>
                 </td>
                 <td class="py-3 pr-4 text-xs">{{ record.file_name }}</td>
@@ -268,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
@@ -305,6 +307,68 @@ const backups = ref<BackupRecord[]>([])
 const loadingBackups = ref(false)
 const creatingBackup = ref(false)
 const manualExpireDays = ref(14)
+
+// Polling
+const pollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
+const MAX_POLL_COUNT = 900
+
+function updateRecordInList(updated: BackupRecord) {
+  const idx = backups.value.findIndex(r => r.id === updated.id)
+  if (idx >= 0) {
+    backups.value[idx] = updated
+  }
+}
+
+function startPolling(backupId: string) {
+  stopPolling()
+  let count = 0
+  pollingTimer.value = setInterval(async () => {
+    if (count++ >= MAX_POLL_COUNT) {
+      stopPolling()
+      creatingBackup.value = false
+      appStore.showWarning(t('admin.backup.operations.backupRunning'))
+      return
+    }
+    try {
+      const record = await adminAPI.backup.getBackup(backupId)
+      updateRecordInList(record)
+      if (record.status === 'completed' || record.status === 'failed') {
+        stopPolling()
+        creatingBackup.value = false
+        if (record.status === 'completed') {
+          appStore.showSuccess(t('admin.backup.operations.backupCreated'))
+        } else {
+          appStore.showError(record.error_message || t('admin.backup.operations.backupFailed'))
+        }
+        await loadBackups()
+      }
+    } catch {
+      // 轮询失败时不中断
+    }
+  }, 2000)
+}
+
+function stopPolling() {
+  if (pollingTimer.value) {
+    clearInterval(pollingTimer.value)
+    pollingTimer.value = null
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) {
+    stopPolling()
+  } else {
+    // 标签页恢复时刷新列表，检查是否仍有活跃操作
+    loadBackups().then(() => {
+      const running = backups.value.find(r => r.status === 'running')
+      if (running) {
+        creatingBackup.value = true
+        startPolling(running.id)
+      }
+    })
+  }
+}
 
 // R2 guide
 const showR2Guide = ref(false)
@@ -406,12 +470,16 @@ async function loadBackups() {
 async function createBackup() {
   creatingBackup.value = true
   try {
-    await adminAPI.backup.createBackup({ expire_days: manualExpireDays.value })
-    appStore.showSuccess(t('admin.backup.operations.backupCreated'))
-    await loadBackups()
-  } catch (error) {
-    appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
-  } finally {
+    const record = await adminAPI.backup.createBackup({ expire_days: manualExpireDays.value })
+    // 插入到列表顶部
+    backups.value.unshift(record)
+    startPolling(record.id)
+  } catch (error: any) {
+    if (error?.response?.status === 409) {
+      appStore.showWarning(t('admin.backup.operations.alreadyInProgress'))
+    } else {
+      appStore.showError(error?.message || t('errors.networkError'))
+    }
     creatingBackup.value = false
   }
 }
@@ -464,7 +532,20 @@ function formatDate(value?: string): string {
 }
 
 onMounted(async () => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   await Promise.all([loadS3Config(), loadSchedule(), loadBackups()])
+
+  // 如果有正在 running 的备份，恢复轮询
+  const runningBackup = backups.value.find(r => r.status === 'running')
+  if (runningBackup) {
+    creatingBackup.value = true
+    startPolling(runningBackup.id)
+  }
+})
+
+onBeforeUnmount(() => {
+  stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

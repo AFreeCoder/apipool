@@ -241,9 +241,13 @@
               :enable-ranking-view="true"
               :ranking-items="rankingItems"
               :ranking-total-actual-cost="rankingTotalActualCost"
+              :ranking-total-requests="rankingTotalRequests"
+              :ranking-total-tokens="rankingTotalTokens"
               :loading="chartsLoading"
               :ranking-loading="rankingLoading"
               :ranking-error="rankingError"
+              :start-date="startDate"
+              :end-date="endDate"
               @ranking-click="goToUserUsage"
             />
             <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
@@ -334,6 +338,8 @@ const modelStats = ref<ModelStat[]>([])
 const userTrend = ref<UserUsageTrendPoint[]>([])
 const rankingItems = ref<UserSpendingRankingItem[]>([])
 const rankingTotalActualCost = ref(0)
+const rankingTotalRequests = ref(0)
+const rankingTotalTokens = ref(0)
 let chartLoadSeq = 0
 let usersTrendLoadSeq = 0
 let rankingLoadSeq = 0
@@ -344,12 +350,20 @@ const formatLocalDate = (date: Date): string => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-const getTodayLocalDate = () => formatLocalDate(new Date())
+const getLast24HoursRangeDates = (): { start: string; end: string } => {
+  const end = new Date()
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
+  return {
+    start: formatLocalDate(start),
+    end: formatLocalDate(end)
+  }
+}
 
 // Date range
-const granularity = ref<'day' | 'hour'>('day')
-const startDate = ref(getTodayLocalDate())
-const endDate = ref(getTodayLocalDate())
+const granularity = ref<'day' | 'hour'>('hour')
+const defaultRange = getLast24HoursRangeDates()
+const startDate = ref(defaultRange.start)
+const endDate = ref(defaultRange.end)
 
 // Granularity options for Select component
 const granularityOptions = computed(() => [
@@ -630,11 +644,15 @@ const loadUserSpendingRanking = async () => {
     if (currentSeq !== rankingLoadSeq) return
     rankingItems.value = response.ranking || []
     rankingTotalActualCost.value = response.total_actual_cost || 0
+    rankingTotalRequests.value = response.total_requests || 0
+    rankingTotalTokens.value = response.total_tokens || 0
   } catch (error) {
     if (currentSeq !== rankingLoadSeq) return
     console.error('Error loading user spending ranking:', error)
     rankingItems.value = []
     rankingTotalActualCost.value = 0
+    rankingTotalRequests.value = 0
+    rankingTotalTokens.value = 0
     rankingError.value = true
   } finally {
     if (currentSeq === rankingLoadSeq) {
