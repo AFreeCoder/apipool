@@ -82,7 +82,7 @@ func buildOpenAIOAuthErrorMessage(statusCode int, codeRaw, errTypeRaw, msgRaw st
 		return "Account deactivated (401): upstream account is deactivated"
 	}
 
-	if isOpenAIOAuthForbidden(statusCode, codeRaw, errTypeRaw) {
+	if isOpenAIOAuthTerminalForbidden(statusCode, codeRaw, errTypeRaw, upstreamMsg) {
 		if upstreamMsg != "" {
 			return "Access forbidden (403): " + upstreamMsg
 		}
@@ -92,13 +92,52 @@ func buildOpenAIOAuthErrorMessage(statusCode int, codeRaw, errTypeRaw, msgRaw st
 	return ""
 }
 
-func isOpenAIOAuthForbidden(statusCode int, codeRaw, errTypeRaw string) bool {
-	if statusCode == http.StatusForbidden {
-		return true
-	}
+func isOpenAIOAuthTerminalForbidden(statusCode int, codeRaw, errTypeRaw, upstreamMsg string) bool {
 	code := strings.ToLower(strings.TrimSpace(codeRaw))
 	errType := strings.ToLower(strings.TrimSpace(errTypeRaw))
-	return strings.Contains(code, "forbidden") || strings.Contains(errType, "permission")
+	msg := strings.ToLower(strings.TrimSpace(upstreamMsg))
+
+	if statusCode != http.StatusForbidden &&
+		!strings.Contains(code, "forbidden") &&
+		!strings.Contains(errType, "permission") {
+		return false
+	}
+
+	terminalMarkers := []string{
+		"account has been deactivated",
+		"openai account has been deactivated",
+		"account deactivated",
+		"deactivated due to policy violation",
+		"policy violation",
+		"terms of service violation",
+		"terms-of-service violation",
+		"account suspended",
+		"has been suspended",
+		"suspended for",
+		"suspended due to",
+		"account banned",
+		"has been banned",
+	}
+	for _, marker := range terminalMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+
+	terminalCodeMarkers := []string{
+		"account_deactivated",
+		"suspend",
+		"suspended",
+		"violation",
+		"banned",
+		"disabled",
+	}
+	for _, marker := range terminalCodeMarkers {
+		if strings.Contains(code, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func isOpenAIOAuthAccountDeactivated(codeRaw, errTypeRaw, upstreamMsg string) bool {

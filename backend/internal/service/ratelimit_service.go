@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/util/soraerror"
 )
 
 // RateLimitService 处理限流和过载状态管理
@@ -218,7 +219,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			upstreamMsg,
 			truncateForLog(responseBody, 1024),
 		)
-		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
+		shouldDisable = s.handle403(ctx, account, headers, upstreamMsg, responseBody)
 	case 429:
 		s.handle429(ctx, account, headers, responseBody)
 		shouldDisable = false
@@ -626,9 +627,23 @@ func (s *RateLimitService) handleAuthError(ctx context.Context, account *Account
 // handle403 处理 403 Forbidden 错误
 // Antigravity 平台区分 validation/violation/generic 三种类型，均 SetError 永久禁用；
 // 其他平台保持原有 SetError 行为。
-func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+func (s *RateLimitService) handle403(ctx context.Context, account *Account, headers http.Header, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	if account.Platform == PlatformAntigravity {
 		return s.handleAntigravity403(ctx, account, upstreamMsg, responseBody)
+	}
+	if account.IsOpenAIOAuth() {
+		if msg := buildOpenAIOAuthHTTPErrorMessage(http.StatusForbidden, responseBody); msg != "" {
+			s.handleAuthError(ctx, account, msg)
+			return true
+		}
+		msg := buildOpenAIOAuthTransient403Message(headers, upstreamMsg, responseBody)
+		until := time.Now().Add(time.Duration(s.openAIOAuth403ChallengeCooldownMinutes()) * time.Minute)
+		if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, msg); err != nil {
+			slog.Warn("openai_oauth_403_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+		} else {
+			slog.Warn("openai_oauth_403_temp_unschedulable", "account_id", account.ID, "until", until, "cf_ray", soraerror.ExtractCloudflareRayID(headers, responseBody))
+		}
+		return true
 	}
 	// 非 Antigravity 平台：保持原有行为
 	msg := "Access forbidden (403): account may be suspended or lack permissions"
@@ -637,6 +652,26 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	}
 	s.handleAuthError(ctx, account, msg)
 	return true
+}
+
+func (s *RateLimitService) openAIOAuth403ChallengeCooldownMinutes() int {
+	if s != nil && s.cfg != nil && s.cfg.RateLimit.OpenAIOAuth403ChallengeCooldownMinutes > 0 {
+		return s.cfg.RateLimit.OpenAIOAuth403ChallengeCooldownMinutes
+	}
+	return 10
+}
+
+func buildOpenAIOAuthTransient403Message(headers http.Header, upstreamMsg string, responseBody []byte) string {
+	if soraerror.IsCloudflareChallengeResponse(http.StatusForbidden, headers, responseBody) {
+		return soraerror.FormatCloudflareChallengeMessage("Cloudflare challenge (403): temporary upstream block", headers, responseBody)
+	}
+	if trimmed := strings.TrimSpace(upstreamMsg); trimmed != "" {
+		return "Access forbidden (403): temporary upstream block: " + trimmed
+	}
+	if rayID := strings.TrimSpace(soraerror.ExtractCloudflareRayID(headers, responseBody)); rayID != "" {
+		return "Access forbidden (403): temporary upstream block (cf-ray: " + rayID + ")"
+	}
+	return "Access forbidden (403): temporary upstream block"
 }
 
 // handleAntigravity403 处理 Antigravity 平台的 403 错误

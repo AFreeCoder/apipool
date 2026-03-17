@@ -159,6 +159,9 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if cfg.RateLimit.OAuth401CooldownMinutes != 10 {
 		t.Fatalf("RateLimit.OAuth401CooldownMinutes = %d, want 10", cfg.RateLimit.OAuth401CooldownMinutes)
 	}
+	if cfg.RateLimit.OpenAIOAuth403ChallengeCooldownMinutes != 10 {
+		t.Fatalf("RateLimit.OpenAIOAuth403ChallengeCooldownMinutes = %d, want 10", cfg.RateLimit.OpenAIOAuth403ChallengeCooldownMinutes)
+	}
 }
 
 func TestLoadDefaultOpsConfig(t *testing.T) {

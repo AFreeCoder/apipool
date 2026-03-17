@@ -162,6 +162,15 @@ jobs:
               --build-arg COMMIT="$APP_COMMIT" \
               --build-arg DATE="$APP_BUILD_DATE" \
               sub2api
+
+            # 清理之前部署失败遗留的重命名容器（格式: <hash>_sub2api*）
+            # Docker Compose recreate 先 rename 旧容器再创建新容器，如果中途失败，
+            # 下次 recreate 会因为重命名目标已存在而报 Conflict 错误。
+            for stale in $(docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]+_sub2api'); do
+              echo "清理残留容器: $stale"
+              docker rm -f "$stale" 2>/dev/null || true
+            done
+
             docker compose -f docker-compose.deploy.yml up -d --remove-orphans
             wait_for_health sub2api-postgres 180
             wait_for_health sub2api-redis 180

@@ -18,6 +18,7 @@ type rateLimitAccountRepoStub struct {
 	setErrorCalls int
 	tempCalls     int
 	lastErrorMsg  string
+	lastTempMsg   string
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
@@ -28,6 +29,7 @@ func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, error
 
 func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
 	r.tempCalls++
+	r.lastTempMsg = reason
 	return nil
 }
 
@@ -150,4 +152,81 @@ func TestRateLimitService_HandleUpstreamError_OpenAIOAuth401AccountDeactivatedSe
 	require.Equal(t, 0, repo.tempCalls)
 	require.Contains(t, repo.lastErrorMsg, "deactivated")
 	require.Empty(t, invalidator.accounts)
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenAIOAuth403CloudflareChallengeSetsTempUnschedulable(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       104,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	headers := http.Header{}
+	headers.Set("cf-mitigated", "challenge")
+	headers.Set("cf-ray", "9ddd-test-SJC")
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 403, headers, []byte(`<!DOCTYPE html><html><title>Just a moment...</title></html>`))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempMsg, "Cloudflare challenge")
+	require.Contains(t, repo.lastTempMsg, "cf-ray")
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenAIOAuth403EmptyBodyCfRaySetsTempUnschedulable(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       105,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	headers := http.Header{}
+	headers.Set("cf-ray", "9ddd-empty-SJC")
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 403, headers, nil)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempMsg, "temporary upstream block")
+	require.Contains(t, repo.lastTempMsg, "cf-ray")
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenAIOAuth403GenericForbiddenSetsTempUnschedulable(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       106,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	body := []byte(`{"error":{"message":"Access forbidden by policy"}}`)
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 403, http.Header{}, body)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempMsg, "temporary upstream block")
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenAIOAuth403ExplicitTerminalMessageSetsError(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       107,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	body := []byte(`{"error":{"message":"Account deactivated due to policy violation"}}`)
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 403, http.Header{}, body)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Contains(t, repo.lastErrorMsg, "policy violation")
 }
