@@ -108,6 +108,10 @@ func TestClassifyOpenAIWSErrorEvent(t *testing.T) {
 	reason, recoverable = classifyOpenAIWSErrorEvent([]byte(`{"type":"error","error":{"code":"previous_response_not_found","message":"not found"}}`))
 	require.Equal(t, "previous_response_not_found", reason)
 	require.True(t, recoverable)
+
+	reason, recoverable = classifyOpenAIWSErrorEvent([]byte(`{"type":"error","error":{"type":"invalid_request_error","code":"account_deactivated","message":"Your OpenAI account has been deactivated"}}`))
+	require.Equal(t, "auth_failed", reason)
+	require.False(t, recoverable)
 }
 
 func TestClassifyOpenAIWSReconnectReason(t *testing.T) {
@@ -123,6 +127,7 @@ func TestClassifyOpenAIWSReconnectReason(t *testing.T) {
 func TestOpenAIWSErrorHTTPStatus(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, openAIWSErrorHTTPStatus([]byte(`{"type":"error","error":{"type":"invalid_request_error","code":"invalid_request","message":"invalid input"}}`)))
 	require.Equal(t, http.StatusUnauthorized, openAIWSErrorHTTPStatus([]byte(`{"type":"error","error":{"type":"authentication_error","code":"invalid_api_key","message":"auth failed"}}`)))
+	require.Equal(t, http.StatusUnauthorized, openAIWSErrorHTTPStatus([]byte(`{"type":"error","error":{"type":"invalid_request_error","code":"account_deactivated","message":"Your OpenAI account has been deactivated"}}`)))
 	require.Equal(t, http.StatusForbidden, openAIWSErrorHTTPStatus([]byte(`{"type":"error","error":{"type":"permission_error","code":"forbidden","message":"forbidden"}}`)))
 	require.Equal(t, http.StatusTooManyRequests, openAIWSErrorHTTPStatus([]byte(`{"type":"error","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"rate limited"}}`)))
 	require.Equal(t, http.StatusBadGateway, openAIWSErrorHTTPStatus([]byte(`{"type":"error","error":{"type":"server_error","code":"server_error","message":"server"}}`)))

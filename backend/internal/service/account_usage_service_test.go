@@ -11,6 +11,7 @@ type accountUsageCodexProbeRepo struct {
 	stubOpenAIAccountRepo
 	updateExtraCh chan map[string]any
 	rateLimitCh   chan time.Time
+	errorCh       chan string
 }
 
 func (r *accountUsageCodexProbeRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
@@ -30,6 +31,13 @@ func (r *accountUsageCodexProbeRepo) MergeCredentials(_ context.Context, _ int64
 func (r *accountUsageCodexProbeRepo) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
 	if r.rateLimitCh != nil {
 		r.rateLimitCh <- resetAt
+	}
+	return nil
+}
+
+func (r *accountUsageCodexProbeRepo) SetError(_ context.Context, _ int64, errorMsg string) error {
+	if r.errorCh != nil {
+		r.errorCh <- errorMsg
 	}
 	return nil
 }
@@ -149,5 +157,65 @@ func TestAccountUsageService_PersistOpenAICodexProbeSnapshotSetsRateLimit(t *tes
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("waiting for codex probe rate limit persistence timed out")
+	}
+}
+
+func TestPersistOpenAIOAuthStatusFromHTTPErrorMarksForbiddenAsError(t *testing.T) {
+	t.Parallel()
+
+	repo := &accountUsageCodexProbeRepo{
+		errorCh: make(chan string, 1),
+	}
+	account := &Account{
+		ID:       901,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	persistOpenAIOAuthStatusFromHTTPError(context.Background(), repo, account, http.StatusForbidden, []byte(`{"error":{"message":"Account deactivated due to policy violation"}}`))
+
+	select {
+	case msg := <-repo.errorCh:
+		if msg == "" {
+			t.Fatal("expected non-empty error message")
+		}
+		if account.Status != StatusError {
+			t.Fatalf("account status = %q, want %q", account.Status, StatusError)
+		}
+		if account.ErrorMessage != msg {
+			t.Fatalf("account error_message = %q, want %q", account.ErrorMessage, msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiting for SetError timed out")
+	}
+}
+
+func TestPersistOpenAIOAuthStatusFromHTTPErrorMarksDeactivated401AsError(t *testing.T) {
+	t.Parallel()
+
+	repo := &accountUsageCodexProbeRepo{
+		errorCh: make(chan string, 1),
+	}
+	account := &Account{
+		ID:       902,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	persistOpenAIOAuthStatusFromHTTPError(context.Background(), repo, account, http.StatusUnauthorized, []byte(`{"error":{"code":"account_deactivated","message":"Your OpenAI account has been deactivated, please check your email for more information."}}`))
+
+	select {
+	case msg := <-repo.errorCh:
+		if msg == "" {
+			t.Fatal("expected non-empty error message")
+		}
+		if account.Status != StatusError {
+			t.Fatalf("account status = %q, want %q", account.Status, StatusError)
+		}
+		if account.ErrorMessage != msg {
+			t.Fatalf("account error_message = %q, want %q", account.ErrorMessage, msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiting for SetError timed out")
 	}
 }

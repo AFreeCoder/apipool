@@ -532,6 +532,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		if isOAuth && s.accountRepo != nil {
+			persistOpenAIOAuthStatusFromHTTPError(ctx, s.accountRepo, account, resp.StatusCode, body)
 			if resetAt := (&RateLimitService{}).calculateOpenAI429ResetTime(resp.Header); resetAt != nil {
 				_ = s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt)
 				account.RateLimitResetAt = resetAt

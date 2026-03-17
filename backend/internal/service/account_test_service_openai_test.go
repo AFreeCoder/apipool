@@ -19,6 +19,8 @@ type openAIAccountTestRepo struct {
 	updatedExtra  map[string]any
 	rateLimitedID int64
 	rateLimitedAt *time.Time
+	errorID       int64
+	errorMessage  string
 }
 
 func (r *openAIAccountTestRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
@@ -32,6 +34,12 @@ func (r *openAIAccountTestRepo) MergeCredentials(_ context.Context, _ int64, _ m
 func (r *openAIAccountTestRepo) SetRateLimited(_ context.Context, id int64, resetAt time.Time) error {
 	r.rateLimitedID = id
 	r.rateLimitedAt = &resetAt
+	return nil
+}
+
+func (r *openAIAccountTestRepo) SetError(_ context.Context, id int64, errorMsg string) error {
+	r.errorID = id
+	r.errorMessage = errorMsg
 	return nil
 }
 
@@ -102,4 +110,29 @@ func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimit(t *testing.T) 
 	if account.RateLimitResetAt != nil && repo.rateLimitedAt != nil {
 		require.WithinDuration(t, *repo.rateLimitedAt, *account.RateLimitResetAt, time.Second)
 	}
+}
+
+func TestAccountTestService_OpenAI401DeactivatedMarksAccountError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newSoraTestContext()
+
+	resp := newJSONResponse(http.StatusUnauthorized, `{"error":{"type":"invalid_request_error","code":"account_deactivated","message":"Your OpenAI account has been deactivated, please check your email for more information."}}`)
+
+	repo := &openAIAccountTestRepo{}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
+	account := &Account{
+		ID:          87,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4")
+	require.Error(t, err)
+	require.Equal(t, int64(87), repo.errorID)
+	require.Contains(t, repo.errorMessage, "deactivated")
+	require.Equal(t, StatusError, account.Status)
+	require.Equal(t, repo.errorMessage, account.ErrorMessage)
 }

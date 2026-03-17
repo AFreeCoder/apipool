@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"math/rand/v2"
@@ -558,6 +559,12 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 		return nil, nil, fmt.Errorf("openai codex probe request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		resp.Body = io.NopCloser(bytes.NewReader(responseBody))
+		persistOpenAIOAuthStatusFromHTTPError(ctx, s.accountRepo, account, resp.StatusCode, responseBody)
+	}
 
 	updates, resetAt, err := extractOpenAICodexProbeSnapshot(resp)
 	if err != nil {

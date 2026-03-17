@@ -612,6 +612,9 @@ func (s *OpenAIGatewayService) writeOpenAIWSFallbackErrorResponse(c *gin.Context
 	if strings.TrimSpace(upstreamMessage) == "" {
 		upstreamMessage = clientMessage
 	}
+	if c.Request != nil {
+		persistOpenAIOAuthStatusFromRaw(c.Request.Context(), s.accountRepo, account, statusCode, "", "", upstreamMessage)
+	}
 
 	setOpsUpstreamError(c, statusCode, upstreamMessage, "")
 	if account != nil {

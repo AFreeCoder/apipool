@@ -2141,6 +2141,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if eventType == "error" {
 			errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(message)
 			s.persistOpenAIWSRateLimitSignal(ctx, account, lease.HandshakeHeaders(), message, errCodeRaw, errTypeRaw, errMsgRaw)
+			persistOpenAIOAuthStatusFromRaw(ctx, s.accountRepo, account, openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw), errCodeRaw, errTypeRaw, errMsgRaw)
 			errMsg := strings.TrimSpace(errMsgRaw)
 			if errMsg == "" {
 				errMsg = "Upstream websocket error"
@@ -2788,6 +2789,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if eventType == "error" {
 				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(upstreamMessage)
 				s.persistOpenAIWSRateLimitSignal(ctx, account, lease.HandshakeHeaders(), upstreamMessage, errCodeRaw, errTypeRaw, errMsgRaw)
+				persistOpenAIOAuthStatusFromRaw(ctx, s.accountRepo, account, openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw), errCodeRaw, errTypeRaw, errMsgRaw)
 				fallbackReason, _ := classifyOpenAIWSErrorEventFromRaw(errCodeRaw, errTypeRaw, errMsgRaw)
 				errCode, errType, errMessage := summarizeOpenAIWSErrorEventFieldsFromRaw(errCodeRaw, errTypeRaw, errMsgRaw)
 				recoverablePrevNotFound := fallbackReason == openAIWSIngressStagePreviousResponseNotFound &&
@@ -3617,6 +3619,7 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 		if eventType == "error" {
 			errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(message)
 			s.persistOpenAIWSRateLimitSignal(ctx, account, lease.HandshakeHeaders(), message, errCodeRaw, errTypeRaw, errMsgRaw)
+			persistOpenAIOAuthStatusFromRaw(ctx, s.accountRepo, account, openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw), errCodeRaw, errTypeRaw, errMsgRaw)
 			errMsg := strings.TrimSpace(errMsgRaw)
 			if errMsg == "" {
 				errMsg = "OpenAI websocket prewarm error"
@@ -3915,6 +3918,10 @@ func classifyOpenAIWSErrorEventFromRaw(codeRaw, errTypeRaw, msgRaw string) (stri
 	errType := strings.ToLower(strings.TrimSpace(errTypeRaw))
 	msg := strings.ToLower(strings.TrimSpace(msgRaw))
 
+	if isOpenAIOAuthAccountDeactivated(codeRaw, errTypeRaw, msgRaw) {
+		return "auth_failed", false
+	}
+
 	switch code {
 	case "upgrade_required":
 		return "upgrade_required", true
@@ -3964,6 +3971,9 @@ func classifyOpenAIWSErrorEvent(message []byte) (string, bool) {
 }
 
 func openAIWSErrorHTTPStatusFromRaw(codeRaw, errTypeRaw string) int {
+	if isOpenAIOAuthAccountDeactivated(codeRaw, errTypeRaw, "") {
+		return http.StatusUnauthorized
+	}
 	code := strings.ToLower(strings.TrimSpace(codeRaw))
 	errType := strings.ToLower(strings.TrimSpace(errTypeRaw))
 	switch {
