@@ -447,6 +447,7 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64) ([]service.Account, *pagination.PaginationResult, error) {
 	q := r.client.Account.Query()
+	now := time.Now()
 
 	if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
@@ -456,14 +457,31 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 	}
 	if status != "" {
 		switch status {
+		case service.StatusActive:
+			q = q.Where(
+				dbaccount.StatusEQ(service.StatusActive),
+				dbaccount.SchedulableEQ(true),
+			)
+			q = q.Where(dbpredicate.Account(func(s *entsql.Selector) {
+				rateLimitCol := s.C("rate_limit_reset_at")
+				overloadCol := s.C("overload_until")
+				tempUnschedCol := s.C("temp_unschedulable_until")
+				s.Where(entsql.And(
+					entsql.Or(entsql.IsNull(rateLimitCol), entsql.LTE(rateLimitCol, now)),
+					entsql.Or(entsql.IsNull(overloadCol), entsql.LTE(overloadCol, now)),
+					entsql.Or(entsql.IsNull(tempUnschedCol), entsql.LTE(tempUnschedCol, now)),
+				))
+			}))
+		case "inactive", service.StatusDisabled:
+			q = q.Where(dbaccount.StatusEQ(service.StatusDisabled))
 		case "rate_limited":
-			q = q.Where(dbaccount.RateLimitResetAtGT(time.Now()))
+			q = q.Where(dbaccount.RateLimitResetAtGT(now))
 		case "temp_unschedulable":
 			q = q.Where(dbpredicate.Account(func(s *entsql.Selector) {
 				col := s.C("temp_unschedulable_until")
 				s.Where(entsql.And(
 					entsql.Not(entsql.IsNull(col)),
-					entsql.GT(col, entsql.Expr("NOW()")),
+					entsql.GT(col, now),
 				))
 			}))
 		default:

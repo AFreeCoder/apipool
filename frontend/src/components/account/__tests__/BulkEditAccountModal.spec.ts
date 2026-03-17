@@ -13,7 +13,8 @@ vi.mock('@/stores/app', () => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
-      bulkEdit: vi.fn()
+      bulkUpdate: vi.fn(),
+      checkMixedChannelRisk: vi.fn()
     }
   }
 }))
@@ -38,6 +39,29 @@ function mountModal() {
       show: true,
       accountIds: [1, 2],
       selectedPlatforms: ['antigravity'],
+      selectedTypes: ['apikey'],
+      proxies: [],
+      groups: []
+    } as any,
+    global: {
+      stubs: {
+        BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+        Select: true,
+        ProxySelector: true,
+        GroupSelector: true,
+        Icon: true
+      }
+    }
+  })
+}
+
+function mountOpenAIModal() {
+  return mount(BulkEditAccountModal, {
+    props: {
+      show: true,
+      accountIds: [1],
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth'],
       proxies: [],
       groups: []
     } as any,
@@ -72,5 +96,12 @@ describe('BulkEditAccountModal', () => {
     expect(wrapper.text()).toContain('Gemini 3.1 Image')
     expect(wrapper.text()).toContain('G3 Image→3.1')
     expect(wrapper.text()).not.toContain('GPT-5.3 Codex')
+  })
+
+  it('openai 白名单使用 GPT-5.2 别名而不是日期版快照 ID', () => {
+    const wrapper = mountOpenAIModal()
+
+    expect(wrapper.find('input[type="checkbox"][value="gpt-5.2"]').exists()).toBe(true)
+    expect(wrapper.find('input[type="checkbox"][value="gpt-5.2-2025-12-11"]').exists()).toBe(false)
   })
 })

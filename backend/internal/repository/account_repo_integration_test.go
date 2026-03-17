@@ -254,6 +254,70 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
+			name: "filter_by_active_only_returns_runtime_normal_accounts",
+			setup: func(client *dbent.Client) {
+				ctx := context.Background()
+				now := time.Now()
+				rateLimitedUntil := now.Add(10 * time.Minute)
+				overloadedUntil := now.Add(10 * time.Minute)
+				tempUnschedUntil := now.Add(10 * time.Minute)
+
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:        "normal-active",
+					Status:      service.StatusActive,
+					Schedulable: true,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:             "rate-limited-active",
+					Status:           service.StatusActive,
+					Schedulable:      true,
+					RateLimitResetAt: &rateLimitedUntil,
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:          "overloaded-active",
+					Status:        service.StatusActive,
+					Schedulable:   true,
+					OverloadUntil: &overloadedUntil,
+				})
+				tempUnsched := mustCreateAccount(s.T(), client, &service.Account{
+					Name:        "temp-unsched-active",
+					Status:      service.StatusActive,
+					Schedulable: true,
+				})
+				_, err := client.Account.UpdateOneID(tempUnsched.ID).
+					SetTempUnschedulableUntil(tempUnschedUntil).
+					Save(ctx)
+				s.Require().NoError(err)
+
+				paused := mustCreateAccount(s.T(), client, &service.Account{
+					Name:        "paused-active",
+					Status:      service.StatusActive,
+					Schedulable: false,
+				})
+				_, err = client.Account.UpdateOneID(paused.ID).
+					SetSchedulable(false).
+					Save(ctx)
+				s.Require().NoError(err)
+			},
+			status:    service.StatusActive,
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("normal-active", accounts[0].Name)
+			},
+		},
+		{
+			name: "filter_by_inactive_alias_matches_disabled_accounts",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "active-account", Status: service.StatusActive})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "disabled-account", Status: service.StatusDisabled})
+			},
+			status:    "inactive",
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("disabled-account", accounts[0].Name)
+			},
+		},
+		{
 			name: "filter_by_search",
 			setup: func(client *dbent.Client) {
 				mustCreateAccount(s.T(), client, &service.Account{Name: "alpha-account"})

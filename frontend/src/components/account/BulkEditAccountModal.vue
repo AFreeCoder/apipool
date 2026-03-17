@@ -952,13 +952,13 @@ const allModels = [
   { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
   { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
   { value: 'gpt-5.4', label: 'GPT-5.4' },
-  { value: 'gpt-5.2-2025-12-11', label: 'GPT-5.2' },
+  { value: 'gpt-5.2', label: 'GPT-5.2' },
   { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
   { value: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max' },
   { value: 'gpt-5.1-codex', label: 'GPT-5.1 Codex' },
-  { value: 'gpt-5.1-2025-11-13', label: 'GPT-5.1' },
+  { value: 'gpt-5.1', label: 'GPT-5.1' },
   { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex Mini' },
-  { value: 'gpt-5-2025-08-07', label: 'GPT-5' },
+  { value: 'gpt-5', label: 'GPT-5' },
   { value: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image' },
   { value: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
   { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
@@ -1087,8 +1087,8 @@ const presetMappings = [
   },
   {
     label: 'GPT-5.2',
-    from: 'gpt-5.2-2025-12-11',
-    to: 'gpt-5.2-2025-12-11',
+    from: 'gpt-5.2',
+    to: 'gpt-5.2',
     color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
   },
   {
