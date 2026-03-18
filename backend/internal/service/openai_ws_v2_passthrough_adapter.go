@@ -50,7 +50,6 @@ func (c *openAIWSClientFrameConn) Close() error {
 		return nil
 	}
 	_ = c.conn.Close(coderws.StatusNormalClosure, "")
-	_ = c.conn.CloseNow()
 	return nil
 }
 

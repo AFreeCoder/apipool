@@ -1039,7 +1039,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 	defer func() {
-		_ = wsConn.CloseNow()
+		_ = wsConn.Close(coderws.StatusNormalClosure, "")
 	}()
 	wsConn.SetReadLimit(16 * 1024 * 1024)
 
@@ -1225,7 +1225,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		},
 		AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 			releaseTurnSlots()
-			if turnErr != nil || result == nil {
+			if turnErr != nil || result == nil || result.UpstreamErrorEvent {
 				return
 			}
 			if account.Type == service.AccountTypeOAuth {
@@ -1554,8 +1554,8 @@ func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason s
 	if len(reason) > 120 {
 		reason = reason[:120]
 	}
+	// 仅发送 close frame，避免 CloseNow 触发 reset 让客户端看起来像协议错误。
 	_ = conn.Close(status, reason)
-	_ = conn.CloseNow()
 }
 
 func summarizeWSCloseErrorForLog(err error) (string, string) {

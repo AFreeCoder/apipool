@@ -307,6 +307,5 @@ func (c *coderOpenAIWSClientConn) Close() error {
 	}
 	// Close 为幂等，忽略重复关闭错误。
 	_ = c.conn.Close(coderws.StatusNormalClosure, "")
-	_ = c.conn.CloseNow()
 	return nil
 }

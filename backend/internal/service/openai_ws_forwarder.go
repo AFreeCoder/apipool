@@ -177,6 +177,53 @@ func isOpenAIWSIngressPreviousResponseNotFound(err error) bool {
 	return !turnErr.wroteDownstream
 }
 
+func shouldCloseOpenAIWSIngressSessionOnErrorEvent(fallbackReason string) bool {
+	switch strings.TrimSpace(fallbackReason) {
+	case "upstream_rate_limited", "auth_failed", "upgrade_required", "ws_unsupported", "ws_connection_limit_reached", "invalid_encrypted_content":
+		return true
+	default:
+		return false
+	}
+}
+
+func newOpenAIWSIngressErrorEventCloseError(fallbackReason, errMessage string) error {
+	reason := strings.TrimSpace(errMessage)
+	switch strings.TrimSpace(fallbackReason) {
+	case "upstream_rate_limited":
+		if reason == "" {
+			reason = "upstream is rate limited, please retry later"
+		}
+		return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, reason, nil)
+	case "auth_failed":
+		if reason == "" {
+			reason = "upstream authentication failed"
+		}
+		return NewOpenAIWSClientCloseError(coderws.StatusInternalError, reason, nil)
+	case "upgrade_required":
+		if reason == "" {
+			reason = "upstream websocket upgrade is required"
+		}
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, reason, nil)
+	case "ws_unsupported":
+		if reason == "" {
+			reason = "upstream websocket is unsupported"
+		}
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, reason, nil)
+	case "ws_connection_limit_reached":
+		if reason == "" {
+			reason = "upstream websocket connection limit reached"
+		}
+		return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, reason, nil)
+	case "invalid_encrypted_content":
+		if reason == "" {
+			reason = "upstream rejected encrypted content"
+		}
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, reason, nil)
+	default:
+		return nil
+	}
+}
+
 // NewOpenAIWSClientCloseError 创建一个客户端 WS 关闭错误。
 func NewOpenAIWSClientCloseError(statusCode coderws.StatusCode, reason string, err error) error {
 	return &OpenAIWSClientCloseError{
@@ -2917,6 +2964,25 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					wroteDownstream = true
 				}
 			}
+			if eventType == "error" {
+				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(upstreamMessage)
+				fallbackReason, _ := classifyOpenAIWSErrorEventFromRaw(errCodeRaw, errTypeRaw, errMsgRaw)
+				if shouldCloseOpenAIWSIngressSessionOnErrorEvent(fallbackReason) {
+					return nil, newOpenAIWSIngressErrorEventCloseError(fallbackReason, errMsgRaw)
+				}
+				return &OpenAIForwardResult{
+					RequestID:          responseID,
+					Model:              originalModel,
+					ServiceTier:        extractOpenAIServiceTierFromBody(payload),
+					ReasoningEffort:    extractOpenAIReasoningEffortFromBody(payload, originalModel),
+					Stream:             reqStream,
+					OpenAIWSMode:       true,
+					UpstreamErrorEvent: true,
+					ResponseHeaders:    lease.HandshakeHeaders(),
+					Duration:           time.Since(turnStart),
+					FirstTokenMs:       firstTokenMs,
+				}, nil
+			}
 			if isTerminalEvent {
 				// 客户端已断连时，上游连接的 session 状态不可信，标记 broken 避免回池复用。
 				if clientDisconnected {
@@ -3418,42 +3484,52 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		turnRetry = 0
 		turnPrevRecoveryTried = false
 		lastTurnFinishedAt = time.Now()
-		lastTurnClean = true
-		if hooks != nil && hooks.AfterTurn != nil {
-			hooks.AfterTurn(turn, result, nil)
-		}
 		if result == nil {
 			return errors.New("websocket turn result is nil")
 		}
-		responseID := strings.TrimSpace(result.RequestID)
-		lastTurnResponseID = responseID
-		lastTurnPayload = cloneOpenAIWSPayloadBytes(currentPayload)
-		lastTurnReplayInput = cloneOpenAIWSRawMessages(currentTurnReplayInput)
-		lastTurnReplayInputExists = currentTurnReplayInputExists
-		nextStrictState, strictStateErr := buildOpenAIWSIngressPreviousTurnStrictState(currentPayload)
-		if strictStateErr != nil {
-			lastTurnStrictState = nil
-			logOpenAIWSModeInfo(
-				"ingress_ws_prev_response_strict_state_skip account_id=%d turn=%d conn_id=%s reason=build_error cause=%s",
-				account.ID,
-				turn,
-				truncateOpenAIWSLogValue(connID, openAIWSIDValueMaxLen),
-				truncateOpenAIWSLogValue(strictStateErr.Error(), openAIWSLogValueMaxLen),
-			)
+		if result.UpstreamErrorEvent {
+			lastTurnClean = false
+			if hooks != nil && hooks.AfterTurn != nil {
+				hooks.AfterTurn(turn, result, nil)
+			}
+			resetSessionLease(true)
 		} else {
-			lastTurnStrictState = nextStrictState
+			lastTurnClean = true
+			if hooks != nil && hooks.AfterTurn != nil {
+				hooks.AfterTurn(turn, result, nil)
+			}
 		}
+		responseID := strings.TrimSpace(result.RequestID)
+		if !result.UpstreamErrorEvent {
+			lastTurnResponseID = responseID
+			lastTurnPayload = cloneOpenAIWSPayloadBytes(currentPayload)
+			lastTurnReplayInput = cloneOpenAIWSRawMessages(currentTurnReplayInput)
+			lastTurnReplayInputExists = currentTurnReplayInputExists
+			nextStrictState, strictStateErr := buildOpenAIWSIngressPreviousTurnStrictState(currentPayload)
+			if strictStateErr != nil {
+				lastTurnStrictState = nil
+				logOpenAIWSModeInfo(
+					"ingress_ws_prev_response_strict_state_skip account_id=%d turn=%d conn_id=%s reason=build_error cause=%s",
+					account.ID,
+					turn,
+					truncateOpenAIWSLogValue(connID, openAIWSIDValueMaxLen),
+					truncateOpenAIWSLogValue(strictStateErr.Error(), openAIWSLogValueMaxLen),
+				)
+			} else {
+				lastTurnStrictState = nextStrictState
+			}
 
-		if responseID != "" && stateStore != nil {
-			ttl := s.openAIWSResponseStickyTTL()
-			logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
-			stateStore.BindResponseConn(responseID, connID, ttl)
-		}
-		if stateStore != nil && storeDisabled && sessionHash != "" {
-			stateStore.BindSessionConn(groupID, sessionHash, connID, s.openAIWSSessionStickyTTL())
-		}
-		if connID != "" {
-			preferredConnID = connID
+			if responseID != "" && stateStore != nil {
+				ttl := s.openAIWSResponseStickyTTL()
+				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
+				stateStore.BindResponseConn(responseID, connID, ttl)
+			}
+			if stateStore != nil && storeDisabled && sessionHash != "" {
+				stateStore.BindSessionConn(groupID, sessionHash, connID, s.openAIWSSessionStickyTTL())
+			}
+			if connID != "" {
+				preferredConnID = connID
+			}
 		}
 
 		nextClientMessage, readErr := readClientMessage()
