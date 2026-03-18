@@ -218,7 +218,7 @@ export default {
       email: '邮箱',
       password: '密码',
       confirmPassword: '确认密码',
-      passwordPlaceholder: '至少 6 个字符',
+      passwordPlaceholder: '至少 8 个字符',
       confirmPasswordPlaceholder: '确认密码',
       passwordMismatch: '密码不匹配'
     },
@@ -723,11 +723,14 @@ export default {
     exporting: '导出中...',
     preparingExport: '正在准备导出...',
     model: '模型',
+    requestedModel: '请求',
+    upstreamModel: '上游',
     reasoningEffort: '推理强度',
     endpoint: '端点',
     endpointDistribution: '端点分布',
     inbound: '入站',
     upstream: '上游',
+    mapping: '映射',
     path: '路径',
     inboundEndpoint: '入站端点',
     upstreamEndpoint: '上游端点',
@@ -4523,6 +4526,16 @@ export default {
           testSuccess: 'Google Drive 存储测试成功（上传、访问、删除均正常）',
           testFailed: 'Google Drive 存储测试失败'
         }
+      },
+      overloadCooldown: {
+        title: '529 过载冷却',
+        description: '配置上游返回 529（过载）时的账号调度暂停策略',
+        enabled: '启用过载冷却',
+        enabledHint: '收到 529 错误时暂停该账号的调度，冷却后自动恢复',
+        cooldownMinutes: '冷却时长（分钟）',
+        cooldownMinutesHint: '账号暂停调度的持续时间（1-120 分钟）',
+        saved: '过载冷却设置保存成功',
+        saveFailed: '保存过载冷却设置失败'
       },
       streamTimeout: {
         title: '流超时处理',
