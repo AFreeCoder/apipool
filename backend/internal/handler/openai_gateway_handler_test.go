@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -110,6 +111,83 @@ func TestOpenAIHandleStreamingAwareError_NonStreaming(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errorObj["type"])
 	assert.Equal(t, "test error", errorObj["message"])
+}
+
+func TestOpenAIHandleStreamingAwareErrorWithCode_SSE(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+	h := &OpenAIGatewayHandler{}
+	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "no_available_accounts_for_model", "No available accounts supporting model: gpt-5.4", true)
+
+	body := w.Body.String()
+	assert.True(t, strings.HasPrefix(body, "event: error\n"))
+	assert.True(t, strings.HasSuffix(body, "\n\n"))
+
+	lines := strings.Split(strings.TrimSuffix(body, "\n\n"), "\n")
+	require.Len(t, lines, 2)
+
+	var parsed map[string]any
+	err := json.Unmarshal([]byte(strings.TrimPrefix(lines[1], "data: ")), &parsed)
+	require.NoError(t, err)
+
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "api_error", errorObj["type"])
+	assert.Equal(t, "no_available_accounts_for_model", errorObj["code"])
+	assert.Equal(t, "No available accounts supporting model: gpt-5.4", errorObj["message"])
+}
+
+func TestOpenAIHandleStreamingAwareErrorWithCode_NonStreaming(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+	h := &OpenAIGatewayHandler{}
+	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "no_available_accounts", "No available accounts", false)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	var parsed map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &parsed)
+	require.NoError(t, err)
+
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "api_error", errorObj["type"])
+	assert.Equal(t, "no_available_accounts", errorObj["code"])
+	assert.Equal(t, "No available accounts", errorObj["message"])
+}
+
+func TestOpenAIAnthropicStreamingAwareErrorWithCode_SSE(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+
+	h := &OpenAIGatewayHandler{}
+	h.anthropicStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "no_available_accounts", "No available accounts", true)
+
+	body := w.Body.String()
+	assert.True(t, strings.HasPrefix(body, "event: error\n"))
+	assert.True(t, strings.HasSuffix(body, "\n\n"))
+
+	lines := strings.Split(strings.TrimSuffix(body, "\n\n"), "\n")
+	require.Len(t, lines, 2)
+
+	var parsed map[string]any
+	err := json.Unmarshal([]byte(strings.TrimPrefix(lines[1], "data: ")), &parsed)
+	require.NoError(t, err)
+	assert.Equal(t, "error", parsed["type"])
+
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "api_error", errorObj["type"])
+	assert.Equal(t, "no_available_accounts", errorObj["code"])
+	assert.Equal(t, "No available accounts", errorObj["message"])
 }
 
 func TestReadRequestBodyWithPrealloc(t *testing.T) {
@@ -350,6 +428,53 @@ func TestOpenAIEnsureResponsesDependencies(t *testing.T) {
 		require.False(t, c.Writer.Written())
 		assert.Equal(t, "", w.Body.String())
 	})
+}
+
+func TestPublicOpenAIAccountSelectionError(t *testing.T) {
+	tests := []struct {
+		name           string
+		err            error
+		requestedModel string
+		wantCode       string
+		want           string
+	}{
+		{
+			name:           "wrapped no available accounts with model",
+			err:            fmt.Errorf("%w supporting model: gpt-5.4 (total=2 eligible=0 model_unsupported=2)", service.ErrNoAvailableAccounts),
+			requestedModel: "gpt-5.4",
+			wantCode:       "no_available_accounts_for_model",
+			want:           "No available accounts supporting model: gpt-5.4",
+		},
+		{
+			name:           "scheduler no available openai accounts with model",
+			err:            errors.New("no available OpenAI accounts"),
+			requestedModel: "gpt-5.4",
+			wantCode:       "no_available_accounts_for_model",
+			want:           "No available accounts supporting model: gpt-5.4",
+		},
+		{
+			name:     "no available accounts without model",
+			err:      service.ErrNoAvailableAccounts,
+			wantCode: "no_available_accounts",
+			want:     "No available accounts",
+		},
+		{
+			name:           "generic infrastructure error keeps generic message",
+			err:            errors.New("query accounts failed: redis unavailable"),
+			requestedModel: "gpt-5.4",
+			wantCode:       "service_unavailable",
+			want:           "Service temporarily unavailable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := publicOpenAIAccountSelectionError(tt.err, tt.requestedModel)
+			require.Equal(t, tt.wantCode, got.Code)
+			require.Equal(t, tt.want, got.Message)
+			require.Equal(t, tt.want, publicOpenAIAccountSelectionMessage(tt.err, tt.requestedModel))
+		})
+	}
 }
 
 func TestOpenAIResponses_MissingDependencies_ReturnsServiceUnavailable(t *testing.T) {

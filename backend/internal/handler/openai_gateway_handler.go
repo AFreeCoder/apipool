@@ -234,7 +234,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+				publicErr := publicOpenAIAccountSelectionError(err, reqModel)
+				h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
 				return
 			}
 			if lastFailoverErr != nil {
@@ -245,7 +246,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
-			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+			publicErr := publicOpenAIAccountSelectionError(service.ErrNoAvailableAccounts, reqModel)
+			h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
 			return
 		}
 		if previousResponseID != "" && selection != nil && selection.Account != nil {
@@ -588,6 +590,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	for {
 		// 清除上一次迭代的降级模型标记，避免残留影响本次迭代
 		c.Set("openai_messages_fallback_model", "")
+		attemptedModel := reqModel
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithScheduler(
 			c.Request.Context(),
@@ -613,6 +616,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					reqLog.Info("openai_messages.fallback_to_default_model",
 						zap.String("default_mapped_model", defaultModel),
 					)
+					attemptedModel = defaultModel
 					selection, scheduleDecision, err = h.gatewayService.SelectAccountWithScheduler(
 						c.Request.Context(),
 						apiKey.GroupID,
@@ -627,7 +631,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					}
 				}
 				if err != nil {
-					h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+					publicErr := publicOpenAIAccountSelectionError(err, attemptedModel)
+					h.anthropicStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
 					return
 				}
 			} else {
@@ -640,7 +645,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
-			h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+			publicErr := publicOpenAIAccountSelectionError(service.ErrNoAvailableAccounts, attemptedModel)
+			h.anthropicStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
 			return
 		}
 		account := selection.Account
@@ -767,34 +773,50 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
+	h.anthropicErrorResponseWithCode(c, status, errType, "", message)
+}
+
+func (h *OpenAIGatewayHandler) anthropicErrorResponseWithCode(c *gin.Context, status int, errType, errCode, message string) {
+	errPayload := gin.H{
+		"type":    errType,
+		"message": message,
+	}
+	if strings.TrimSpace(errCode) != "" {
+		errPayload["code"] = errCode
+	}
 	c.JSON(status, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"type":  "error",
+		"error": errPayload,
 	})
 }
 
 // anthropicStreamingAwareError handles errors that may occur during streaming,
 // using Anthropic SSE error format.
 func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	h.anthropicStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted)
+}
+
+func (h *OpenAIGatewayHandler) anthropicStreamingAwareErrorWithCode(c *gin.Context, status int, errType, errCode, message string, streamStarted bool) {
 	if streamStarted {
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
+			errorObj := gin.H{
+				"type":    errType,
+				"message": message,
+			}
+			if strings.TrimSpace(errCode) != "" {
+				errorObj["code"] = errCode
+			}
 			errPayload, _ := json.Marshal(gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    errType,
-					"message": message,
-				},
+				"type":  "error",
+				"error": errorObj,
 			})
 			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errPayload) //nolint:errcheck
 			flusher.Flush()
 		}
 		return
 	}
-	h.anthropicErrorResponse(c, status, errType, message)
+	h.anthropicErrorResponseWithCode(c, status, errType, errCode, message)
 }
 
 // handleAnthropicFailoverExhausted maps upstream failover errors to Anthropic format.
@@ -1465,12 +1487,20 @@ func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, st
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted)
+}
+
+func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, errCode, message string, streamStarted bool) {
 	if streamStarted {
 		// Stream already started, send error as SSE event then close
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
 			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorEvent := "event: error\ndata: " + `{"error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
+			errorEvent := "event: error\ndata: " + `{"error":{"type":` + strconv.Quote(errType)
+			if strings.TrimSpace(errCode) != "" {
+				errorEvent += `,"code":` + strconv.Quote(errCode)
+			}
+			errorEvent += `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
 			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
 				_ = c.Error(err)
 			}
@@ -1480,7 +1510,7 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status 
 	}
 
 	// Normal case: return JSON response with proper status code
-	h.errorResponse(c, status, errType, message)
+	h.errorResponseWithCode(c, status, errType, errCode, message)
 }
 
 // ensureForwardErrorResponse 在 Forward 返回错误但尚未写响应时补写统一错误响应。
@@ -1504,11 +1534,19 @@ func shouldLogOpenAIForwardFailureAsWarn(c *gin.Context, wroteFallback bool) boo
 
 // errorResponse returns OpenAI API format error response
 func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	h.errorResponseWithCode(c, status, errType, "", message)
+}
+
+func (h *OpenAIGatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, errCode, message string) {
+	errPayload := gin.H{
+		"type":    errType,
+		"message": message,
+	}
+	if strings.TrimSpace(errCode) != "" {
+		errPayload["code"] = errCode
+	}
 	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"error": errPayload,
 	})
 }
 
