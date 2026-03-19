@@ -24,7 +24,7 @@
       <!-- Platform-specific content -->
       <template v-else>
         <!-- Description -->
-        <p class="text-sm text-gray-600 dark:text-gray-400">
+        <p v-if="platformDescription" class="text-sm text-gray-600 dark:text-gray-400">
           {{ platformDescription }}
         </p>
 
@@ -72,8 +72,104 @@
           </nav>
         </div>
 
+        <template v-if="activeClientTab === 'openclaw'">
+          <div class="space-y-4">
+            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-900/40">
+              <div class="space-y-3">
+                <div class="text-sm text-gray-700 dark:text-dark-200">
+                  {{ t('keys.useKeyModal.openclaw.importDescription') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ t('keys.useKeyModal.openclaw.defaultPathLabel') }}:
+                  <span class="font-mono">{{ openClawConfigPath }}</span>
+                  <span v-if="supportsNativeOpenClawPicker"> · {{ t('keys.useKeyModal.openclaw.rememberHint') }}</span>
+                </div>
+                <div class="rounded-lg border border-dashed border-gray-300 bg-white px-4 py-3 dark:border-dark-600 dark:bg-dark-800">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="truncate text-sm text-gray-700 dark:text-dark-200">
+                        {{ openClawFileName || t('keys.useKeyModal.openclaw.selectFile') }}
+                      </div>
+                      <div class="text-xs text-gray-500 dark:text-dark-400">
+                        JSON5 / JSON (.json, .json5, .jsonc)
+                      </div>
+                    </div>
+                    <button type="button" class="btn btn-secondary shrink-0" @click="openOpenClawFilePicker">
+                      {{ t('common.chooseFile') }}
+                    </button>
+                  </div>
+                  <input
+                    ref="openClawFileInput"
+                    type="file"
+                    class="hidden"
+                    accept="application/json,.json,.json5,.jsonc"
+                    @change="handleOpenClawFileChange"
+                  />
+                </div>
+
+                <div
+                  v-if="openClawImportSpec"
+                  class="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-700 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-300"
+                >
+                  <div>{{ t('keys.useKeyModal.openclaw.providerLabel') }}: <span class="font-mono">{{ openClawImportSpec.providerId }}</span></div>
+                  <div>{{ t('keys.useKeyModal.openclaw.modelLabel') }}: <span class="font-mono">{{ openClawImportSpec.modelRef }}</span></div>
+                </div>
+
+                <div
+                  v-if="openClawError"
+                  class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/60 dark:bg-red-900/20 dark:text-red-300"
+                >
+                  {{ openClawError }}
+                </div>
+              </div>
+            </div>
+
+            <div
+              v-if="openClawResult"
+              class="relative"
+            >
+              <div class="mb-1.5 flex items-center justify-between gap-3">
+                <p class="min-w-0 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                  <Icon name="exclamationCircle" size="sm" class="flex-shrink-0" />
+                  {{ t('keys.useKeyModal.openclaw.resultHint') }}
+                </p>
+                <div class="flex shrink-0 items-center gap-2">
+                  <button
+                    @click="downloadOpenClawConfig"
+                    class="btn btn-secondary px-2.5 py-1 text-xs flex items-center gap-1.5"
+                  >
+                    <Icon name="arrowDown" size="sm" class="h-3.5 w-3.5" />
+                    {{ t('common.download') }}
+                  </button>
+                  <button
+                    @click="copyContent(openClawResult, openClawCopyIndex)"
+                    class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors border"
+                    :class="copiedIndex === openClawCopyIndex
+                      ? 'border-green-200 bg-green-50 text-green-600 dark:border-green-900/60 dark:bg-green-900/20 dark:text-green-300'
+                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-200 dark:hover:bg-dark-800'"
+                  >
+                    <svg v-if="copiedIndex === openClawCopyIndex" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                    </svg>
+                    {{ copiedIndex === openClawCopyIndex ? t('keys.useKeyModal.copied') : t('keys.useKeyModal.copy') }}
+                  </button>
+                </div>
+              </div>
+              <div class="bg-gray-900 dark:bg-dark-900 rounded-xl overflow-hidden">
+                <div class="px-4 py-2 bg-gray-800 dark:bg-dark-800 border-b border-gray-700 dark:border-dark-700">
+                  <span class="text-xs text-gray-400 font-mono">{{ openClawConfigPath }}</span>
+                </div>
+                <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-text="openClawResult"></code></pre>
+              </div>
+            </div>
+          </div>
+        </template>
+
         <!-- Code Blocks (Stacked for multi-file platforms) -->
-        <div class="space-y-4">
+        <div v-else class="space-y-4">
           <div
             v-for="(file, index) in currentFiles"
             :key="index"
@@ -140,6 +236,11 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import type { GroupPlatform } from '@/types'
+import {
+  OPENCLAW_CONFIG_PATH,
+  buildMergedOpenClawConfigText,
+  buildOpenClawImportSpec,
+} from '@/utils/openclawConfig'
 
 interface Props {
   show: boolean
@@ -175,6 +276,47 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
+const openClawFileInput = ref<HTMLInputElement | null>(null)
+const openClawFile = ref<File | null>(null)
+const openClawResult = ref('')
+const openClawError = ref('')
+const openClawCopyIndex = -1
+interface BrowserOpenFilePickerType {
+  description?: string
+  accept: Record<string, string[]>
+}
+
+interface BrowserOpenFilePickerOptions {
+  id?: string
+  multiple?: boolean
+  suggestedName?: string
+  types?: BrowserOpenFilePickerType[]
+}
+
+interface BrowserFileHandle {
+  getFile: () => Promise<File>
+}
+
+const detectWindowsPlatform = () => {
+  if (typeof navigator === 'undefined') return false
+
+  const userAgentData = (navigator as Navigator & {
+    userAgentData?: { platform?: string }
+  }).userAgentData
+
+  const platform = userAgentData?.platform || navigator.platform || navigator.userAgent
+  return /win/i.test(platform)
+}
+
+const supportsNativeOpenClawPicker = typeof window !== 'undefined' && typeof (
+  window as Window & {
+    showOpenFilePicker?: (options?: BrowserOpenFilePickerOptions) => Promise<BrowserFileHandle[]>
+  }
+).showOpenFilePicker === 'function'
+
+const openClawConfigPath = computed(() =>
+  detectWindowsPlatform() ? '%USERPROFILE%\\.openclaw\\openclaw.json' : OPENCLAW_CONFIG_PATH
+)
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
@@ -199,6 +341,31 @@ watch(() => props.platform, () => {
 watch(activeClientTab, () => {
   activeTab.value = 'unix'
 })
+
+const resetOpenClawState = () => {
+  openClawFile.value = null
+  openClawResult.value = ''
+  openClawError.value = ''
+  if (openClawFileInput.value) {
+    openClawFileInput.value.value = ''
+  }
+}
+
+watch(
+  () => props.show,
+  (open) => {
+    if (!open) {
+      resetOpenClawState()
+    }
+  }
+)
+
+watch(
+  () => [props.platform, props.apiKey, props.baseUrl],
+  () => {
+    resetOpenClawState()
+  }
+)
 
 // Icon components
 const AppleIcon = {
@@ -275,18 +442,27 @@ const clientTabs = computed((): TabConfig[] => {
         tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
       }
       tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
+      tabs.push({ id: 'openclaw', label: t('keys.useKeyModal.cliTabs.openclaw'), icon: TerminalIcon })
       return tabs
     }
     case 'gemini':
       return [
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
-        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon },
+        { id: 'openclaw', label: t('keys.useKeyModal.cliTabs.openclaw'), icon: TerminalIcon }
       ]
     case 'antigravity':
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
-        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon },
+        { id: 'openclaw', label: t('keys.useKeyModal.cliTabs.openclaw'), icon: TerminalIcon }
+      ]
+    case 'anthropic':
+      return [
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon },
+        { id: 'openclaw', label: t('keys.useKeyModal.cliTabs.openclaw'), icon: TerminalIcon }
       ]
     default:
       return [
@@ -309,7 +485,14 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
+const showShellTabs = computed(() => activeClientTab.value !== 'opencode' && activeClientTab.value !== 'openclaw')
+
+const openClawImportSpec = computed(() => {
+  const baseUrl = props.baseUrl || window.location.origin
+  return buildOpenClawImportSpec(props.platform, baseUrl, props.apiKey)
+})
+
+const openClawFileName = computed(() => openClawFile.value?.name || '')
 
 const currentTabs = computed(() => {
   if (!showShellTabs.value) return []
@@ -320,6 +503,10 @@ const currentTabs = computed(() => {
 })
 
 const platformDescription = computed(() => {
+  if (activeClientTab.value === 'openclaw') {
+    return ''
+  }
+
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
@@ -336,6 +523,10 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (activeClientTab.value === 'openclaw') {
+    return t('keys.useKeyModal.openclaw.note')
+  }
+
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
@@ -355,7 +546,7 @@ const platformNote = computed(() => {
   }
 })
 
-const showPlatformNote = computed(() => activeClientTab.value !== 'opencode')
+const showPlatformNote = computed(() => activeClientTab.value !== 'opencode' && activeClientTab.value !== 'openclaw')
 
 const escapeHtml = (value: string) => value
   .replace(/&/g, '&amp;')
@@ -376,6 +567,10 @@ const comment = (value: string) => wrapToken('text-slate-500', value)
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
+  if (activeClientTab.value === 'openclaw') {
+    return []
+  }
+
   const baseUrl = props.baseUrl || window.location.origin
   const apiKey = props.apiKey
   const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
@@ -1085,5 +1280,109 @@ const copyContent = async (content: string, index: number) => {
       copiedIndex.value = null
     }, 2000)
   }
+}
+
+const readFileAsText = async (sourceFile: File): Promise<string> => {
+  if (typeof sourceFile.text === 'function') {
+    return sourceFile.text()
+  }
+
+  if (typeof sourceFile.arrayBuffer === 'function') {
+    const buffer = await sourceFile.arrayBuffer()
+    return new TextDecoder().decode(buffer)
+  }
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'))
+    reader.readAsText(sourceFile)
+  })
+}
+
+const processOpenClawFile = async (file: File) => {
+  openClawFile.value = file
+  openClawResult.value = ''
+  openClawError.value = ''
+
+  if (!openClawImportSpec.value) {
+    openClawError.value = t('keys.useKeyModal.openclaw.unsupported')
+    return
+  }
+
+  try {
+    const source = await readFileAsText(file)
+    openClawResult.value = buildMergedOpenClawConfigText(source, openClawImportSpec.value)
+  } catch (error: any) {
+    openClawError.value = error instanceof SyntaxError
+      ? t('keys.useKeyModal.openclaw.parseFailed')
+      : error?.message || t('keys.useKeyModal.openclaw.generateFailed')
+  }
+}
+
+const openOpenClawFilePicker = async () => {
+  if (supportsNativeOpenClawPicker) {
+    const pickerWindow = window as Window & {
+      showOpenFilePicker?: (options?: BrowserOpenFilePickerOptions) => Promise<BrowserFileHandle[]>
+    }
+
+    try {
+      const [handle] = await pickerWindow.showOpenFilePicker?.({
+        id: 'openclaw-config',
+        multiple: false,
+        suggestedName: 'openclaw.json',
+        types: [
+          {
+            description: 'OpenClaw Config',
+            accept: {
+              'application/json': ['.json', '.json5', '.jsonc'],
+            },
+          },
+        ],
+      }) || []
+
+      if (!handle) {
+        return
+      }
+
+      const file = await handle.getFile()
+      await processOpenClawFile(file)
+      return
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        return
+      }
+    }
+  }
+
+  openClawFileInput.value?.click()
+}
+
+const handleOpenClawFileChange = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0] || null
+
+  if (!file) {
+    return
+  }
+
+  await processOpenClawFile(file)
+  target.value = ''
+}
+
+const downloadOpenClawConfig = () => {
+  if (!openClawResult.value) {
+    return
+  }
+
+  const blob = new Blob([openClawResult.value], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = openClawFile.value?.name || 'openclaw.json'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 </script>
