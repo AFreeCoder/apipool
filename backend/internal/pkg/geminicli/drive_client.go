@@ -70,6 +70,7 @@ func (c *driveClient) GetStorageQuota(ctx context.Context, accessToken, proxyURL
 			return nil, fmt.Errorf("request cancelled: %w", ctx.Err())
 		}
 
+		//nolint:gosec // driveAPIURL is a fixed Google Drive API endpoint; proxyURL is handled by the shared client factory.
 		resp, err = client.Do(req)
 		if err != nil {
 			// Network error retry

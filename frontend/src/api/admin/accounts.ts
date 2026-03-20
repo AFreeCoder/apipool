@@ -66,6 +66,7 @@ export async function listWithEtag(
     platform?: string
     type?: string
     status?: string
+    group?: string
     search?: string
     lite?: string
   },
@@ -223,8 +224,10 @@ export async function clearError(id: number): Promise<Account> {
  * @param id - Account ID
  * @returns Account usage info
  */
-export async function getUsage(id: number): Promise<AccountUsageInfo> {
-  const { data } = await apiClient.get<AccountUsageInfo>(`/admin/accounts/${id}/usage`)
+export async function getUsage(id: number, source?: 'passive' | 'active'): Promise<AccountUsageInfo> {
+  const { data } = await apiClient.get<AccountUsageInfo>(`/admin/accounts/${id}/usage`, {
+    params: source ? { source } : undefined
+  })
   return data
 }
 

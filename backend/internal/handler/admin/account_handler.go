@@ -165,6 +165,8 @@ type AccountWithConcurrency struct {
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
 }
 
+const accountListGroupUngroupedQueryValue = "ungrouped"
+
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
 	item := AccountWithConcurrency{
 		Account:            dto.AccountFromService(account),
@@ -226,7 +228,20 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 	var groupID int64
 	if groupIDStr := c.Query("group"); groupIDStr != "" {
-		groupID, _ = strconv.ParseInt(groupIDStr, 10, 64)
+		if groupIDStr == accountListGroupUngroupedQueryValue {
+			groupID = service.AccountListGroupUngrouped
+		} else {
+			parsedGroupID, parseErr := strconv.ParseInt(groupIDStr, 10, 64)
+			if parseErr != nil {
+				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter"))
+				return
+			}
+			if parsedGroupID < 0 {
+				response.ErrorFrom(c, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter"))
+				return
+			}
+			groupID = parsedGroupID
+		}
 	}
 
 	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID)
@@ -1498,7 +1513,7 @@ func (h *OAuthHandler) SetupTokenCookieAuth(c *gin.Context) {
 }
 
 // GetUsage handles getting account usage information
-// GET /api/v1/admin/accounts/:id/usage
+// GET /api/v1/admin/accounts/:id/usage?source=passive|active
 func (h *AccountHandler) GetUsage(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1506,7 +1521,14 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 		return
 	}
 
-	usage, err := h.accountUsageService.GetUsage(c.Request.Context(), accountID)
+	source := c.DefaultQuery("source", "active")
+
+	var usage *service.UsageInfo
+	if source == "passive" {
+		usage, err = h.accountUsageService.GetPassiveUsage(c.Request.Context(), accountID)
+	} else {
+		usage, err = h.accountUsageService.GetUsage(c.Request.Context(), accountID)
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

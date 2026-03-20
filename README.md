@@ -170,7 +170,7 @@ git fetch upstream && git merge upstream/main
 
 ## 项目结构
 
-```
+```text
 apipool/
 ├── backend/
 │   ├── cmd/server/          # 主程序入口 + VERSION 文件

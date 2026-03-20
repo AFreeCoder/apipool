@@ -932,6 +932,7 @@ func (h *SoraClientHandler) fetchUpstreamModels(ctx context.Context) ([]service.
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	client := &http.Client{Timeout: 10 * time.Second}
+	// #nosec G704 -- modelsURL is intentionally derived from the admin-configured upstream base_url for Sora accounts.
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求上游失败: %w", err)
