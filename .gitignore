@@ -121,7 +121,6 @@ CLAUDE.md
 scripts
 !scripts/
 scripts/*
-!scripts/claude_capture_hook.cjs
 !scripts/collect_upstream_sync_context.sh
 !scripts/scaffold_sync_review_doc.sh
 .code-review-state
@@ -135,7 +134,7 @@ vite.config.js
 docs/*
 !docs/plans/
 docs/plans/*
-!docs/plans/*-upstream-sync-review*.md
+!docs/plans/2026-03-20-upstream-sync-review.md
 frontend/src/docs/media/
 .serena/
 .codex/
