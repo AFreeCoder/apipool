@@ -324,34 +324,36 @@ usage() {
 EOF
 }
 
-cmd="${1:-}"
-case "$cmd" in
-  prep)
-    prep
-    ;;
-  tag-current)
-    create_rollback_tag 1
-    ;;
-  backup-db)
-    backup_db
-    ;;
-  image)
-    shift
-    rollback_image "${1:-}"
-    ;;
-  source)
-    shift
-    rollback_source "${1:-}"
-    ;;
-  db-restore)
-    shift
-    restore_db "$@"
-    ;;
-  -h|--help|help|"")
-    usage
-    ;;
-  *)
-    usage
-    fail "未知命令: $cmd"
-    ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  cmd="${1:-}"
+  case "$cmd" in
+    prep)
+      prep
+      ;;
+    tag-current)
+      create_rollback_tag 1
+      ;;
+    backup-db)
+      backup_db
+      ;;
+    image)
+      shift
+      rollback_image "${1:-}"
+      ;;
+    source)
+      shift
+      rollback_source "${1:-}"
+      ;;
+    db-restore)
+      shift
+      restore_db "$@"
+      ;;
+    -h|--help|help|"")
+      usage
+      ;;
+    *)
+      usage
+      fail "未知命令: $cmd"
+      ;;
+  esac
+fi
