@@ -119,6 +119,11 @@ tests
 CLAUDE.md
 .claude
 scripts
+!scripts/
+scripts/*
+!scripts/claude_capture_hook.cjs
+!scripts/collect_upstream_sync_context.sh
+!scripts/scaffold_sync_review_doc.sh
 .code-review-state
 #openspec/
 code-reviews/
@@ -128,10 +133,12 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/plans/
+docs/plans/*
+!docs/plans/*-upstream-sync-review*.md
 frontend/src/docs/media/
 .serena/
 .codex/
 frontend/coverage/
 aicodex
 output/
-
