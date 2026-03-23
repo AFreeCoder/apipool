@@ -424,7 +424,7 @@ func (s *BillingService) CalculateCostWithServiceTier(model string, tokens Usage
 		breakdown.CacheCreationCost + breakdown.CacheReadCost
 
 	// 应用倍率计算实际费用
-	if rateMultiplier <= 0 {
+	if rateMultiplier < 0 {
 		rateMultiplier = 1.0
 	}
 	breakdown.ActualCost = breakdown.TotalCost * rateMultiplier
@@ -474,7 +474,7 @@ func isOpenAIGPT54Model(model string) bool {
 // CalculateCostWithConfig 使用配置中的默认倍率计算费用
 func (s *BillingService) CalculateCostWithConfig(model string, tokens UsageTokens) (*CostBreakdown, error) {
 	multiplier := s.cfg.Default.RateMultiplier
-	if multiplier <= 0 {
+	if multiplier < 0 {
 		multiplier = 1.0
 	}
 	return s.CalculateCost(model, tokens, multiplier)
@@ -640,7 +640,7 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 	totalCost := unitPrice * float64(imageCount)
 
 	// 应用倍率
-	if rateMultiplier <= 0 {
+	if rateMultiplier < 0 {
 		rateMultiplier = 1.0
 	}
 	actualCost := totalCost * rateMultiplier
@@ -672,7 +672,7 @@ func (s *BillingService) CalculateSoraImageCost(imageSize string, imageCount int
 	}
 
 	totalCost := unitPrice * float64(imageCount)
-	if rateMultiplier <= 0 {
+	if rateMultiplier < 0 {
 		rateMultiplier = 1.0
 	}
 	actualCost := totalCost * rateMultiplier
@@ -699,7 +699,7 @@ func (s *BillingService) CalculateSoraVideoCost(model string, groupConfig *SoraP
 	}
 
 	totalCost := unitPrice
-	if rateMultiplier <= 0 {
+	if rateMultiplier < 0 {
 		rateMultiplier = 1.0
 	}
 	actualCost := totalCost * rateMultiplier

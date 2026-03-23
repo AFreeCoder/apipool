@@ -71,7 +71,7 @@ func TestCalculateCost_RateMultiplier(t *testing.T) {
 	require.InDelta(t, cost1x.ActualCost*2, cost2x.ActualCost, 1e-10)
 }
 
-func TestCalculateCost_ZeroMultiplierDefaultsToOne(t *testing.T) {
+func TestCalculateCost_ZeroMultiplierAllowed(t *testing.T) {
 	svc := newTestBillingService()
 
 	tokens := UsageTokens{InputTokens: 1000}
@@ -82,7 +82,8 @@ func TestCalculateCost_ZeroMultiplierDefaultsToOne(t *testing.T) {
 	costOne, err := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
 	require.NoError(t, err)
 
-	require.InDelta(t, costOne.ActualCost, costZero.ActualCost, 1e-10)
+	require.InDelta(t, costOne.TotalCost, costZero.TotalCost, 1e-10)
+	require.Equal(t, 0.0, costZero.ActualCost)
 }
 
 func TestCalculateCost_NegativeMultiplierDefaultsToOne(t *testing.T) {
@@ -401,9 +402,9 @@ func TestCalculateCostWithConfig_ZeroMultiplier(t *testing.T) {
 	cost, err := svc.CalculateCostWithConfig("claude-sonnet-4", tokens)
 	require.NoError(t, err)
 
-	// 倍率 <=0 时默认 1.0
 	expected, _ := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
-	require.InDelta(t, expected.ActualCost, cost.ActualCost, 1e-10)
+	require.InDelta(t, expected.TotalCost, cost.TotalCost, 1e-10)
+	require.Equal(t, 0.0, cost.ActualCost)
 }
 
 func TestGetEstimatedCost(t *testing.T) {
@@ -453,6 +454,17 @@ func TestCalculateSoraImageCost(t *testing.T) {
 	require.InDelta(t, 0.16, cost540.ActualCost, 1e-10)
 }
 
+func TestCalculateSoraImageCost_ZeroMultiplierAllowed(t *testing.T) {
+	svc := newTestBillingService()
+
+	price360 := 0.05
+	cfg := &SoraPriceConfig{ImagePrice360: &price360}
+
+	cost := svc.CalculateSoraImageCost("360", 2, cfg, 0)
+	require.InDelta(t, 0.10, cost.TotalCost, 1e-10)
+	require.Equal(t, 0.0, cost.ActualCost)
+}
+
 func TestCalculateSoraImageCost_ZeroCount(t *testing.T) {
 	svc := newTestBillingService()
 	cost := svc.CalculateSoraImageCost("360", 0, nil, 1.0)
@@ -463,6 +475,17 @@ func TestCalculateSoraVideoCost_NilConfig(t *testing.T) {
 	svc := newTestBillingService()
 	cost := svc.CalculateSoraVideoCost("sora-video", nil, 1.0)
 	require.Equal(t, 0.0, cost.TotalCost)
+}
+
+func TestCalculateSoraVideoCost_ZeroMultiplierAllowed(t *testing.T) {
+	svc := newTestBillingService()
+
+	price := 1.0
+	cfg := &SoraPriceConfig{VideoPricePerRequest: &price}
+
+	cost := svc.CalculateSoraVideoCost("sora-video", cfg, 0)
+	require.InDelta(t, 1.0, cost.TotalCost, 1e-10)
+	require.Equal(t, 0.0, cost.ActualCost)
 }
 
 func TestCalculateCostWithLongContext_PropagatesError(t *testing.T) {
