@@ -41,6 +41,8 @@ export interface OpenClawImportSpec {
 
 export type OpenClawConfigRoot = Record<string, unknown>
 
+const OPENCLAW_DEFAULT_THINKING = 'high' as const
+
 const OPENCLAW_COMPAT_HEADERS = {
   'User-Agent': 'OpenClaw/1.0',
 } as const
@@ -149,15 +151,15 @@ export const buildOpenClawImportSpec = (
       }
     }
     case 'anthropic': {
-      const modelId = 'claude-sonnet-4-6'
-      const modelName = 'Claude Sonnet 4.6'
+      const modelId = 'claude-opus-4-6'
+      const modelName = 'Claude Opus 4.6'
       const providerId = 'apipool-anthropic'
       return {
         providerId,
         modelId,
         modelName,
         modelRef: `${providerId}/${modelId}`,
-        alias: 'APIPool Claude Sonnet 4.6',
+        alias: 'APIPool Claude Opus 4.6',
         provider: {
           api: 'anthropic-messages',
           apiKey,
@@ -168,7 +170,7 @@ export const buildOpenClawImportSpec = (
               reasoning: true,
               input: ['text', 'image'],
               contextWindow: 200000,
-              maxTokens: 64000,
+              maxTokens: 128000,
             }),
           ],
         },
@@ -237,6 +239,16 @@ export const mergeOpenClawConfig = (
   const existingModelEntry: Record<string, unknown> = isPlainObject(rawExistingModelEntry)
     ? { ...rawExistingModelEntry }
     : {}
+  const existingParams = isPlainObject(existingModelEntry.params)
+    ? { ...existingModelEntry.params }
+    : {}
+  const importedModel = spec.provider.models.find((model) => model.id === spec.modelId)
+  const mergedParams = importedModel?.reasoning
+    ? {
+        thinking: OPENCLAW_DEFAULT_THINKING,
+        ...existingParams,
+      }
+    : existingParams
 
   const sourceDefaultModel = sourceDefaults.model
   const normalizedDefaultModel = isPlainObject(sourceDefaultModel)
@@ -256,6 +268,7 @@ export const mergeOpenClawConfig = (
               ? existingModelEntry.alias
               : spec.alias,
           ...existingModelEntry,
+          ...(Object.keys(mergedParams).length > 0 ? { params: mergedParams } : {}),
         },
       },
     },

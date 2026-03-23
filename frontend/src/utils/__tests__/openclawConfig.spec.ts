@@ -59,6 +59,9 @@ describe('openclawConfig utils', () => {
     ])
     expect(defaults.models['apipool-openai/gpt-5.4']).toEqual({
       alias: 'APIPool GPT-5.4',
+      params: {
+        thinking: 'high',
+      },
     })
     expect(defaults.model).toEqual({
       primary: 'apipool-openai/gpt-5.4',
@@ -112,11 +115,44 @@ describe('openclawConfig utils', () => {
     expect((merged.agents as any).defaults.models['apipool-openai/gpt-5.4']).toEqual({
       alias: 'My GPT',
       params: {
+        thinking: 'high',
         temperature: 0.2,
       },
     })
     expect((merged.agents as any).defaults.model).toEqual({
       primary: 'apipool-openai/gpt-5.4',
+    })
+  })
+
+  it('keeps an existing thinking override when re-importing the same provider', () => {
+    const spec = buildOpenClawImportSpec('anthropic', 'https://apipool.dev', 'sk-anthropic')
+    expect(spec).toBeTruthy()
+
+    const merged = mergeOpenClawConfig(
+      {
+        agents: {
+          defaults: {
+            models: {
+              'apipool-anthropic/claude-opus-4-6': {
+                alias: 'My Anthropic',
+                params: {
+                  thinking: 'adaptive',
+                  cacheRetention: 'long',
+                },
+              },
+            },
+          },
+        },
+      },
+      spec!
+    )
+
+    expect((merged.agents as any).defaults.models['apipool-anthropic/claude-opus-4-6']).toEqual({
+      alias: 'My Anthropic',
+      params: {
+        thinking: 'adaptive',
+        cacheRetention: 'long',
+      },
     })
   })
 
@@ -137,6 +173,9 @@ describe('openclawConfig utils', () => {
     })
     expect(parsed.agents.defaults.models['apipool-antigravity/claude-sonnet-4-6']).toEqual({
       alias: 'APIPool Antigravity Claude Sonnet 4.6',
+      params: {
+        thinking: 'high',
+      },
     })
     expect(parsed.agents.defaults.model).toEqual({
       primary: 'apipool-antigravity/claude-sonnet-4-6',
@@ -149,7 +188,8 @@ describe('openclawConfig utils', () => {
 
     expect(spec).toMatchObject({
       providerId: 'apipool-anthropic',
-      modelRef: 'apipool-anthropic/claude-sonnet-4-6',
+      modelRef: 'apipool-anthropic/claude-opus-4-6',
+      alias: 'APIPool Claude Opus 4.6',
       provider: {
         api: 'anthropic-messages',
         apiKey: 'sk-anthropic',
@@ -159,9 +199,9 @@ describe('openclawConfig utils', () => {
         },
         models: [
           expect.objectContaining({
-            id: 'claude-sonnet-4-6',
+            id: 'claude-opus-4-6',
             contextWindow: 200000,
-            maxTokens: 64000,
+            maxTokens: 128000,
           }),
         ],
       },

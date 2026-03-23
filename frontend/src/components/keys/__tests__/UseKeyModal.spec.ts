@@ -79,7 +79,24 @@ describe('UseKeyModal', () => {
 
     expect(wrapper.text()).toContain('keys.useKeyModal.openclaw.importDescription')
     expect(wrapper.text()).toContain('apipool-anthropic')
-    expect(wrapper.text()).toContain('apipool-anthropic/claude-sonnet-4-6')
+    expect(wrapper.text()).toContain('apipool-anthropic/claude-opus-4-6')
+
+    const fileInput = wrapper.get('input[type="file"]')
+    const configFile = new File(['{}'], 'openclaw.json', { type: 'application/json' })
+    Object.defineProperty(configFile, 'text', {
+      value: vi.fn().mockResolvedValue('{}'),
+      configurable: true,
+    })
+    Object.defineProperty(fileInput.element, 'files', {
+      value: [configFile],
+      configurable: true,
+    })
+    await fileInput.trigger('change')
+    await flushPromises()
+
+    const generatedConfig = wrapper.get('pre code').text()
+    expect(generatedConfig).toContain('"thinking": "high"')
+    expect(generatedConfig).toContain('"primary": "apipool-anthropic/claude-opus-4-6"')
   })
 
   it('sora 分组不会显示 OpenClaw tab', () => {
