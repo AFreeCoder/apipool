@@ -1165,6 +1165,31 @@ func (a *Account) IsTLSFingerprintEnabled() bool {
 	return false
 }
 
+// GetTLSFingerprintProfileID 获取账号绑定的 TLS 指纹模板 ID
+// 返回 0 表示未绑定（使用内置默认 profile）
+func (a *Account) GetTLSFingerprintProfileID() int64 {
+	if a.Extra == nil {
+		return 0
+	}
+	v, ok := a.Extra["tls_fingerprint_profile_id"]
+	if !ok {
+		return 0
+	}
+	switch id := v.(type) {
+	case float64:
+		return int64(id)
+	case int64:
+		return id
+	case int:
+		return int64(id)
+	case json.Number:
+		if i, err := id.Int64(); err == nil {
+			return i
+		}
+	}
+	return 0
+}
+
 // GetUserMsgQueueMode 获取用户消息队列模式
 // "serialize" = 串行队列, "throttle" = 软性限速, "" = 未设置（使用全局配置）
 func (a *Account) GetUserMsgQueueMode() string {
@@ -1541,6 +1566,24 @@ func isPeriodExpired(periodStart time.Time, dur time.Duration) bool {
 		return true // 从未使用过，视为过期（下次 increment 会初始化）
 	}
 	return time.Since(periodStart) >= dur
+}
+
+// IsDailyQuotaPeriodExpired 检查日配额周期是否已过期（用于显示层判断是否需要将 used 归零）
+func (a *Account) IsDailyQuotaPeriodExpired() bool {
+	start := a.getExtraTime("quota_daily_start")
+	if a.GetQuotaDailyResetMode() == "fixed" {
+		return a.isFixedDailyPeriodExpired(start)
+	}
+	return isPeriodExpired(start, 24*time.Hour)
+}
+
+// IsWeeklyQuotaPeriodExpired 检查周配额周期是否已过期（用于显示层判断是否需要将 used 归零）
+func (a *Account) IsWeeklyQuotaPeriodExpired() bool {
+	start := a.getExtraTime("quota_weekly_start")
+	if a.GetQuotaWeeklyResetMode() == "fixed" {
+		return a.isFixedWeeklyPeriodExpired(start)
+	}
+	return isPeriodExpired(start, 7*24*time.Hour)
 }
 
 // IsQuotaExceeded 检查 API Key 账号配额是否已超限（任一维度超限即返回 true）

@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -130,7 +131,7 @@ func (s *httpUpstreamStub) Do(_ *http.Request, _ string, _ int64, _ int) (*http.
 	return s.resp, s.err
 }
 
-func (s *httpUpstreamStub) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ bool) (*http.Response, error) {
+func (s *httpUpstreamStub) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
 	return s.resp, s.err
 }
 
@@ -171,7 +172,7 @@ func (s *queuedHTTPUpstreamStub) Do(req *http.Request, _ string, _ int64, _ int)
 	return resp, err
 }
 
-func (s *queuedHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ bool) (*http.Response, error) {
+func (s *queuedHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
 	return s.Do(req, proxyURL, accountID, concurrency)
 }
 
@@ -542,7 +543,8 @@ func TestAntigravityGatewayService_Forward_BillsWithMappedModel(t *testing.T) {
 	result, err := svc.Forward(context.Background(), c, account, body, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, mappedModel, result.Model)
+	require.Equal(t, "claude-sonnet-4-5", result.Model)
+	require.Equal(t, mappedModel, result.UpstreamModel)
 }
 
 // TestAntigravityGatewayService_ForwardGemini_BillsWithMappedModel
@@ -594,7 +596,8 @@ func TestAntigravityGatewayService_ForwardGemini_BillsWithMappedModel(t *testing
 	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-2.5-flash", "generateContent", true, body, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, mappedModel, result.Model)
+	require.Equal(t, "gemini-2.5-flash", result.Model)
+	require.Equal(t, mappedModel, result.UpstreamModel)
 }
 
 func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignature(t *testing.T) {
@@ -664,7 +667,8 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 	result, err := svc.ForwardGemini(context.Background(), c, account, originalModel, "streamGenerateContent", true, body, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, mappedModel, result.Model)
+	require.Equal(t, originalModel, result.Model)
+	require.Equal(t, mappedModel, result.UpstreamModel)
 	require.Len(t, upstream.requestBodies, 2, "signature error should trigger exactly one retry")
 
 	firstReq := string(upstream.requestBodies[0])

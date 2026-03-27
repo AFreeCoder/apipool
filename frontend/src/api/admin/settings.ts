@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { CustomMenuItem } from '@/types'
+import type { CustomMenuItem, CustomEndpoint } from '@/types'
 
 export interface DefaultSubscriptionSetting {
   group_id: number
@@ -43,6 +43,7 @@ export interface SystemSettings {
   sora_client_enabled: boolean
   backend_mode_enabled: boolean
   custom_menu_items: CustomMenuItem[]
+  custom_endpoints: CustomEndpoint[]
   // SMTP settings
   smtp_host: string
   smtp_port: number
@@ -85,6 +86,10 @@ export interface SystemSettings {
 
   // 分组隔离
   allow_ungrouped_key_scheduling: boolean
+
+  // Gateway forwarding behavior
+  enable_fingerprint_unification: boolean
+  enable_metadata_passthrough: boolean
 }
 
 export interface UpdateSettingsRequest {
@@ -112,6 +117,7 @@ export interface UpdateSettingsRequest {
   sora_client_enabled?: boolean
   backend_mode_enabled?: boolean
   custom_menu_items?: CustomMenuItem[]
+  custom_endpoints?: CustomEndpoint[]
   smtp_host?: string
   smtp_port?: number
   smtp_username?: string
@@ -140,6 +146,8 @@ export interface UpdateSettingsRequest {
   min_claude_code_version?: string
   max_claude_code_version?: string
   allow_ungrouped_key_scheduling?: boolean
+  enable_fingerprint_unification?: boolean
+  enable_metadata_passthrough?: boolean
 }
 
 /**
@@ -315,6 +323,8 @@ export interface RectifierSettings {
   enabled: boolean
   thinking_signature_enabled: boolean
   thinking_budget_enabled: boolean
+  apikey_signature_enabled: boolean
+  apikey_signature_patterns: string[]
 }
 
 /**

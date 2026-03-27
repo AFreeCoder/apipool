@@ -15,11 +15,13 @@
 - **管理后台** - Web 界面进行监控与管理
 - **外部系统集成** - 可通过 iframe 嵌入支付、工单等外部系统扩展后台能力
 
+English | [中文](README_CN.md) | [日本語](README_JA.md)
+
 ## 技术栈
 
 | 组件 | 技术 |
 |------|------|
-| 后端 | Go 1.25.7, Gin, Ent ORM |
+| 后端 | Go 1.26.1, Gin, Ent ORM |
 | 前端 | Vue 3 + TypeScript, Vite, Pinia, TailwindCSS |
 | 数据库 | PostgreSQL 18 |
 | 缓存 | Redis 8 |

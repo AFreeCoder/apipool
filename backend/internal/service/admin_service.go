@@ -54,7 +54,7 @@ type AdminService interface {
 	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
 
 	// Account management
-	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64) ([]Account, int64, error)
+	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, int64, error)
 	GetAccount(ctx context.Context, id int64) (*Account, error)
 	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
@@ -67,6 +67,12 @@ type AdminService interface {
 	EnsureOpenAIPrivacy(ctx context.Context, account *Account) string
 	// SyncOpenAIPlanType 查询 ChatGPT API 获取最新的 plan_type 并原子更新到 credentials。
 	SyncOpenAIPlanType(ctx context.Context, account *Account) string
+	// EnsureAntigravityPrivacy 检查 Antigravity OAuth 账号 privacy_mode，未设置则调用 setUserSettings 并持久化。
+	EnsureAntigravityPrivacy(ctx context.Context, account *Account) string
+	// ForceOpenAIPrivacy 强制重新设置 OpenAI OAuth 账号隐私，无论当前状态。
+	ForceOpenAIPrivacy(ctx context.Context, account *Account) string
+	// ForceAntigravityPrivacy 强制重新设置 Antigravity OAuth 账号隐私，无论当前状态。
+	ForceAntigravityPrivacy(ctx context.Context, account *Account) string
 	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
 	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
@@ -1453,9 +1459,9 @@ func (s *adminServiceImpl) ReplaceUserGroup(ctx context.Context, userID, oldGrou
 }
 
 // Account management implementations
-func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64) ([]Account, int64, error) {
+func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
-	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID)
+	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -2637,10 +2643,8 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 	if s.privacyClientFactory == nil {
 		return ""
 	}
-	if account.Extra != nil {
-		if _, ok := account.Extra["privacy_mode"]; ok {
-			return ""
-		}
+	if shouldSkipOpenAIPrivacyEnsure(account.Extra) {
+		return ""
 	}
 
 	token, _ := account.Credentials["access_token"].(string)
@@ -2664,4 +2668,116 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 func (s *adminServiceImpl) SyncOpenAIPlanType(ctx context.Context, account *Account) string {
 	proxyURL := resolveProxyURLSilently(ctx, s.proxyRepo, account.ProxyID)
 	return syncOpenAIPlanTypeCore(ctx, s.privacyClientFactory, s.accountRepo, account, proxyURL)
+}
+
+// ForceOpenAIPrivacy 强制重新设置 OpenAI OAuth 账号隐私，无论当前状态。
+func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Account) string {
+	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+		return ""
+	}
+	if s.privacyClientFactory == nil {
+		return ""
+	}
+
+	token, _ := account.Credentials["access_token"].(string)
+	if token == "" {
+		return ""
+	}
+
+	var proxyURL string
+	if account.ProxyID != nil {
+		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
+			proxyURL = p.URL()
+		}
+	}
+
+	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
+	if mode == "" {
+		return ""
+	}
+
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+		logger.LegacyPrintf("service.admin", "force_update_openai_privacy_mode_failed: account_id=%d err=%v", account.ID, err)
+		return mode
+	}
+	if account.Extra == nil {
+		account.Extra = make(map[string]any)
+	}
+	account.Extra["privacy_mode"] = mode
+	return mode
+}
+
+// EnsureAntigravityPrivacy 检查 Antigravity OAuth 账号隐私状态。
+// 如果 Extra["privacy_mode"] 已存在（无论成功或失败），直接跳过。
+// 仅对从未设置过隐私的账号执行 setUserSettings + fetchUserInfo 流程。
+// 用户可通过前端 ForceAntigravityPrivacy（SetPrivacy 按钮）强制重新设置。
+func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, account *Account) string {
+	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
+		return ""
+	}
+	// 已设置过则跳过（无论成功或失败），用户可通过 Force 手动重试
+	if account.Extra != nil {
+		if existing, ok := account.Extra["privacy_mode"].(string); ok && existing != "" {
+			return existing
+		}
+	}
+
+	token, _ := account.Credentials["access_token"].(string)
+	if token == "" {
+		return ""
+	}
+
+	projectID, _ := account.Credentials["project_id"].(string)
+
+	var proxyURL string
+	if account.ProxyID != nil {
+		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
+			proxyURL = p.URL()
+		}
+	}
+
+	mode := setAntigravityPrivacy(ctx, token, projectID, proxyURL)
+	if mode == "" {
+		return ""
+	}
+
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+		logger.LegacyPrintf("service.admin", "update_antigravity_privacy_mode_failed: account_id=%d err=%v", account.ID, err)
+		return mode
+	}
+	applyAntigravityPrivacyMode(account, mode)
+	return mode
+}
+
+// ForceAntigravityPrivacy 强制重新设置 Antigravity OAuth 账号隐私，无论当前状态。
+func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account *Account) string {
+	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
+		return ""
+	}
+
+	token, _ := account.Credentials["access_token"].(string)
+	if token == "" {
+		return ""
+	}
+
+	projectID, _ := account.Credentials["project_id"].(string)
+
+	var proxyURL string
+	if account.ProxyID != nil {
+		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
+			proxyURL = p.URL()
+		}
+	}
+
+	mode := setAntigravityPrivacy(ctx, token, projectID, proxyURL)
+	if mode == "" {
+		return ""
+	}
+
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+		logger.LegacyPrintf("service.admin", "force_update_antigravity_privacy_mode_failed: account_id=%d err=%v", account.ID, err)
+		return mode
+	}
+	applyAntigravityPrivacyMode(account, mode)
+	return mode
 }

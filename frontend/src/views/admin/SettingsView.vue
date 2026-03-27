@@ -7,7 +7,7 @@
       </div>
 
       <!-- Settings Form -->
-      <form v-else @submit.prevent="saveSettings" class="space-y-6">
+      <form v-else @submit.prevent="saveSettings" class="space-y-6" novalidate>
         <!-- Tab Navigation -->
         <div class="sticky top-0 z-10 overflow-x-auto settings-tabs-scroll">
           <nav class="settings-tabs">
@@ -453,6 +453,72 @@
                     </p>
                   </div>
                   <Toggle v-model="rectifierForm.thinking_budget_enabled" />
+                </div>
+
+                <!-- API Key Signature Rectifier -->
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
+                      t('admin.settings.rectifier.apikeySignature')
+                    }}</label>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('admin.settings.rectifier.apikeySignatureHint') }}
+                    </p>
+                  </div>
+                  <Toggle v-model="rectifierForm.apikey_signature_enabled" />
+                </div>
+
+                <!-- Custom Patterns (only when apikey_signature_enabled) -->
+                <div
+                  v-if="rectifierForm.apikey_signature_enabled"
+                  class="ml-4 space-y-3 border-l-2 border-gray-200 pl-4 dark:border-dark-600"
+                >
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
+                      t('admin.settings.rectifier.apikeyPatterns')
+                    }}</label>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('admin.settings.rectifier.apikeyPatternsHint') }}
+                    </p>
+                  </div>
+                  <div
+                    v-for="(_, index) in rectifierForm.apikey_signature_patterns"
+                    :key="index"
+                    class="flex items-center gap-2"
+                  >
+                    <input
+                      v-model="rectifierForm.apikey_signature_patterns[index]"
+                      type="text"
+                      class="input input-sm flex-1"
+                      :placeholder="t('admin.settings.rectifier.apikeyPatternPlaceholder')"
+                    />
+                    <button
+                      type="button"
+                      @click="rectifierForm.apikey_signature_patterns.splice(index, 1)"
+                      class="btn btn-ghost btn-xs text-red-500 hover:text-red-700"
+                    >
+                      <svg
+                        class="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    @click="rectifierForm.apikey_signature_patterns.push('')"
+                    class="btn btn-ghost btn-xs text-primary-600 dark:text-primary-400"
+                  >
+                    + {{ t('admin.settings.rectifier.addPattern') }}
+                  </button>
                 </div>
               </div>
 
@@ -1171,6 +1237,45 @@
             </div>
           </div>
         </div>
+
+        <!-- Gateway Forwarding Behavior -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.gatewayForwarding.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.gatewayForwarding.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <!-- Fingerprint Unification -->
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.gatewayForwarding.fingerprintUnification') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.gatewayForwarding.fingerprintUnificationHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.enable_fingerprint_unification" />
+            </div>
+
+            <!-- Metadata Passthrough -->
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.gatewayForwarding.metadataPassthrough') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.gatewayForwarding.metadataPassthroughHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.enable_metadata_passthrough" />
+            </div>
+          </div>
+        </div>
         </div><!-- /Tab: Gateway — Claude Code, Scheduling -->
 
         <!-- Tab: General -->
@@ -1246,6 +1351,81 @@
               <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.settings.site.apiBaseUrlHint') }}
               </p>
+            </div>
+
+            <!-- Custom Endpoints -->
+            <div>
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.site.customEndpoints.title') }}
+              </label>
+              <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.site.customEndpoints.description') }}
+              </p>
+
+              <div class="space-y-3">
+                <div
+                  v-for="(ep, index) in form.custom_endpoints"
+                  :key="index"
+                  class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+                >
+                  <div class="mb-3 flex items-center justify-between">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('admin.settings.site.customEndpoints.itemLabel', { n: index + 1 }) }}
+                    </span>
+                    <button
+                      type="button"
+                      class="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                      @click="removeEndpoint(index)"
+                    >
+                      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  </div>
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t('admin.settings.site.customEndpoints.name') }}
+                      </label>
+                      <input
+                        v-model="ep.name"
+                        type="text"
+                        class="input text-sm"
+                        :placeholder="t('admin.settings.site.customEndpoints.namePlaceholder')"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t('admin.settings.site.customEndpoints.endpointUrl') }}
+                      </label>
+                      <input
+                        v-model="ep.endpoint"
+                        type="url"
+                        class="input font-mono text-sm"
+                        :placeholder="t('admin.settings.site.customEndpoints.endpointUrlPlaceholder')"
+                      />
+                    </div>
+                    <div class="sm:col-span-2">
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t('admin.settings.site.customEndpoints.descriptionLabel') }}
+                      </label>
+                      <input
+                        v-model="ep.description"
+                        type="text"
+                        class="input text-sm"
+                        :placeholder="t('admin.settings.site.customEndpoints.descriptionPlaceholder')"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 px-4 py-2.5 text-sm text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
+                @click="addEndpoint"
+              >
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                {{ t('admin.settings.site.customEndpoints.add') }}
+              </button>
             </div>
 
             <!-- Contact Info -->
@@ -1580,7 +1760,7 @@
             <button
               type="button"
               @click="testSmtpConnection"
-              :disabled="testingSmtp"
+              :disabled="testingSmtp || loadFailed"
               class="btn btn-secondary btn-sm"
             >
               <svg v-if="testingSmtp" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -1650,6 +1830,11 @@
                   v-model="form.smtp_password"
                   type="password"
                   class="input"
+                  autocomplete="new-password"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  @keydown="smtpPasswordManuallyEdited = true"
+                  @paste="smtpPasswordManuallyEdited = true"
                   :placeholder="
                     form.smtp_password_configured
                       ? t('admin.settings.smtp.passwordConfiguredPlaceholder')
@@ -1732,7 +1917,7 @@
               <button
                 type="button"
                 @click="sendTestEmail"
-                :disabled="sendingTestEmail || !testEmailAddress"
+                :disabled="sendingTestEmail || !testEmailAddress || loadFailed"
                 class="btn btn-secondary"
               >
                 <svg
@@ -1778,7 +1963,7 @@
 
         <!-- Save Button -->
         <div v-show="activeTab !== 'backup' && activeTab !== 'data'" class="flex justify-end">
-          <button type="submit" :disabled="saving" class="btn btn-primary">
+          <button type="submit" :disabled="saving || loadFailed" class="btn btn-primary">
             <svg v-if="saving" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
               <circle
                 class="opacity-25"
@@ -1849,9 +2034,11 @@ const settingsTabs = [
 const { copyToClipboard } = useClipboard()
 
 const loading = ref(true)
+const loadFailed = ref(false)
 const saving = ref(false)
 const testingSmtp = ref(false)
 const sendingTestEmail = ref(false)
+const smtpPasswordManuallyEdited = ref(false)
 const testEmailAddress = ref('')
 const registrationEmailSuffixWhitelistTags = ref<string[]>([])
 const registrationEmailSuffixWhitelistDraft = ref('')
@@ -1889,7 +2076,9 @@ const rectifierSaving = ref(false)
 const rectifierForm = reactive({
   enabled: true,
   thinking_signature_enabled: true,
-  thinking_budget_enabled: true
+  thinking_budget_enabled: true,
+  apikey_signature_enabled: false,
+  apikey_signature_patterns: [] as string[]
 })
 
 // Beta Policy 状态
@@ -1945,6 +2134,7 @@ const form = reactive<SettingsForm>({
   purchase_subscription_url: '',
   sora_client_enabled: false,
   custom_menu_items: [] as Array<{id: string; label: string; icon_svg: string; url: string; visibility: 'user' | 'admin'; sort_order: number}>,
+  custom_endpoints: [] as Array<{name: string; endpoint: string; description: string}>,
   frontend_url: '',
   smtp_host: '',
   smtp_port: 587,
@@ -1983,7 +2173,10 @@ const form = reactive<SettingsForm>({
   min_claude_code_version: '',
   max_claude_code_version: '',
   // 分组隔离
-  allow_ungrouped_key_scheduling: false
+  allow_ungrouped_key_scheduling: false,
+  // Gateway forwarding behavior
+  enable_fingerprint_unification: true,
+  enable_metadata_passthrough: false
 })
 
 const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[]>(() =>
@@ -2114,8 +2307,18 @@ function moveMenuItem(index: number, direction: -1 | 1) {
   })
 }
 
+// Custom endpoint management
+function addEndpoint() {
+  form.custom_endpoints.push({ name: '', endpoint: '', description: '' })
+}
+
+function removeEndpoint(index: number) {
+  form.custom_endpoints.splice(index, 1)
+}
+
 async function loadSettings() {
   loading.value = true
+  loadFailed.value = false
   try {
     const settings = await adminAPI.settings.getSettings()
     Object.assign(form, settings)
@@ -2133,9 +2336,11 @@ async function loadSettings() {
     )
     registrationEmailSuffixWhitelistDraft.value = ''
     form.smtp_password = ''
+    smtpPasswordManuallyEdited.value = false
     form.turnstile_secret_key = ''
     form.linuxdo_connect_client_secret = ''
   } catch (error: any) {
+    loadFailed.value = true
     appStore.showError(
       t('admin.settings.failedToLoad') + ': ' + (error.message || t('common.unknownError'))
     )
@@ -2198,6 +2403,35 @@ async function saveSettings() {
       return
     }
 
+    // Validate URL fields — novalidate disables browser-native checks, so we validate here
+    const isValidHttpUrl = (url: string): boolean => {
+      if (!url) return true
+      try {
+        const u = new URL(url)
+        return u.protocol === 'http:' || u.protocol === 'https:'
+      } catch {
+        return false
+      }
+    }
+    // Optional URL fields: auto-clear invalid values so they don't cause backend 400 errors
+    if (!isValidHttpUrl(form.frontend_url)) form.frontend_url = ''
+    if (!isValidHttpUrl(form.doc_url)) form.doc_url = ''
+    // Purchase URL: required when enabled; auto-clear when disabled to avoid backend rejection
+    if (form.purchase_subscription_enabled) {
+      if (!form.purchase_subscription_url) {
+        appStore.showError(t('admin.settings.purchase.url') + ': URL is required when purchase is enabled')
+        saving.value = false
+        return
+      }
+      if (!isValidHttpUrl(form.purchase_subscription_url)) {
+        appStore.showError(t('admin.settings.purchase.url') + ': must be an absolute http(s) URL (e.g. https://example.com)')
+        saving.value = false
+        return
+      }
+    } else if (!isValidHttpUrl(form.purchase_subscription_url)) {
+      form.purchase_subscription_url = ''
+    }
+
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
       email_verify_enabled: form.email_verify_enabled,
@@ -2224,6 +2458,7 @@ async function saveSettings() {
       purchase_subscription_url: form.purchase_subscription_url,
       sora_client_enabled: form.sora_client_enabled,
       custom_menu_items: form.custom_menu_items,
+      custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
@@ -2248,7 +2483,9 @@ async function saveSettings() {
       identity_patch_prompt: form.identity_patch_prompt,
       min_claude_code_version: form.min_claude_code_version,
       max_claude_code_version: form.max_claude_code_version,
-      allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling
+      allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
+      enable_fingerprint_unification: form.enable_fingerprint_unification,
+      enable_metadata_passthrough: form.enable_metadata_passthrough
     }
     const updated = await adminAPI.settings.updateSettings(payload)
     Object.assign(form, updated)
@@ -2257,6 +2494,7 @@ async function saveSettings() {
     )
     registrationEmailSuffixWhitelistDraft.value = ''
     form.smtp_password = ''
+    smtpPasswordManuallyEdited.value = false
     form.turnstile_secret_key = ''
     form.linuxdo_connect_client_secret = ''
     // Refresh cached settings so sidebar/header update immediately
@@ -2275,11 +2513,12 @@ async function saveSettings() {
 async function testSmtpConnection() {
   testingSmtp.value = true
   try {
+    const smtpPasswordForTest = smtpPasswordManuallyEdited.value ? form.smtp_password : ''
     const result = await adminAPI.settings.testSmtpConnection({
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
-      smtp_password: form.smtp_password,
+      smtp_password: smtpPasswordForTest,
       smtp_use_tls: form.smtp_use_tls
     })
     // API returns { message: "..." } on success, errors are thrown as exceptions
@@ -2301,12 +2540,13 @@ async function sendTestEmail() {
 
   sendingTestEmail.value = true
   try {
+    const smtpPasswordForSend = smtpPasswordManuallyEdited.value ? form.smtp_password : ''
     const result = await adminAPI.settings.sendTestEmail({
       email: testEmailAddress.value,
       smtp_host: form.smtp_host,
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
-      smtp_password: form.smtp_password,
+      smtp_password: smtpPasswordForSend,
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls
@@ -2454,6 +2694,10 @@ async function loadRectifierSettings() {
   try {
     const settings = await adminAPI.settings.getRectifierSettings()
     Object.assign(rectifierForm, settings)
+    // 确保 patterns 是数组（旧数据可能为 null）
+    if (!Array.isArray(rectifierForm.apikey_signature_patterns)) {
+      rectifierForm.apikey_signature_patterns = []
+    }
   } catch (error: any) {
     console.error('Failed to load rectifier settings:', error)
   } finally {
@@ -2467,9 +2711,16 @@ async function saveRectifierSettings() {
     const updated = await adminAPI.settings.updateRectifierSettings({
       enabled: rectifierForm.enabled,
       thinking_signature_enabled: rectifierForm.thinking_signature_enabled,
-      thinking_budget_enabled: rectifierForm.thinking_budget_enabled
+      thinking_budget_enabled: rectifierForm.thinking_budget_enabled,
+      apikey_signature_enabled: rectifierForm.apikey_signature_enabled,
+      apikey_signature_patterns: rectifierForm.apikey_signature_patterns.filter(
+        (p) => p.trim() !== ''
+      )
     })
     Object.assign(rectifierForm, updated)
+    if (!Array.isArray(rectifierForm.apikey_signature_patterns)) {
+      rectifierForm.apikey_signature_patterns = []
+    }
     appStore.showSuccess(t('admin.settings.rectifier.saved'))
   } catch (error: any) {
     appStore.showError(
