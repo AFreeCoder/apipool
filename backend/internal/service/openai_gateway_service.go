@@ -1205,6 +1205,11 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return nil
 	}
+	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel)
+	if account == nil {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		return nil
+	}
 
 	// 刷新会话 TTL 并返回账号
 	// Refresh session TTL and return account
@@ -1230,6 +1235,10 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, accounts [
 		}
 
 		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel)
+		if fresh == nil {
+			continue
+		}
+		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel)
 		if fresh == nil {
 			continue
 		}
@@ -1357,27 +1366,32 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 				}
 				if !clearSticky && account.IsSchedulable() && account.IsOpenAI() &&
 					(requestedModel == "" || account.IsModelSupported(requestedModel)) {
-					result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
-					if err == nil && result.Acquired {
-						_ = s.refreshStickySessionTTL(ctx, groupID, sessionHash, openaiStickySessionTTL)
-						return &AccountSelectionResult{
-							Account:     account,
-							Acquired:    true,
-							ReleaseFunc: result.ReleaseFunc,
-						}, nil
-					}
+					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel)
+					if account == nil {
+						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+					} else {
+						result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
+						if err == nil && result.Acquired {
+							_ = s.refreshStickySessionTTL(ctx, groupID, sessionHash, openaiStickySessionTTL)
+							return &AccountSelectionResult{
+								Account:     account,
+								Acquired:    true,
+								ReleaseFunc: result.ReleaseFunc,
+							}, nil
+						}
 
-					waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
-					if waitingCount < cfg.StickySessionMaxWaiting {
-						return &AccountSelectionResult{
-							Account: account,
-							WaitPlan: &AccountWaitPlan{
-								AccountID:      accountID,
-								MaxConcurrency: account.Concurrency,
-								Timeout:        cfg.StickySessionWaitTimeout,
-								MaxWaiting:     cfg.StickySessionMaxWaiting,
-							},
-						}, nil
+						waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
+						if waitingCount < cfg.StickySessionMaxWaiting {
+							return &AccountSelectionResult{
+								Account: account,
+								WaitPlan: &AccountWaitPlan{
+									AccountID:      accountID,
+									MaxConcurrency: account.Concurrency,
+									Timeout:        cfg.StickySessionWaitTimeout,
+									MaxWaiting:     cfg.StickySessionMaxWaiting,
+								},
+							}, nil
+						}
 					}
 				}
 			}
@@ -1562,6 +1576,28 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.
 		return nil
 	}
 	return fresh
+}
+
+func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Context, account *Account, requestedModel string) *Account {
+	if account == nil {
+		return nil
+	}
+	if s.schedulerSnapshot == nil || s.accountRepo == nil {
+		return account
+	}
+
+	latest, err := s.accountRepo.GetByID(ctx, account.ID)
+	if err != nil || latest == nil {
+		return nil
+	}
+	syncOpenAICodexRateLimitFromExtra(ctx, s.accountRepo, latest, time.Now())
+	if !latest.IsSchedulable() || !latest.IsOpenAI() {
+		return nil
+	}
+	if requestedModel != "" && !latest.IsModelSupported(requestedModel) {
+		return nil
+	}
+	return latest
 }
 
 func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -2602,6 +2638,12 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
+	if s.rateLimitService != nil {
+		// Passthrough mode preserves the raw upstream error response, but runtime
+		// account state still needs to be updated so sticky routing can stop
+		// reusing a freshly rate-limited account.
+		_ = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:             account.Platform,
 		AccountID:            account.ID,
@@ -4114,9 +4156,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		multiplier = resolver.Resolve(ctx, user.ID, *apiKey.GroupID, apiKey.Group.RateMultiplier)
 	}
 
-	billingModel := result.Model
+	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
 	if result.BillingModel != "" {
-		billingModel = result.BillingModel
+		billingModel = strings.TrimSpace(result.BillingModel)
 	}
 	serviceTier := ""
 	if result.ServiceTier != nil {
@@ -4144,6 +4186,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		AccountID:             account.ID,
 		RequestID:             requestID,
 		Model:                 result.Model,
+		RequestedModel:        result.Model,
 		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
 		ServiceTier:           result.ServiceTier,
 		ReasoningEffort:       result.ReasoningEffort,

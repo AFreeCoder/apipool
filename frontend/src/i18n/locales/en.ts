@@ -533,6 +533,14 @@ export default {
     title: 'API Keys',
     description: 'Manage your API keys and access tokens',
     searchPlaceholder: 'Search name or key...',
+    endpoints: {
+      title: 'API Endpoints',
+      default: 'Default',
+      copied: 'Copied',
+      copiedHint: 'Copied to clipboard',
+      clickToCopy: 'Click to copy this endpoint',
+      speedTest: 'Speed Test',
+    },
     allGroups: 'All Groups',
     allStatus: 'All Status',
     createKey: 'Create API Key',
@@ -1986,9 +1994,15 @@ export default {
         expiresAt: 'Expires At',
         actions: 'Actions'
       },
+      allPrivacyModes: 'All Privacy States',
+      privacyUnset: 'Unset',
       privacyTrainingOff: 'Training data sharing disabled',
       privacyCfBlocked: 'Blocked by Cloudflare, training may still be on',
       privacyFailed: 'Failed to disable training',
+      privacyAntigravitySet: 'Telemetry and marketing emails disabled',
+      privacyAntigravityFailed: 'Privacy setting failed',
+      setPrivacy: 'Set Privacy',
+      subscriptionAbnormal: 'Abnormal',
       // Capacity status tooltips
       capacity: {
         windowCost: {
@@ -2305,7 +2319,9 @@ export default {
         },
         tlsFingerprint: {
           label: 'TLS Fingerprint Simulation',
-          hint: 'Simulate Node.js/Claude Code client TLS fingerprint'
+          hint: 'Simulate Node.js/Claude Code client TLS fingerprint',
+          defaultProfile: 'Built-in Default',
+          randomProfile: 'Random'
         },
         sessionIdMasking: {
           label: 'Session ID Masking',
@@ -3501,7 +3517,12 @@ export default {
         typeRequest: 'Request',
         typeAuth: 'Auth',
         typeRouting: 'Routing',
-        typeInternal: 'Internal'
+        typeInternal: 'Internal',
+        endpoint: 'Endpoint',
+        requestType: 'Type',
+        requestTypeSync: 'Sync',
+        requestTypeStream: 'Stream',
+        requestTypeWs: 'WS'
       },
       // Error Details Modal
       errorDetails: {
@@ -3587,6 +3608,16 @@ export default {
         latency: 'Request Duration',
         businessLimited: 'Business Limited',
         requestPath: 'Request Path',
+        inboundEndpoint: 'Inbound Endpoint',
+        upstreamEndpoint: 'Upstream Endpoint',
+        requestedModel: 'Requested Model',
+        upstreamModel: 'Upstream Model',
+        requestType: 'Request Type',
+        requestTypeUnknown: 'Unknown',
+        requestTypeSync: 'Sync',
+        requestTypeStream: 'Stream',
+        requestTypeWs: 'WebSocket',
+        modelMapping: 'Model Mapping',
         timings: 'Timings',
         auth: 'Auth',
         routing: 'Routing',
@@ -4161,6 +4192,14 @@ export default {
         allowUngroupedKey: 'Allow Ungrouped Key Scheduling',
         allowUngroupedKeyHint: 'When disabled, API Keys not assigned to any group cannot make requests (403 Forbidden). Keep disabled to ensure all Keys belong to a specific group.'
       },
+      gatewayForwarding: {
+        title: 'Request Forwarding',
+        description: 'Control how requests are forwarded to upstream OAuth accounts',
+        fingerprintUnification: 'Fingerprint Unification',
+        fingerprintUnificationHint: 'Unify X-Stainless-* headers across users sharing the same OAuth account. Disabling passes through each client\'s original headers.',
+        metadataPassthrough: 'Metadata Passthrough',
+        metadataPassthroughHint: 'Pass through client\'s original metadata.user_id without rewriting. May improve upstream cache hit rates.',
+      },
       site: {
         title: 'Site Settings',
         description: 'Customize site branding',
@@ -4177,6 +4216,18 @@ export default {
         apiBaseUrlPlaceholder: 'https://api.example.com',
         apiBaseUrlHint:
           'Used for "Use Key" and "Import to CC Switch" features. Leave empty to use current site URL.',
+        customEndpoints: {
+          title: 'Custom Endpoints',
+          description: 'Add additional API endpoint URLs for users to quickly copy on the API Keys page',
+          itemLabel: 'Endpoint #{n}',
+          name: 'Name',
+          namePlaceholder: 'e.g., OpenAI Compatible',
+          endpointUrl: 'Endpoint URL',
+          endpointUrlPlaceholder: 'https://api2.example.com',
+          descriptionLabel: 'Description',
+          descriptionPlaceholder: 'e.g., Supports OpenAI format requests',
+          add: 'Add Endpoint',
+        },
         contactInfo: 'Contact Info',
         contactInfoPlaceholder: 'e.g., QQ: 123456789',
         contactInfoHint: 'Customer support contact info, displayed on redeem page, profile, etc.',
@@ -4439,6 +4490,14 @@ export default {
         thinkingSignatureHint: 'Automatically strip signatures and retry when upstream returns thinking block signature validation errors',
         thinkingBudget: 'Thinking Budget Rectifier',
         thinkingBudgetHint: 'Automatically set budget to 32000 and retry when upstream returns budget_tokens constraint error (≥1024)',
+        apikeySignature: 'API Key Signature Rectifier',
+        apikeySignatureHint:
+          'Automatically strip signatures and retry when API Key accounts receive signature-related errors (built-in patterns always apply)',
+        apikeyPatterns: 'Custom Match Patterns',
+        apikeyPatternsHint:
+          'Additional keywords matched against the response body (case-insensitive). Built-in patterns always apply; use these for supplementary matching.',
+        apikeyPatternPlaceholder: 'e.g., thinking_error',
+        addPattern: 'Add Pattern',
         saved: 'Rectifier settings saved',
         saveFailed: 'Failed to save rectifier settings'
       },
@@ -4546,6 +4605,62 @@ export default {
       failedToSave: 'Failed to save rule',
       failedToDelete: 'Failed to delete rule',
       failedToToggle: 'Failed to toggle status'
+    },
+
+    // TLS Fingerprint Profiles
+    tlsFingerprintProfiles: {
+      title: 'TLS Fingerprint Profiles',
+      description: 'Manage TLS fingerprint profiles for simulating specific client TLS handshake characteristics',
+      createProfile: 'Create Profile',
+      editProfile: 'Edit Profile',
+      deleteProfile: 'Delete Profile',
+      noProfiles: 'No profiles configured',
+      createFirstProfile: 'Create your first TLS fingerprint profile',
+
+      columns: {
+        name: 'Name',
+        description: 'Description',
+        grease: 'GREASE',
+        alpn: 'ALPN',
+        actions: 'Actions'
+      },
+
+      form: {
+        pasteYaml: 'Paste YAML Configuration',
+        pasteYamlPlaceholder: 'Paste YAML output from TLS Fingerprint Collector here...',
+        pasteYamlHint: 'Paste the YAML copied from TLS Fingerprint Collector to auto-fill all fields.',
+        openCollector: 'Open Collector',
+        parseYaml: 'Parse YAML',
+        yamlParsed: 'YAML parsed successfully, fields auto-filled',
+        yamlParseFailed: 'Failed to parse YAML: name field not found',
+        name: 'Profile Name',
+        namePlaceholder: 'e.g. macOS Node.js v24',
+        description: 'Description',
+        descriptionPlaceholder: 'Optional description for this profile',
+        enableGrease: 'Enable GREASE',
+        enableGreaseHint: 'Insert GREASE values in TLS ClientHello extensions',
+        cipherSuites: 'Cipher Suites',
+        cipherSuitesHint: 'Comma-separated hex values, e.g. 0x1301, 0x1302, 0xc02c',
+        curves: 'Elliptic Curves',
+        curvesHint: 'Comma-separated curve IDs',
+        pointFormats: 'Point Formats',
+        signatureAlgorithms: 'Signature Algorithms',
+        alpnProtocols: 'ALPN Protocols',
+        alpnProtocolsHint: 'Comma-separated, e.g. h2, http/1.1',
+        supportedVersions: 'Supported TLS Versions',
+        keyShareGroups: 'Key Share Groups',
+        pskModes: 'PSK Modes',
+        extensions: 'Extensions'
+      },
+
+      deleteConfirm: 'Delete Profile',
+      deleteConfirmMessage: 'Are you sure you want to delete profile "{name}"? Accounts using this profile will fall back to the built-in default.',
+      createSuccess: 'Profile created successfully',
+      updateSuccess: 'Profile updated successfully',
+      deleteSuccess: 'Profile deleted successfully',
+      loadFailed: 'Failed to load profiles',
+      saveFailed: 'Failed to save profile',
+      deleteFailed: 'Failed to delete profile'
     }
   },
 

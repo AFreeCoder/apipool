@@ -1,5 +1,5 @@
-import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import { defineComponent, nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import UseKeyModal from '../UseKeyModal.vue'
 
@@ -13,7 +13,7 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-const copyToClipboard = vi.fn()
+const copyToClipboard = vi.fn().mockResolvedValue(true)
 
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
@@ -41,11 +41,14 @@ const IconStub = defineComponent({
   template: '<span class="icon-stub" />'
 })
 
-const mountUseKeyModal = (platform: 'anthropic' | 'sora') => mount(UseKeyModal, {
+const mountUseKeyModal = (
+  platform: 'anthropic' | 'sora' | 'openai',
+  baseUrl = 'https://apipool.dev'
+) => mount(UseKeyModal, {
   props: {
     show: true,
     apiKey: 'sk-test',
-    baseUrl: 'https://apipool.dev',
+    baseUrl,
     platform
   },
   global: {
@@ -62,6 +65,7 @@ const findButtonByText = (wrapper: ReturnType<typeof mount>, text: string) =>
 describe('UseKeyModal', () => {
   beforeEach(() => {
     copyToClipboard.mockReset()
+    copyToClipboard.mockResolvedValue(true)
   })
 
   it('anthropic 分组会显示 OpenClaw tab，并展示对应的 OpenClaw provider 信息', async () => {
@@ -85,11 +89,11 @@ describe('UseKeyModal', () => {
     const configFile = new File(['{}'], 'openclaw.json', { type: 'application/json' })
     Object.defineProperty(configFile, 'text', {
       value: vi.fn().mockResolvedValue('{}'),
-      configurable: true,
+      configurable: true
     })
     Object.defineProperty(fileInput.element, 'files', {
       value: [configFile],
-      configurable: true,
+      configurable: true
     })
     await fileInput.trigger('change')
     await flushPromises()
@@ -103,5 +107,20 @@ describe('UseKeyModal', () => {
     const wrapper = mountUseKeyModal('sora')
 
     expect(wrapper.text()).not.toContain('keys.useKeyModal.cliTabs.openclaw')
+  })
+
+  it('OpenCode 配置会展示更新后的 GPT-5.4 Mini/Nano 名称', async () => {
+    const wrapper = mountUseKeyModal('openai', 'https://example.com/v1')
+
+    const opencodeTab = findButtonByText(wrapper, 'keys.useKeyModal.cliTabs.opencode')
+    expect(opencodeTab).toBeTruthy()
+
+    await opencodeTab!.trigger('click')
+    await nextTick()
+
+    const codeBlock = wrapper.find('pre code')
+    expect(codeBlock.exists()).toBe(true)
+    expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
+    expect(codeBlock.text()).toContain('"name": "GPT-5.4 Nano"')
   })
 })

@@ -643,6 +643,7 @@ urlFallbackLoop:
 					AccountID:          p.account.ID,
 					AccountName:        p.account.Name,
 					UpstreamStatusCode: 0,
+					UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 					Kind:               "request_error",
 					Message:            safeErr,
 				})
@@ -720,6 +721,7 @@ urlFallbackLoop:
 							AccountName:        p.account.Name,
 							UpstreamStatusCode: resp.StatusCode,
 							UpstreamRequestID:  resp.Header.Get("x-request-id"),
+							UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 							Kind:               "retry",
 							Message:            upstreamMsg,
 							Detail:             getUpstreamDetail(respBody),
@@ -754,6 +756,7 @@ urlFallbackLoop:
 							AccountName:        p.account.Name,
 							UpstreamStatusCode: resp.StatusCode,
 							UpstreamRequestID:  resp.Header.Get("x-request-id"),
+							UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
 							Kind:               "retry",
 							Message:            upstreamMsg,
 							Detail:             getUpstreamDetail(respBody),
@@ -1742,7 +1745,8 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	return &ForwardResult{
 		RequestID:        requestID,
 		Usage:            *usage,
-		Model:            billingModel, // 使用映射模型用于计费和日志
+		Model:            originalModel,
+		UpstreamModel:    billingModel,
 		Stream:           claudeReq.Stream,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
@@ -2435,7 +2439,8 @@ handleSuccess:
 	return &ForwardResult{
 		RequestID:        requestID,
 		Usage:            *usage,
-		Model:            billingModel,
+		Model:            originalModel,
+		UpstreamModel:    billingModel,
 		Stream:           stream,
 		Duration:         time.Since(startTime),
 		FirstTokenMs:     firstTokenMs,
