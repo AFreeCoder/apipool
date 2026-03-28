@@ -11,6 +11,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func requireErrorObject(t *testing.T, body map[string]any) map[string]any {
+	t.Helper()
+
+	rawErrObj, ok := body["error"]
+	require.True(t, ok, "response body should contain error")
+
+	errObj, ok := rawErrObj.(map[string]any)
+	require.True(t, ok, "error field should be an object")
+
+	return errObj
+}
+
 func TestMapConcurrencyAcquireError(t *testing.T) {
 	t.Run("并发超时仍返回429", func(t *testing.T) {
 		status, errType, message := mapConcurrencyAcquireError(&ConcurrencyError{
@@ -46,7 +58,7 @@ func TestOpenAIHandleConcurrencyError(t *testing.T) {
 		require.Equal(t, http.StatusTooManyRequests, w.Code)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		errObj := body["error"].(map[string]any)
+		errObj := requireErrorObject(t, body)
 		require.Equal(t, "rate_limit_error", errObj["type"])
 		require.Equal(t, "Concurrency limit exceeded for user, please retry later", errObj["message"])
 	})
@@ -62,7 +74,7 @@ func TestOpenAIHandleConcurrencyError(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable, w.Code)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		errObj := body["error"].(map[string]any)
+		errObj := requireErrorObject(t, body)
 		require.Equal(t, "api_error", errObj["type"])
 		require.Equal(t, "Concurrency system unavailable (cache or network issue), please retry later", errObj["message"])
 	})
@@ -82,7 +94,7 @@ func TestGatewayHandleConcurrencyError(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "error", body["type"])
-	errObj := body["error"].(map[string]any)
+	errObj := requireErrorObject(t, body)
 	require.Equal(t, "api_error", errObj["type"])
 	require.Equal(t, "Concurrency system unavailable (cache or network issue), please retry later", errObj["message"])
 }
@@ -100,7 +112,7 @@ func TestSoraHandleConcurrencyError(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	errObj := body["error"].(map[string]any)
+	errObj := requireErrorObject(t, body)
 	require.Equal(t, "api_error", errObj["type"])
 	require.Equal(t, "Concurrency system unavailable (cache or network issue), please retry later", errObj["message"])
 }
