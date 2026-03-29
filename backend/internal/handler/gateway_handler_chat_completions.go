@@ -157,7 +157,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "")
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				h.chatCompletionsErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error())
+				publicErr := publicGatewayAccountSelectionError(err, reqModel)
+				h.chatCompletionsErrorResponse(c, publicErr.Status, publicErr.Type, publicErr.Message)
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context())

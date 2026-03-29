@@ -295,7 +295,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "") // Gemini 不使用会话限制
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
+					publicErr := publicGatewayAccountSelectionError(err, reqModel)
+					h.handleStreamingAwareError(c, publicErr.Status, publicErr.Type, publicErr.Message, streamStarted)
 					return
 				}
 				action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -517,7 +518,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
+					publicErr := publicGatewayAccountSelectionError(err, reqModel)
+					h.handleStreamingAwareError(c, publicErr.Status, publicErr.Type, publicErr.Message, streamStarted)
 					return
 				}
 				action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -1448,7 +1450,8 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model)
 	if err != nil {
 		reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
-		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
+		publicErr := publicGatewayAccountSelectionError(err, parsedReq.Model)
+		h.errorResponse(c, publicErr.Status, publicErr.Type, publicErr.Message)
 		return
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)

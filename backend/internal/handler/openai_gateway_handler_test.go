@@ -439,18 +439,18 @@ func TestPublicOpenAIAccountSelectionError(t *testing.T) {
 		want           string
 	}{
 		{
-			name:           "wrapped no available accounts with model",
+			name:           "wrapped no available accounts with model unsupported details",
 			err:            fmt.Errorf("%w supporting model: gpt-5.4 (total=2 eligible=0 model_unsupported=2)", service.ErrNoAvailableAccounts),
 			requestedModel: "gpt-5.4",
 			wantCode:       "no_available_accounts_for_model",
-			want:           "No available accounts supporting model: gpt-5.4",
+			want:           "当前分组不支持该模型",
 		},
 		{
 			name:           "scheduler no available openai accounts with model",
 			err:            errors.New("no available OpenAI accounts"),
 			requestedModel: "gpt-5.4",
-			wantCode:       "no_available_accounts_for_model",
-			want:           "No available accounts supporting model: gpt-5.4",
+			wantCode:       "no_available_accounts",
+			want:           "No available accounts",
 		},
 		{
 			name:     "no available accounts without model",

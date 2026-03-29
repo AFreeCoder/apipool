@@ -233,7 +233,8 @@ func (h *SoraGatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
+				publicErr := publicGatewayAccountSelectionError(err, reqModel)
+				h.handleStreamingAwareError(c, publicErr.Status, publicErr.Type, publicErr.Message, streamStarted)
 				return
 			}
 			rayID, mitigated, contentType := extractSoraFailoverHeaderInsights(lastFailoverHeaders, lastFailoverBody)

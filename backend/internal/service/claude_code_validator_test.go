@@ -57,6 +57,17 @@ func TestClaudeCodeValidator_NonMessagesPathUAOnly(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestClaudeCodeValidator_CountTokensPathUAOnly(t *testing.T) {
+	validator := NewClaudeCodeValidator()
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/v1/messages/count_tokens", nil)
+	req.Header.Set("User-Agent", "claude-cli/1.2.3 (darwin; arm64)")
+
+	ok := validator.Validate(req, map[string]any{
+		"model": "claude-sonnet-4-6",
+	})
+	require.True(t, ok)
+}
+
 func TestExtractVersion(t *testing.T) {
 	v := NewClaudeCodeValidator()
 	tests := []struct {

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -20,14 +19,14 @@ type publicOpenAIError struct {
 }
 
 func publicOpenAIAccountSelectionError(err error, requestedModel string) publicOpenAIError {
-	if isOpenAIAccountUnavailableError(err) {
-		model := strings.TrimSpace(requestedModel)
-		if model != "" {
-			return publicOpenAIError{
-				Code:    openAIErrorCodeNoAvailableAccountsForModel,
-				Message: fmt.Sprintf("No available accounts supporting model: %s", model),
-			}
+	if isOpenAIModelUnsupportedError(err) && strings.TrimSpace(requestedModel) != "" {
+		return publicOpenAIError{
+			Code:    openAIErrorCodeNoAvailableAccountsForModel,
+			Message: "当前分组不支持该模型",
 		}
+	}
+
+	if isOpenAIAccountUnavailableError(err) {
 		return publicOpenAIError{
 			Code:    openAIErrorCodeNoAvailableAccounts,
 			Message: "No available accounts",
@@ -59,6 +58,14 @@ func isOpenAIAccountUnavailableError(err error) bool {
 	}
 
 	return strings.Contains(msg, "no available openai accounts") ||
-		strings.Contains(msg, "no available accounts supporting model") ||
-		strings.Contains(msg, "supporting model:")
+		strings.Contains(msg, "no available accounts")
+}
+
+func isOpenAIModelUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return msg != "" && strings.Contains(msg, "supporting model:")
 }

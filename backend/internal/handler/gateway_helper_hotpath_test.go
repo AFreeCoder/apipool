@@ -157,6 +157,14 @@ func TestSetClaudeCodeClientContext_FastPathAndStrictPath(t *testing.T) {
 		require.True(t, service.IsClaudeCodeClient(c.Request.Context()))
 	})
 
+	t.Run("cli_count_tokens_path_sets_true_without_strict_body", func(t *testing.T) {
+		c, _ := newHelperTestContext(http.MethodPost, "/v1/messages/count_tokens")
+		c.Request.Header.Set("User-Agent", "claude-cli/1.0.1")
+
+		SetClaudeCodeClientContext(c, []byte(`{"model":"claude-sonnet-4-6"}`), nil)
+		require.True(t, service.IsClaudeCodeClient(c.Request.Context()))
+	})
+
 	t.Run("cli_messages_path_valid_body_sets_true", func(t *testing.T) {
 		c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 		c.Request.Header.Set("User-Agent", "claude-cli/1.0.1")
