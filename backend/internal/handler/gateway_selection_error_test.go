@@ -33,7 +33,7 @@ func TestPublicGatewayAccountSelectionError(t *testing.T) {
 			requestedModel: "gpt-5.4-mini",
 			wantStatus:     http.StatusServiceUnavailable,
 			wantType:       "api_error",
-			wantMessage:    "当前分组不支持该模型",
+			wantMessage:    "Model gpt-5.4-mini is not supported in this group",
 		},
 		{
 			name:           "no available accounts stays generic even with requested model",

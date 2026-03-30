@@ -461,6 +461,69 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_NoAvailabl
 		OpenAIUpstreamTransportResponsesWebsocketV2,
 	)
 	require.Error(t, err)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.NotContains(t, err.Error(), "supporting model:")
+	require.Nil(t, selection)
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+	require.Equal(t, 0, decision.CandidateCount)
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_UnsupportedModelReturnsModelSpecificError(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(1013)
+	accounts := []Account{
+		{
+			ID:          2311,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"gpt-5.3-codex":      "gpt-5.3-codex",
+					"gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
+					"gpt-5.1-codex-max":  "gpt-5.1-codex-max",
+					"gpt-5.4":            "gpt-5.4",
+				},
+			},
+		},
+		{
+			ID:          2312,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"gpt-5.2-codex":      "gpt-5.2-codex",
+					"gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
+				},
+			},
+		},
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        stubOpenAIAccountRepo{accounts: accounts},
+		cache:              &stubGatewayCache{},
+		cfg:                &config.Config{},
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+	}
+
+	selection, decision, err := svc.SelectAccountWithScheduler(
+		ctx,
+		&groupID,
+		"",
+		"",
+		"gpt-5-codex",
+		nil,
+		OpenAIUpstreamTransportAny,
+	)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.ErrorContains(t, err, "supporting model: gpt-5-codex")
+	require.ErrorContains(t, err, "model_unsupported=2")
 	require.Nil(t, selection)
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 	require.Equal(t, 0, decision.CandidateCount)

@@ -2,15 +2,16 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 const (
-	openAIErrorCodeServiceUnavailable          = "service_unavailable"
-	openAIErrorCodeNoAvailableAccounts         = "no_available_accounts"
-	openAIErrorCodeNoAvailableAccountsForModel = "no_available_accounts_for_model"
+	openAIErrorCodeServiceUnavailable       = "service_unavailable"
+	openAIErrorCodeNoAvailableAccounts      = "no_available_accounts"
+	openAIErrorCodeModelNotSupportedInGroup = "model_not_supported_in_group"
 )
 
 type publicOpenAIError struct {
@@ -19,10 +20,11 @@ type publicOpenAIError struct {
 }
 
 func publicOpenAIAccountSelectionError(err error, requestedModel string) publicOpenAIError {
-	if isOpenAIModelUnsupportedError(err) && strings.TrimSpace(requestedModel) != "" {
+	model := strings.TrimSpace(requestedModel)
+	if isOpenAIModelUnsupportedError(err) && model != "" {
 		return publicOpenAIError{
-			Code:    openAIErrorCodeNoAvailableAccountsForModel,
-			Message: "当前分组不支持该模型",
+			Code:    openAIErrorCodeModelNotSupportedInGroup,
+			Message: fmt.Sprintf("Model %s is not supported in this group", model),
 		}
 	}
 

@@ -120,7 +120,7 @@ func TestOpenAIHandleStreamingAwareErrorWithCode_SSE(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 
 	h := &OpenAIGatewayHandler{}
-	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "no_available_accounts_for_model", "No available accounts supporting model: gpt-5.4", true)
+	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "model_not_supported_in_group", "Model gpt-5.4 is not supported in this group", true)
 
 	body := w.Body.String()
 	assert.True(t, strings.HasPrefix(body, "event: error\n"))
@@ -136,8 +136,8 @@ func TestOpenAIHandleStreamingAwareErrorWithCode_SSE(t *testing.T) {
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "api_error", errorObj["type"])
-	assert.Equal(t, "no_available_accounts_for_model", errorObj["code"])
-	assert.Equal(t, "No available accounts supporting model: gpt-5.4", errorObj["message"])
+	assert.Equal(t, "model_not_supported_in_group", errorObj["code"])
+	assert.Equal(t, "Model gpt-5.4 is not supported in this group", errorObj["message"])
 }
 
 func TestOpenAIHandleStreamingAwareErrorWithCode_NonStreaming(t *testing.T) {
@@ -442,8 +442,8 @@ func TestPublicOpenAIAccountSelectionError(t *testing.T) {
 			name:           "wrapped no available accounts with model unsupported details",
 			err:            fmt.Errorf("%w supporting model: gpt-5.4 (total=2 eligible=0 model_unsupported=2)", service.ErrNoAvailableAccounts),
 			requestedModel: "gpt-5.4",
-			wantCode:       "no_available_accounts_for_model",
-			want:           "当前分组不支持该模型",
+			wantCode:       "model_not_supported_in_group",
+			want:           "Model gpt-5.4 is not supported in this group",
 		},
 		{
 			name:           "scheduler no available openai accounts with model",

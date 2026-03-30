@@ -3,7 +3,7 @@ package service
 import (
 	"container/heap"
 	"context"
-	"errors"
+	"fmt"
 	"hash/fnv"
 	"math"
 	"sort"
@@ -371,6 +371,51 @@ type openAIAccountCandidateScore struct {
 	hasTTFT   bool
 }
 
+type openAISelectionFailureStats struct {
+	Total                 int
+	Eligible              int
+	Excluded              int
+	Unschedulable         int
+	TransportIncompatible int
+	ModelUnsupported      int
+}
+
+func (s openAISelectionFailureStats) summary() string {
+	return fmt.Sprintf(
+		"total=%d eligible=%d excluded=%d unschedulable=%d transport_incompatible=%d model_unsupported=%d",
+		s.Total,
+		s.Eligible,
+		s.Excluded,
+		s.Unschedulable,
+		s.TransportIncompatible,
+		s.ModelUnsupported,
+	)
+}
+
+func (s openAISelectionFailureStats) modelUnsupportedOnly() bool {
+	if s.Total == 0 {
+		return false
+	}
+	considered := s.Total - s.Excluded
+	if considered <= 0 || s.ModelUnsupported == 0 {
+		return false
+	}
+	return s.ModelUnsupported == considered &&
+		s.Unschedulable == 0 &&
+		s.TransportIncompatible == 0 &&
+		s.Eligible == 0
+}
+
+func buildOpenAISelectionFailureError(requestedModel string, stats openAISelectionFailureStats) error {
+	if strings.TrimSpace(requestedModel) != "" && stats.modelUnsupportedOnly() {
+		return fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, stats.summary())
+	}
+	if stats.Total == 0 {
+		return ErrNoAvailableAccounts
+	}
+	return fmt.Errorf("%w (%s)", ErrNoAvailableAccounts, stats.summary())
+}
+
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
 
 func (h openAIAccountCandidateHeap) Len() int {
@@ -572,27 +617,33 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		return nil, 0, 0, 0, err
 	}
 	if len(accounts) == 0 {
-		return nil, 0, 0, 0, errors.New("no available OpenAI accounts")
+		return nil, 0, 0, 0, buildOpenAISelectionFailureError(req.RequestedModel, openAISelectionFailureStats{})
 	}
 
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
+	stats := openAISelectionFailureStats{Total: len(accounts)}
 	for i := range accounts {
 		account := &accounts[i]
 		if req.ExcludedIDs != nil {
 			if _, excluded := req.ExcludedIDs[account.ID]; excluded {
+				stats.Excluded++
 				continue
 			}
 		}
 		if !account.IsSchedulable() || !account.IsOpenAI() {
+			stats.Unschedulable++
 			continue
 		}
 		if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
+			stats.ModelUnsupported++
 			continue
 		}
 		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
+			stats.TransportIncompatible++
 			continue
 		}
+		stats.Eligible++
 		filtered = append(filtered, account)
 		loadReq = append(loadReq, AccountWithConcurrency{
 			ID:             account.ID,
@@ -600,7 +651,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		})
 	}
 	if len(filtered) == 0 {
-		return nil, 0, 0, 0, errors.New("no available OpenAI accounts")
+		return nil, 0, 0, 0, buildOpenAISelectionFailureError(req.RequestedModel, stats)
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}

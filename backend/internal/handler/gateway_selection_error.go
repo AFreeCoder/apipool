@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -23,11 +24,12 @@ func publicGatewayAccountSelectionError(err error, requestedModel string) public
 		}
 	}
 
-	if isGatewayModelUnsupportedError(err) && strings.TrimSpace(requestedModel) != "" {
+	model := strings.TrimSpace(requestedModel)
+	if isGatewayModelUnsupportedError(err) && model != "" {
 		return publicGatewayError{
 			Status:  http.StatusServiceUnavailable,
 			Type:    "api_error",
-			Message: "当前分组不支持该模型",
+			Message: fmt.Sprintf("Model %s is not supported in this group", model),
 		}
 	}
 
