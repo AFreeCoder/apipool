@@ -6,6 +6,9 @@
 
 APIPool 是一个 AI API 网关平台，专注于提供御三家 OpenAI、Claude、Gemini 的大模型 API 服务，只做最真的 API，做最靠谱的 API 站。
 
+![74cbec8450496d2477ed1b464a9ceb36](https://tjjsjwhj-blog.oss-cn-beijing.aliyuncs.com/2026/04/03/74cbec8450496d2477ed1b464a9ceb36.jpg)
+
+
 ---
 
 ## 注册账号
@@ -26,6 +29,19 @@ APIPool 是一个 AI API 网关平台，专注于提供御三家 OpenAI、Claude
 	b. **分组**：选择要使用的服务分组（决定可用的模型和计费方式）。
 4. 点击 **创建**，生成密钥。
 5. **重要**：额度限制建议不填。
+
+---
+
+## API 域名说明
+
+本平台提供两个 API 端点：
+
+| 域名 | 说明 | 适用场景 |
+|------|------|---------|
+| `api.apipool.dev`（推荐） | 直连线路，**无需代理** | 国内用户首选 |
+| `apipool.dev` | Cloudflare CDN | 海外用户 / 备用线路 |
+
+> **推荐**：国内用户请使用 `api.apipool.dev`，无需开启代理即可直接使用。
 
 ---
 

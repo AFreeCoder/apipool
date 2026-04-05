@@ -4,6 +4,8 @@
 
 在线访问：**https://apipool.dev**
 
+API 端点：**https://api.apipool.dev**（推荐，国内直连无需代理）
+
 ## 功能特性
 
 - **多账号管理** - 支持多种上游账号类型（OAuth、API Key）
