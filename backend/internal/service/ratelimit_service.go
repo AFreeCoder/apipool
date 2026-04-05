@@ -12,7 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/soraerror"
+	"github.com/Wei-Shaw/sub2api/internal/util/httputil"
 	"github.com/tidwall/gjson"
 )
 
@@ -168,6 +168,16 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				shouldDisable = true
 				break
 			}
+		}
+		// OpenAI: {"detail":"Unauthorized"} 表示 token 完全无效（非标准 OpenAI 错误格式），直接标记 error
+		if account.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
+			msg := "Unauthorized (401): account authentication failed permanently"
+			if upstreamMsg != "" {
+				msg = "Unauthorized (401): " + upstreamMsg
+			}
+			s.handleAuthError(ctx, account, msg)
+			shouldDisable = true
+			break
 		}
 		// OAuth 账号在 401 错误时临时不可调度（给 token 刷新窗口）；非 OAuth 账号保持原有 SetError 行为。
 		// Antigravity 除外：其 401 由 applyErrorPolicy 的 temp_unschedulable_rules 自行控制。
@@ -660,7 +670,7 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, head
 		if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, msg); err != nil {
 			slog.Warn("openai_oauth_403_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
 		} else {
-			slog.Warn("openai_oauth_403_temp_unschedulable", "account_id", account.ID, "until", until, "cf_ray", soraerror.ExtractCloudflareRayID(headers, responseBody))
+			slog.Warn("openai_oauth_403_temp_unschedulable", "account_id", account.ID, "until", until, "cf_ray", httputil.ExtractCloudflareRayID(headers, responseBody))
 		}
 		return true
 	}
@@ -681,13 +691,13 @@ func (s *RateLimitService) openAIOAuth403ChallengeCooldownMinutes() int {
 }
 
 func buildOpenAIOAuthTransient403Message(headers http.Header, upstreamMsg string, responseBody []byte) string {
-	if soraerror.IsCloudflareChallengeResponse(http.StatusForbidden, headers, responseBody) {
-		return soraerror.FormatCloudflareChallengeMessage("Cloudflare challenge (403): temporary upstream block", headers, responseBody)
+	if httputil.IsCloudflareChallengeResponse(http.StatusForbidden, headers, responseBody) {
+		return httputil.FormatCloudflareChallengeMessage("Cloudflare challenge (403): temporary upstream block", headers, responseBody)
 	}
 	if trimmed := strings.TrimSpace(upstreamMsg); trimmed != "" {
 		return "Access forbidden (403): temporary upstream block: " + trimmed
 	}
-	if rayID := strings.TrimSpace(soraerror.ExtractCloudflareRayID(headers, responseBody)); rayID != "" {
+	if rayID := strings.TrimSpace(httputil.ExtractCloudflareRayID(headers, responseBody)); rayID != "" {
 		return "Access forbidden (403): temporary upstream block (cf-ray: " + rayID + ")"
 	}
 	return "Access forbidden (403): temporary upstream block"

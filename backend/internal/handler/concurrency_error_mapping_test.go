@@ -99,24 +99,6 @@ func TestGatewayHandleConcurrencyError(t *testing.T) {
 	require.Equal(t, "Concurrency system unavailable (cache or network issue), please retry later", errObj["message"])
 }
 
-func TestSoraHandleConcurrencyError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
-
-	h := &SoraGatewayHandler{}
-	h.handleConcurrencyError(c, errors.New("dial tcp: lookup redis on 127.0.0.11:53: server misbehaving"), "user", false)
-
-	require.Equal(t, http.StatusServiceUnavailable, w.Code)
-	var body map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	errObj := requireErrorObject(t, body)
-	require.Equal(t, "api_error", errObj["type"])
-	require.Equal(t, "Concurrency system unavailable (cache or network issue), please retry later", errObj["message"])
-}
-
 func TestMapGeminiConcurrencyAcquireError(t *testing.T) {
 	t.Run("并发超时保持429", func(t *testing.T) {
 		status, message := mapGeminiConcurrencyAcquireError(&ConcurrencyError{

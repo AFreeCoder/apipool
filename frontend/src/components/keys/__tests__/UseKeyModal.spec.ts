@@ -42,7 +42,7 @@ const IconStub = defineComponent({
 })
 
 const mountUseKeyModal = (
-  platform: 'anthropic' | 'sora' | 'openai',
+  platform: 'anthropic' | 'openai',
   baseUrl = 'https://apipool.dev'
 ) => mount(UseKeyModal, {
   props: {
@@ -101,12 +101,6 @@ describe('UseKeyModal', () => {
     const generatedConfig = wrapper.get('pre code').text()
     expect(generatedConfig).toContain('"thinking": "high"')
     expect(generatedConfig).toContain('"primary": "apipool-anthropic/claude-opus-4-6"')
-  })
-
-  it('sora 分组不会显示 OpenClaw tab', () => {
-    const wrapper = mountUseKeyModal('sora')
-
-    expect(wrapper.text()).not.toContain('keys.useKeyModal.cliTabs.openclaw')
   })
 
   it('OpenCode 配置会展示更新后的 GPT-5.4 Mini/Nano 名称', async () => {

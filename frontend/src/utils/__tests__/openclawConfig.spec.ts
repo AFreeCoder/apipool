@@ -13,7 +13,6 @@ describe('openclawConfig utils', () => {
     expect(supportsOpenClawPlatform('gemini')).toBe(true)
     expect(supportsOpenClawPlatform('anthropic')).toBe(true)
     expect(supportsOpenClawPlatform('antigravity')).toBe(true)
-    expect(supportsOpenClawPlatform('sora')).toBe(false)
     expect(supportsOpenClawPlatform(null)).toBe(false)
   })
 
