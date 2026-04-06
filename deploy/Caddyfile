@@ -111,3 +111,82 @@ api.sub2api.com {
 		respond "{err.status_code} {err.status_text}"
 	}
 }
+
+# =============================================================================
+# 企业版实例（独立域名，指向企业版后端 8081 端口）
+# =============================================================================
+biz.apipool.dev, api-biz.apipool.dev {
+	# 静态资源长期缓存
+	@static {
+		path /assets/*
+		path /logo.png
+		path /favicon.ico
+	}
+	header @static {
+		Cache-Control "public, max-age=31536000, immutable"
+		-Pragma
+		-Expires
+	}
+
+	tls {
+		protocols tls1.2 tls1.3
+		ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+	}
+
+	reverse_proxy localhost:8081 {
+		health_uri /health
+		health_interval 30s
+		health_timeout 10s
+		health_status 200
+
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		header_up CF-Connecting-IP {http.request.header.CF-Connecting-IP}
+
+		transport http {
+			keepalive 120s
+			keepalive_idle_conns 64
+			read_buffer 16KB
+			write_buffer 16KB
+			compression off
+		}
+
+		fail_duration 30s
+		max_fails 3
+		unhealthy_status 500 502 503 504
+	}
+
+	encode {
+		zstd
+		gzip 6
+		minimum_length 256
+		match {
+			header Content-Type text/*
+			header Content-Type application/json*
+			header Content-Type application/javascript*
+			header Content-Type application/xml*
+			header Content-Type application/rss+xml*
+			header Content-Type image/svg+xml*
+		}
+	}
+
+	request_body {
+		max_size 100MB
+	}
+
+	log {
+		output file /var/log/caddy/sub2api-biz.log {
+			roll_size 50mb
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		format json
+		level INFO
+	}
+
+	handle_errors {
+		respond "{err.status_code} {err.status_text}"
+	}
+}
