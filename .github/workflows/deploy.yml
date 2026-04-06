@@ -179,4 +179,18 @@ jobs:
             # 清理悬空镜像
             docker image prune -f
 
+            # ============================================================
+            # 企业版实例：如果已部署则同步更新（使用新镜像重启）
+            # ============================================================
+            BIZ_COMPOSE="$DEPLOY_DIR/docker-compose.biz.yml"
+            BIZ_ENV="$DEPLOY_DIR/.env.biz"
+            if [ -f "$BIZ_COMPOSE" ] && [ -f "$BIZ_ENV" ]; then
+              echo "检测到企业版实例配置，同步更新..."
+              docker compose -f "$BIZ_COMPOSE" --env-file "$BIZ_ENV" up -d --remove-orphans
+              wait_for_health sub2api-biz 180
+              echo "企业版实例更新完成"
+            else
+              echo "未检测到企业版实例配置，跳过"
+            fi
+
             echo "部署完成！"
