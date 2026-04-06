@@ -186,6 +186,22 @@ jobs:
             BIZ_ENV="$DEPLOY_DIR/.env.biz"
             if [ -f "$BIZ_COMPOSE" ] && [ -f "$BIZ_ENV" ]; then
               echo "检测到企业版实例配置，同步更新..."
+              # 企业版数据库备份（如果容器在运行）
+              BIZ_DB_NAME=$(grep '^BIZ_POSTGRES_DB=' "$BIZ_ENV" | cut -d= -f2)
+              BIZ_DB_NAME="${BIZ_DB_NAME:-sub2api_biz}"
+              if docker ps --filter "name=^sub2api-biz$" --format '{{.Names}}' | grep -q .; then
+                BIZ_BACKUP_FILE="${BACKUP_DIR}/pre-deploy-biz-$(date +%Y%m%d_%H%M%S).sql.gz"
+                echo "备份企业版数据库: $BIZ_DB_NAME"
+                docker exec sub2api-postgres pg_dump -U "$DB_USER" -d "$BIZ_DB_NAME" --clean --if-exists \
+                  | gzip > "$BIZ_BACKUP_FILE"
+                if [ -s "$BIZ_BACKUP_FILE" ] && gzip -t "$BIZ_BACKUP_FILE"; then
+                  echo "企业版备份成功: $BIZ_BACKUP_FILE ($(du -h "$BIZ_BACKUP_FILE" | cut -f1))"
+                  find "$BACKUP_DIR" -name "pre-deploy-biz-*.sql.gz" -mtime +7 -delete
+                else
+                  echo "企业版备份失败，跳过（不阻塞部署）" >&2
+                  rm -f "$BIZ_BACKUP_FILE"
+                fi
+              fi
               docker compose -f "$BIZ_COMPOSE" --env-file "$BIZ_ENV" up -d --remove-orphans
               wait_for_health sub2api-biz 180
               echo "企业版实例更新完成"
