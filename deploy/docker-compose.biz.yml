@@ -1,0 +1,69 @@
+# =============================================================================
+# Sub2API Docker Compose - 企业版实例
+# =============================================================================
+# 复用主实例构建的镜像和基础设施（PostgreSQL + Redis），
+# 使用独立数据库（sub2api_biz）和 Redis DB（1）实现数据隔离。
+# =============================================================================
+
+services:
+  sub2api-biz:
+    image: deploy-sub2api:latest
+    container_name: sub2api-biz
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: 512m
+    memswap_limit: 512m
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - sub2api_biz_data:/app/data
+    environment:
+      - AUTO_SETUP=true
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - SERVER_MODE=${SERVER_MODE:-release}
+      - RUN_MODE=${RUN_MODE:-standard}
+      - DATABASE_HOST=sub2api-postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=${POSTGRES_USER:-sub2api}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - DATABASE_DBNAME=${BIZ_POSTGRES_DB:-sub2api_biz}
+      - DATABASE_SSLMODE=disable
+      - REDIS_HOST=sub2api-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=${BIZ_REDIS_DB:-1}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-256}
+      - REDIS_MIN_IDLE_CONNS=${REDIS_MIN_IDLE_CONNS:-5}
+      - REDIS_ENABLE_TLS=${REDIS_ENABLE_TLS:-false}
+      - ADMIN_EMAIL=${BIZ_ADMIN_EMAIL:-admin@biz.apipool.dev}
+      - ADMIN_PASSWORD=${BIZ_ADMIN_PASSWORD:-}
+      - JWT_SECRET=${BIZ_JWT_SECRET:-}
+      - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
+      - TOTP_ENCRYPTION_KEY=${BIZ_TOTP_ENCRYPTION_KEY:-}
+      - TZ=${TZ:-Asia/Shanghai}
+      - SECURITY_URL_ALLOWLIST_ENABLED=${SECURITY_URL_ALLOWLIST_ENABLED:-false}
+      - SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP=${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-false}
+      - SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS=${SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS:-false}
+      - SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS=${SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS:-}
+      - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
+    networks:
+      - sub2api-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  sub2api-network:
+    external: true
+    name: sub2api_sub2api-network
+
+volumes:
+  sub2api_biz_data:
