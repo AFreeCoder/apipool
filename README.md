@@ -23,7 +23,7 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 | 组件 | 技术 |
 |------|------|
-| 后端 | Go 1.26.1, Gin, Ent ORM |
+| 后端 | Go 1.26.2, Gin, Ent ORM |
 | 前端 | Vue 3 + TypeScript, Vite, Pinia, TailwindCSS |
 | 数据库 | PostgreSQL 18 |
 | 缓存 | Redis 8 |
