@@ -63,7 +63,7 @@ services:
 networks:
   sub2api-network:
     external: true
-    name: sub2api_sub2api-network
+    name: deploy_sub2api-network
 
 volumes:
   sub2api_biz_data:
