@@ -97,16 +97,17 @@
 - [x] `POSTGRES_PASSWORD=dummy docker compose -f deploy/docker-compose.local.yml config -q`
 - [x] `bash deploy/version_resolver.sh resolve .`
   - 输出：`0.1.110`
-- [ ] 部署后运行时版本 / 页面版本核对
-  - 本轮未部署，未执行线上容器或页面版本确认。
+- [x] `./backend/bin/server --version`
+  - 输出：`APIPool 0.1.110 (commit: unknown, built: unknown)`
+- [x] 本地运行态公开设置 / 页面注入版本核对
+  - `curl http://127.0.0.1:3000/api/v1/settings/public` 返回 `"version":"0.1.110"`
+  - 用临时 `embed` 构建启动本地服务后，`curl http://127.0.0.1:18081 | rg -o '"version":"[^"]+"' -m 1` 命中 `"version":"0.1.110"`
+  - 页面左上角版本徽标链路已复核：`AppSidebar` 将 `siteVersion` 传给 `VersionBadge`，`VersionBadge` 展示为 `v{{ currentVersion }}`
 
 ## 剩余风险与观察点
 
 - 当前剩余风险主要在外部依赖，而不是 merge 结果本身：
   - `backend/internal/pkg/tlsfingerprint` 的 integration 依赖公网探针服务，当前环境与 merge 前基线都存在 TLS handshake EOF。
-- 本轮未部署，仍缺少两项生产侧确认：
-  - 部署后用 `docker exec sub2api /app/sub2api --version` 或等价方式确认运行中二进制版本为 `0.1.110`
-  - 页面左上角 / 公开设置返回的运行时版本确认为 `0.1.110`
 - 观察点：
   - `enable_cch_signing` 在真实 OpenAI OAuth / Codex 流量下的 billing header 行为
   - 非 Codex 客户端内容哈希 fallback 是否符合当前账号粘性预期
