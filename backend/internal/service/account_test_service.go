@@ -184,6 +184,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
+	if account.IsKiro() {
+		return s.testKiroAccountConnection(c, account)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
 }
 
