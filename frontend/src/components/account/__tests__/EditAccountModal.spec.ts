@@ -156,4 +156,77 @@ describe('EditAccountModal', () => {
       'gpt-5.2': 'gpt-5.2'
     })
   })
+
+  it('submits kiro credentials, mapping, and pool mode updates', async () => {
+    const account = {
+      id: 2,
+      name: 'Kiro',
+      notes: '',
+      platform: 'anthropic',
+      type: 'kiro',
+      credentials: {
+        auth_method: 'social',
+        refresh_token: 'rt-old',
+        auth_region: 'us-east-1',
+        api_region: 'us-east-1',
+        machine_id: 'abcd'.repeat(16),
+        model_mapping: {
+          'claude-sonnet-4': 'claude-sonnet-4'
+        }
+      },
+      extra: {
+        quota_limit: 25
+      },
+      proxy_id: null,
+      concurrency: 1,
+      priority: 1,
+      rate_multiplier: 1,
+      status: 'active',
+      group_ids: [],
+      expires_at: null,
+      auto_pause_on_expired: false
+    } as any
+
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('#edit-kiro-auth-method-idc').setValue(true)
+    await wrapper.get('#edit-kiro-refresh-token').setValue('rt-new')
+    await wrapper.get('#edit-kiro-client-id').setValue('client-id')
+    await wrapper.get('#edit-kiro-client-secret').setValue('client-secret')
+    await wrapper.get('#edit-kiro-auth-region').setValue('us-west-2')
+    await wrapper.get('#edit-kiro-api-region').setValue('eu-west-1')
+    await wrapper.get('#edit-kiro-machine-id').setValue('1234abcd1234abcd1234abcd1234abcd')
+    await wrapper.get('#edit-kiro-profile-arn').setValue('arn:aws:iam::123456789012:role/Kiro')
+    await wrapper.get('[data-testid="rewrite-to-snapshot"]').trigger('click')
+
+    await wrapper.get('#edit-kiro-pool-mode-toggle').trigger('click')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({
+      credentials: {
+        auth_method: 'idc',
+        refresh_token: 'rt-new',
+        client_id: 'client-id',
+        client_secret: 'client-secret',
+        auth_region: 'us-west-2',
+        api_region: 'eu-west-1',
+        machine_id: '1234abcd1234abcd1234abcd1234abcd',
+        profile_arn: 'arn:aws:iam::123456789012:role/Kiro',
+        model_mapping: {
+          'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11'
+        },
+        pool_mode: true
+      },
+      extra: {
+        quota_limit: 25
+      }
+    })
+  })
 })

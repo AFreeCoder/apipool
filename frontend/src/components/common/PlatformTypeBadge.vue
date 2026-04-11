@@ -88,6 +88,8 @@ const typeLabel = computed(() => {
       return 'Key'
     case 'bedrock':
       return 'AWS'
+    case 'kiro':
+      return 'Kiro'
     default:
       return props.type
   }

@@ -603,4 +603,43 @@ describe('AccountUsageCell', () => {
 
 		expect(wrapper.text().trim()).toBe('-')
   })
+
+  it('Kiro 账号展示与 API Key 一致的配额进度条', async () => {
+		const wrapper = mount(AccountUsageCell, {
+		  props: {
+		    account: makeAccount({
+		      id: 3004,
+		      platform: 'anthropic',
+		      type: 'kiro',
+		      quota_daily_limit: 10,
+		      quota_daily_used: 4,
+		      quota_weekly_limit: 50,
+		      quota_weekly_used: 15,
+		      quota_limit: 100,
+		      quota_used: 20,
+		      extra: {
+		        quota_daily_start: '2026-03-15T00:00:00Z',
+		        quota_weekly_start: '2026-03-15T00:00:00Z'
+		      }
+		    }),
+		    todayStats: null,
+		    todayStatsLoading: false
+		  },
+		  global: {
+		    stubs: {
+		      UsageProgressBar: {
+		        props: ['label', 'utilization'],
+		        template: '<div class="usage-bar">{{ label }}|{{ utilization }}</div>'
+		      },
+		      AccountQuotaInfo: true
+		    }
+		  }
+		})
+
+		await flushPromises()
+
+		expect(wrapper.text()).toContain('1d|40')
+		expect(wrapper.text()).toContain('7d|30')
+		expect(wrapper.text()).toContain('total|20')
+  })
 })

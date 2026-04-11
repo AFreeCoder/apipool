@@ -48,6 +48,7 @@
       <div>
         <label class="input-label">{{ t('admin.accounts.accountName') }}</label>
         <input
+          id="account-name"
           v-model="form.name"
           type="text"
           required
@@ -153,7 +154,7 @@
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-3 gap-3" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-4 gap-3" data-tour="account-form-type">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -240,6 +241,37 @@
               }}</span>
               <span class="text-xs text-gray-500 dark:text-gray-400">{{
                 t('admin.accounts.bedrockDesc')
+              }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            data-testid="account-category-kiro"
+            @click="accountCategory = 'kiro'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'kiro'
+                ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20'
+                : 'border-gray-200 hover:border-sky-300 dark:border-dark-600 dark:hover:border-sky-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'kiro'
+                  ? 'bg-sky-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="cloud" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{
+                t('admin.accounts.kiroLabel')
+              }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{
+                t('admin.accounts.kiroDesc')
               }}</span>
             </div>
           </button>
@@ -1477,8 +1509,111 @@
         </div>
       </div>
 
+      <!-- Kiro credentials -->
+      <div v-if="form.platform === 'anthropic' && accountCategory === 'kiro'" class="space-y-4">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+          <div class="mt-2 flex gap-4">
+            <label class="flex cursor-pointer items-center">
+              <input
+                v-model="kiroAuthMethod"
+                id="kiro-auth-method-social"
+                type="radio"
+                value="social"
+                class="mr-2 text-primary-600 focus:ring-primary-500"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">social</span>
+            </label>
+            <label class="flex cursor-pointer items-center">
+              <input
+                v-model="kiroAuthMethod"
+                id="kiro-auth-method-idc"
+                data-testid="kiro-auth-method-idc"
+                type="radio"
+                value="idc"
+                class="mr-2 text-primary-600 focus:ring-primary-500"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">idc</span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label class="input-label">{{ t('admin.accounts.kiroRefreshTokenRequired') }}</label>
+          <input
+            id="kiro-refresh-token"
+            v-model="kiroRefreshToken"
+            type="password"
+            class="input font-mono"
+          />
+        </div>
+
+        <div v-if="kiroAuthMethod === 'idc'" class="grid gap-4 md:grid-cols-2">
+          <div>
+            <label class="input-label">Client ID</label>
+            <input
+              id="kiro-client-id"
+              v-model="kiroClientId"
+              type="text"
+              class="input font-mono"
+            />
+          </div>
+          <div>
+            <label class="input-label">Client Secret</label>
+            <input
+              id="kiro-client-secret"
+              v-model="kiroClientSecret"
+              type="password"
+              class="input font-mono"
+            />
+          </div>
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-2">
+          <div>
+            <label class="input-label">Auth Region</label>
+            <input
+              id="kiro-auth-region"
+              v-model="kiroAuthRegion"
+              type="text"
+              class="input"
+            />
+          </div>
+          <div>
+            <label class="input-label">API Region</label>
+            <input
+              id="kiro-api-region"
+              v-model="kiroApiRegion"
+              type="text"
+              class="input"
+            />
+          </div>
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-2">
+          <div>
+            <label class="input-label">Machine ID</label>
+            <input
+              id="kiro-machine-id"
+              v-model="kiroMachineId"
+              type="text"
+              class="input font-mono"
+            />
+          </div>
+          <div>
+            <label class="input-label">Profile ARN</label>
+            <input
+              id="kiro-profile-arn"
+              v-model="kiroProfileArn"
+              type="text"
+              class="input font-mono"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- API Key / Bedrock 账号配额限制 -->
-      <div v-if="form.type === 'apikey' || form.type === 'bedrock'" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
+      <div v-if="supportsQuotaLimit(form.type)" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
         <div class="mb-3">
           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaLimit') }}</h3>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -2833,7 +2968,8 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import { applyInterceptWarmup, buildKiroCredentials } from '@/components/account/credentialsBuilder'
+import { supportsQuotaLimit } from '@/components/account/accountTypeCapabilities'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import {
@@ -2950,7 +3086,7 @@ interface TempUnschedRuleForm {
 // State
 const step = ref(1)
 const submitting = ref(false)
-const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock'>('oauth-based') // UI selection for account category
+const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'kiro'>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
@@ -2999,6 +3135,14 @@ const bedrockSessionToken = ref('')
 const bedrockRegion = ref('us-east-1')
 const bedrockForceGlobal = ref(false)
 const bedrockApiKeyValue = ref('')
+const kiroAuthMethod = ref<'social' | 'idc'>('social')
+const kiroRefreshToken = ref('')
+const kiroAuthRegion = ref('us-east-1')
+const kiroApiRegion = ref('us-east-1')
+const kiroMachineId = ref('')
+const kiroClientId = ref('')
+const kiroClientSecret = ref('')
+const kiroProfileArn = ref('')
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
@@ -3249,6 +3393,10 @@ watch(
       form.type = 'bedrock' as AccountType
       return
     }
+    if (form.platform === 'anthropic' && category === 'kiro') {
+      form.type = 'kiro' as AccountType
+      return
+    }
     if (category === 'oauth-based') {
       form.type = method as AccountType // 'oauth' or 'setup-token'
     } else {
@@ -3293,8 +3441,16 @@ watch(
     bedrockSessionToken.value = ''
     bedrockRegion.value = 'us-east-1'
     bedrockForceGlobal.value = false
-    bedrockAuthMode.value = 'sigv4'
-    bedrockApiKeyValue.value = ''
+  bedrockAuthMode.value = 'sigv4'
+  bedrockApiKeyValue.value = ''
+  kiroAuthMethod.value = 'social'
+  kiroRefreshToken.value = ''
+  kiroAuthRegion.value = 'us-east-1'
+  kiroApiRegion.value = 'us-east-1'
+  kiroMachineId.value = ''
+  kiroClientId.value = ''
+  kiroClientSecret.value = ''
+  kiroProfileArn.value = ''
     // Reset Anthropic/Antigravity-specific settings when switching to other platforms
     if (newPlatform !== 'anthropic' && newPlatform !== 'antigravity') {
       interceptWarmupRequests.value = false
@@ -3901,6 +4057,47 @@ const handleSubmit = async () => {
     return
   }
 
+  if (form.platform === 'anthropic' && accountCategory.value === 'kiro') {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (!kiroRefreshToken.value.trim()) {
+      appStore.showError(t('admin.accounts.kiroRefreshTokenRequired'))
+      return
+    }
+    if (kiroAuthMethod.value === 'idc' && (!kiroClientId.value.trim() || !kiroClientSecret.value.trim())) {
+      appStore.showError(t('admin.accounts.kiroIDCClientRequired'))
+      return
+    }
+
+    const credentials = buildKiroCredentials({
+      mode: 'create',
+      authMethod: kiroAuthMethod.value,
+      refreshToken: kiroRefreshToken.value,
+      authRegion: kiroAuthRegion.value,
+      apiRegion: kiroApiRegion.value,
+      machineId: kiroMachineId.value,
+      clientId: kiroClientId.value,
+      clientSecret: kiroClientSecret.value,
+      profileArn: kiroProfileArn.value
+    })
+
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    }
+
+    if (poolModeEnabled.value) {
+      credentials.pool_mode = true
+      credentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+    }
+
+    applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+    await createAccountAndFinish('anthropic', 'kiro', credentials)
+    return
+  }
+
   // For Antigravity upstream type, create directly
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     if (!form.name.trim()) {
@@ -4051,7 +4248,7 @@ const createAccountAndFinish = async (
   }
   // Inject quota limits for apikey/bedrock accounts
   let finalExtra = extra
-  if (type === 'apikey' || type === 'bedrock') {
+  if (supportsQuotaLimit(type)) {
     const quotaExtra: Record<string, unknown> = { ...(extra || {}) }
     if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
       quotaExtra.quota_limit = editQuotaLimit.value

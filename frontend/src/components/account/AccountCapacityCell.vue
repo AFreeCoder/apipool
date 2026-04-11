@@ -83,6 +83,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'
+import { supportsQuotaLimit } from './accountTypeCapabilities'
 import QuotaBadge from './QuotaBadge.vue'
 
 const props = defineProps<{
@@ -292,8 +293,8 @@ const rpmTooltip = computed(() => {
   }
 })
 
-// 是否显示各维度配额（apikey / bedrock 类型）
-const isQuotaEligible = computed(() => props.account.type === 'apikey' || props.account.type === 'bedrock')
+// 是否显示各维度配额
+const isQuotaEligible = computed(() => supportsQuotaLimit(props.account.type))
 
 const showDailyQuota = computed(() => {
   return isQuotaEligible.value && (props.account.quota_daily_limit ?? 0) > 0

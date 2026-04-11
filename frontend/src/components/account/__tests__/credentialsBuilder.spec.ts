@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyInterceptWarmup } from '../credentialsBuilder'
+import { applyInterceptWarmup, buildKiroCredentials } from '../credentialsBuilder'
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {
@@ -42,5 +42,28 @@ describe('applyInterceptWarmup', () => {
     expect(creds.api_key).toBe('sk')
     expect(creds.base_url).toBe('url')
     expect('intercept_warmup_requests' in creds).toBe(false)
+  })
+
+  it('buildKiroCredentials creates idc payload and strips empty optional fields', () => {
+    expect(
+      buildKiroCredentials({
+        mode: 'create',
+        authMethod: 'idc',
+        refreshToken: 'rt-1',
+        authRegion: 'us-east-1',
+        apiRegion: 'us-west-2',
+        machineId: '',
+        clientId: 'client-1',
+        clientSecret: 'secret-1',
+        profileArn: ''
+      })
+    ).toEqual({
+      auth_method: 'idc',
+      refresh_token: 'rt-1',
+      auth_region: 'us-east-1',
+      api_region: 'us-west-2',
+      client_id: 'client-1',
+      client_secret: 'secret-1'
+    })
   })
 })

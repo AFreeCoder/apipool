@@ -757,6 +757,195 @@
         </div>
       </div>
 
+      <!-- Kiro fields -->
+      <div v-if="account.type === 'kiro'" class="space-y-4">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.kiroAuthMethod') }}</label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600">
+              <input
+                v-model="editKiroAuthMethod"
+                id="edit-kiro-auth-method-social"
+                type="radio"
+                value="social"
+                class="text-primary-600 focus:ring-primary-500"
+              />
+              <span>{{ t('admin.accounts.kiroSocialAuth') }}</span>
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600">
+              <input
+                v-model="editKiroAuthMethod"
+                id="edit-kiro-auth-method-idc"
+                type="radio"
+                value="idc"
+                class="text-primary-600 focus:ring-primary-500"
+              />
+              <span>{{ t('admin.accounts.kiroIDCAuth') }}</span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label class="input-label">{{ t('admin.accounts.kiroRefreshToken') }}</label>
+          <input
+            v-model="editKiroRefreshToken"
+            id="edit-kiro-refresh-token"
+            type="password"
+            class="input font-mono"
+            :placeholder="t('admin.accounts.leaveEmptyToKeep')"
+          />
+          <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+        </div>
+
+        <div v-if="editKiroAuthMethod === 'idc'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.kiroClientId') }}</label>
+            <input v-model="editKiroClientId" id="edit-kiro-client-id" type="text" class="input font-mono" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.kiroClientSecret') }}</label>
+            <input
+              v-model="editKiroClientSecret"
+              id="edit-kiro-client-secret"
+              type="password"
+              class="input font-mono"
+              :placeholder="t('admin.accounts.leaveEmptyToKeep')"
+            />
+            <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.kiroAuthRegion') }}</label>
+            <input v-model="editKiroAuthRegion" id="edit-kiro-auth-region" type="text" class="input" placeholder="us-east-1" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.kiroApiRegion') }}</label>
+            <input v-model="editKiroApiRegion" id="edit-kiro-api-region" type="text" class="input" placeholder="us-east-1" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.kiroMachineId') }}</label>
+            <input
+              v-model="editKiroMachineId"
+              id="edit-kiro-machine-id"
+              type="text"
+              class="input font-mono"
+              :placeholder="t('admin.accounts.kiroMachineIdHint')"
+            />
+            <p class="input-hint">{{ t('admin.accounts.kiroMachineIdHint') }}</p>
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.kiroProfileArn') }}</label>
+            <input
+              v-model="editKiroProfileArn"
+              id="edit-kiro-profile-arn"
+              type="text"
+              class="input font-mono"
+              placeholder="arn:aws:iam::..."
+            />
+          </div>
+        </div>
+
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
+
+          <div class="mb-4 flex gap-2">
+            <button
+              type="button"
+              @click="modelRestrictionMode = 'whitelist'"
+              :class="[
+                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
+                modelRestrictionMode === 'whitelist'
+                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+              ]"
+            >
+              {{ t('admin.accounts.modelWhitelist') }}
+            </button>
+            <button
+              type="button"
+              @click="modelRestrictionMode = 'mapping'"
+              :class="[
+                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
+                modelRestrictionMode === 'mapping'
+                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+              ]"
+            >
+              {{ t('admin.accounts.modelMapping') }}
+            </button>
+          </div>
+
+          <div v-if="modelRestrictionMode === 'whitelist'">
+            <ModelWhitelistSelector v-model="allowedModels" platform="anthropic" />
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
+              <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
+            </p>
+          </div>
+
+          <div v-else class="space-y-3">
+            <div
+              v-for="(mapping, index) in modelMappings"
+              :key="getModelMappingKey(mapping)"
+              class="flex items-center gap-2"
+            >
+              <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
+              <span class="text-gray-400">→</span>
+              <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.toModel')" />
+              <button type="button" @click="modelMappings.splice(index, 1)" class="text-red-500 hover:text-red-700">
+                <Icon name="trash" size="sm" />
+              </button>
+            </div>
+            <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
+              + {{ t('admin.accounts.addMapping') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.poolModeHint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              id="edit-kiro-pool-mode-toggle"
+              @click="poolModeEnabled = !poolModeEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  poolModeEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <div v-if="poolModeEnabled" class="mt-3">
+            <label class="input-label">{{ t('admin.accounts.poolModeRetryCount') }}</label>
+            <input
+              v-model.number="poolModeRetryCount"
+              type="number"
+              min="0"
+              :max="MAX_POOL_MODE_RETRY_COUNT"
+              step="1"
+              class="input"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- Antigravity model restriction (applies to all antigravity types) -->
       <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
       <div v-if="account.platform === 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -1149,8 +1338,8 @@
         </div>
       </div>
 
-      <!-- API Key / Bedrock 账号配额限制 -->
-      <div v-if="account?.type === 'apikey' || account?.type === 'bedrock'" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
+      <!-- 支持配额限制的账号 -->
+      <div v-if="account && supportsQuotaLimit(account.type)" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
         <div class="mb-3">
           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaLimit') }}</h3>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1760,7 +1949,8 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import { applyInterceptWarmup, buildKiroCredentials } from '@/components/account/credentialsBuilder'
+import { supportsQuotaLimit } from '@/components/account/accountTypeCapabilities'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import {
@@ -1831,6 +2021,14 @@ const editBedrockSessionToken = ref('')
 const editBedrockRegion = ref('')
 const editBedrockForceGlobal = ref(false)
 const editBedrockApiKeyValue = ref('')
+const editKiroAuthMethod = ref<'social' | 'idc'>('social')
+const editKiroRefreshToken = ref('')
+const editKiroAuthRegion = ref('us-east-1')
+const editKiroApiRegion = ref('us-east-1')
+const editKiroMachineId = ref('')
+const editKiroClientId = ref('')
+const editKiroClientSecret = ref('')
+const editKiroProfileArn = ref('')
 const isBedrockAPIKeyMode = computed(() =>
   props.account?.type === 'bedrock' &&
   (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
@@ -2089,8 +2287,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
   }
 
-  // Load quota limit for apikey/bedrock accounts (bedrock quota is also loaded in its own branch above)
-  if (newAccount.type === 'apikey' || newAccount.type === 'bedrock') {
+  // Load quota limit for quota-capable accounts
+  if (supportsQuotaLimit(newAccount.type)) {
     const quotaVal = extra?.quota_limit as number | undefined
     editQuotaLimit.value = (quotaVal && quotaVal > 0) ? quotaVal : null
     const dailyVal = extra?.quota_daily_limit as number | undefined
@@ -2248,6 +2446,42 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       modelMappings.value = []
       allowedModels.value = []
     }
+  } else if (newAccount.type === 'kiro' && newAccount.credentials) {
+    const kiroCreds = newAccount.credentials as Record<string, unknown>
+    editKiroAuthMethod.value = kiroCreds.auth_method === 'idc' ? 'idc' : 'social'
+    editKiroRefreshToken.value = ''
+    editKiroAuthRegion.value = String(kiroCreds.auth_region || 'us-east-1')
+    editKiroApiRegion.value = String(kiroCreds.api_region || 'us-east-1')
+    editKiroMachineId.value = String(kiroCreds.machine_id || '')
+    editKiroClientId.value = String(kiroCreds.client_id || '')
+    editKiroClientSecret.value = ''
+    editKiroProfileArn.value = String(kiroCreds.profile_arn || '')
+
+    const existingMappings = kiroCreds.model_mapping as Record<string, string> | undefined
+    if (existingMappings && typeof existingMappings === 'object') {
+      const entries = Object.entries(existingMappings)
+      const isWhitelistMode = entries.length > 0 && entries.every(([from, to]) => from === to)
+      if (isWhitelistMode) {
+        modelRestrictionMode.value = 'whitelist'
+        allowedModels.value = entries.map(([from]) => from)
+        modelMappings.value = []
+      } else {
+        modelRestrictionMode.value = 'mapping'
+        modelMappings.value = entries.map(([from, to]) => ({ from, to }))
+        allowedModels.value = []
+      }
+    } else {
+      modelRestrictionMode.value = 'whitelist'
+      modelMappings.value = []
+      allowedModels.value = []
+    }
+
+    poolModeEnabled.value = kiroCreds.pool_mode === true
+    poolModeRetryCount.value = normalizePoolModeRetryCount(
+      Number(kiroCreds.pool_mode_retry_count ?? DEFAULT_POOL_MODE_RETRY_COUNT)
+    )
+    customErrorCodesEnabled.value = false
+    selectedErrorCodes.value = []
   } else if (newAccount.type === 'upstream' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     editBaseUrl.value = (credentials.base_url as string) || ''
@@ -2290,6 +2524,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
     customErrorCodesEnabled.value = false
     selectedErrorCodes.value = []
+    editKiroAuthMethod.value = 'social'
+    editKiroRefreshToken.value = ''
+    editKiroAuthRegion.value = 'us-east-1'
+    editKiroApiRegion.value = 'us-east-1'
+    editKiroMachineId.value = ''
+    editKiroClientId.value = ''
+    editKiroClientSecret.value = ''
+    editKiroProfileArn.value = ''
   }
   editApiKey.value = ''
 }
@@ -2871,6 +3113,54 @@ const handleSubmit = async () => {
       }
 
       updatePayload.credentials = newCredentials
+    } else if (props.account.type === 'kiro') {
+      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+      const refreshToken = editKiroRefreshToken.value.trim() || String(currentCredentials.refresh_token || '')
+      const clientSecret = editKiroClientSecret.value.trim() || String(currentCredentials.client_secret || '')
+
+      if (!refreshToken) {
+        appStore.showError(t('admin.accounts.kiroRefreshTokenRequired'))
+        return
+      }
+      if (editKiroAuthMethod.value === 'idc' && (!editKiroClientId.value.trim() || !clientSecret)) {
+        appStore.showError(t('admin.accounts.kiroIDCClientRequired'))
+        return
+      }
+
+      const newCredentials = buildKiroCredentials({
+        mode: 'edit',
+        authMethod: editKiroAuthMethod.value,
+        refreshToken,
+        authRegion: editKiroAuthRegion.value,
+        apiRegion: editKiroApiRegion.value,
+        machineId: editKiroMachineId.value,
+        clientId: editKiroClientId.value,
+        clientSecret,
+        profileArn: editKiroProfileArn.value,
+        currentCredentials
+      })
+
+      const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+      if (modelMapping) {
+        newCredentials.model_mapping = modelMapping
+      } else {
+        delete newCredentials.model_mapping
+      }
+
+      if (poolModeEnabled.value) {
+        newCredentials.pool_mode = true
+        newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+      } else {
+        delete newCredentials.pool_mode
+        delete newCredentials.pool_mode_retry_count
+      }
+
+      applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
+      if (!applyTempUnschedConfig(newCredentials)) {
+        return
+      }
+
+      updatePayload.credentials = newCredentials
     } else {
       // For oauth/setup-token types, only update intercept_warmup_requests if changed
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
@@ -3084,8 +3374,8 @@ const handleSubmit = async () => {
       updatePayload.extra = newExtra
     }
 
-    // For apikey/bedrock accounts, handle quota_limit in extra
-    if (props.account.type === 'apikey' || props.account.type === 'bedrock') {
+    // For quota-capable accounts, handle quota_limit in extra
+    if (supportsQuotaLimit(props.account.type)) {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
         (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
