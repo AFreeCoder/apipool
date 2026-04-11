@@ -99,6 +99,50 @@ func (s *GatewayService) handleKiroNonStreamingResponse(
 	upstreamModel string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	contentBlocks, usage, stopReason, err := parseKiroNonStreamingResponseBody(body, resp.Header, requestModel)
+	if err != nil {
+		return nil, err
+	}
+
+	if stopReason == "" {
+		stopReason = "end_turn"
+	}
+
+	if c != nil {
+		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		c.JSON(http.StatusOK, gin.H{
+			"type":          "message",
+			"role":          "assistant",
+			"model":         requestModel,
+			"content":       contentBlocks,
+			"stop_reason":   stopReason,
+			"stop_sequence": nil,
+			"usage": gin.H{
+				"input_tokens":  usage.InputTokens,
+				"output_tokens": usage.OutputTokens,
+			},
+		})
+	}
+
+	result := &ForwardResult{
+		RequestID: resp.Header.Get("x-amzn-requestid"),
+		Usage:     *usage,
+		Model:     requestModel,
+		Stream:    false,
+		Duration:  time.Since(startTime),
+	}
+	if upstreamModel != requestModel {
+		result.UpstreamModel = upstreamModel
+	}
+	return result, nil
+}
+
+func parseKiroNonStreamingResponseBody(body []byte, header http.Header, requestModel string) ([]map[string]any, *ClaudeUsage, string, error) {
 	var raw struct {
 		Content string `json:"content"`
 		Usage   struct {
@@ -106,42 +150,138 @@ func (s *GatewayService) handleKiroNonStreamingResponse(
 			OutputTokens int `json:"outputTokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
-	}
-
-	if c != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-		c.JSON(http.StatusOK, gin.H{
-			"type":  "message",
-			"role":  "assistant",
-			"model": requestModel,
-			"content": []gin.H{
-				{"type": "text", "text": raw.Content},
-			},
-			"stop_reason":   "end_turn",
-			"stop_sequence": nil,
-			"usage": gin.H{
-				"input_tokens":  raw.Usage.InputTokens,
-				"output_tokens": raw.Usage.OutputTokens,
-			},
-		})
-	}
-
-	result := &ForwardResult{
-		RequestID: resp.Header.Get("x-amzn-requestid"),
-		Usage: ClaudeUsage{
+	if err := json.Unmarshal(body, &raw); err == nil && (strings.TrimSpace(raw.Content) != "" || raw.Usage.InputTokens != 0 || raw.Usage.OutputTokens != 0) {
+		contentBlocks := []map[string]any{
+			{"type": "text", "text": raw.Content},
+		}
+		return contentBlocks, &ClaudeUsage{
 			InputTokens:  raw.Usage.InputTokens,
 			OutputTokens: raw.Usage.OutputTokens,
-		},
-		Model:    requestModel,
-		Stream:   false,
-		Duration: time.Since(startTime),
+		}, "end_turn", nil
 	}
-	if upstreamModel != requestModel {
-		result.UpstreamModel = upstreamModel
+
+	events, err := decodeKiroResponseEvents(body, header)
+	if err != nil {
+		return nil, nil, "", err
 	}
-	return result, nil
+	return aggregateKiroEvents(events, requestModel)
+}
+
+func decodeKiroResponseEvents(body []byte, header http.Header) ([]map[string]any, error) {
+	if isKiroEventStreamContentType(header) {
+		decoder := newKiroEventStreamDecoder(bytes.NewReader(body))
+		events := make([]map[string]any, 0, 8)
+		for {
+			frame, err := decoder.Decode()
+			if err != nil {
+				if err == io.EOF {
+					return events, nil
+				}
+				return nil, err
+			}
+			event, err := frameToKiroEventMap(frame)
+			if err != nil {
+				return nil, err
+			}
+			if event != nil {
+				events = append(events, event)
+			}
+		}
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	events := make([]map[string]any, 0, 8)
+	for {
+		var event map[string]any
+		if err := decoder.Decode(&event); err != nil {
+			if err == io.EOF {
+				return events, nil
+			}
+			return nil, err
+		}
+		events = append(events, event)
+	}
+}
+
+func aggregateKiroEvents(events []map[string]any, requestModel string) ([]map[string]any, *ClaudeUsage, string, error) {
+	textBuilder := strings.Builder{}
+	toolBuffers := make(map[string]string)
+	toolUses := make([]map[string]any, 0)
+	stopReason := "end_turn"
+	usage := &ClaudeUsage{}
+
+	for _, event := range events {
+		switch strings.TrimSpace(stringFromAny(event["type"])) {
+		case "assistantResponseEvent":
+			content := stringFromAny(event["content"])
+			textBuilder.WriteString(content)
+			usage.OutputTokens += estimateKiroOutputTokens(content)
+		case "toolUseEvent":
+			toolUseID := strings.TrimSpace(stringFromAny(firstNonNil(event["toolUseId"], event["tool_use_id"])))
+			name := strings.TrimSpace(stringFromAny(event["name"]))
+			if toolUseID == "" || name == "" {
+				continue
+			}
+
+			stop, _ := event["stop"].(bool)
+			if partial := toolInputPartialJSON(event["input"]); partial != "" && !isStructuredJSON(event["input"]) {
+				toolBuffers[toolUseID] += partial
+			}
+
+			if structured, ok := event["input"].(map[string]any); ok {
+				toolUses = append(toolUses, map[string]any{
+					"type":  "tool_use",
+					"id":    toolUseID,
+					"name":  name,
+					"input": structured,
+				})
+				stopReason = "tool_use"
+				continue
+			}
+
+			if stop {
+				input := map[string]any{}
+				if raw := strings.TrimSpace(toolBuffers[toolUseID]); raw != "" {
+					_ = json.Unmarshal([]byte(raw), &input)
+				}
+				toolUses = append(toolUses, map[string]any{
+					"type":  "tool_use",
+					"id":    toolUseID,
+					"name":  name,
+					"input": input,
+				})
+				stopReason = "tool_use"
+			}
+		case "contextUsageEvent":
+			if percent, ok := floatFromAny(event["contextUsagePercentage"]); ok {
+				usage.InputTokens = int(percent * float64(contextWindowForKiroModel(requestModel)) / 100.0)
+				if percent >= 100 {
+					stopReason = "model_context_window_exceeded"
+				}
+			}
+		case "exception":
+			exceptionType := strings.TrimSpace(stringFromAny(firstNonNil(event["exceptionType"], event["exception_type"])))
+			message := strings.TrimSpace(stringFromAny(event["message"]))
+			if exceptionType == "ContentLengthExceededException" {
+				stopReason = "max_tokens"
+				continue
+			}
+			if message == "" {
+				message = "unknown exception"
+			}
+			return nil, nil, "", fmt.Errorf("kiro exception: %s", message)
+		}
+	}
+
+	contentBlocks := make([]map[string]any, 0, 1+len(toolUses))
+	if text := textBuilder.String(); text != "" {
+		contentBlocks = append(contentBlocks, map[string]any{
+			"type": "text",
+			"text": text,
+		})
+	}
+	contentBlocks = append(contentBlocks, toolUses...)
+	return contentBlocks, usage, stopReason, nil
 }
 
 func (s *GatewayService) handleKiroStreamingResponse(
@@ -170,21 +310,12 @@ func (s *GatewayService) handleKiroStreamingResponse(
 		c.Header("x-request-id", requestID)
 	}
 
-	decoder := json.NewDecoder(resp.Body)
 	adapter := NewKiroStreamAdapter(requestModel)
 	var firstTokenMs *int
-
-	for {
-		var event map[string]any
-		if err := decoder.Decode(&event); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
+	processEvent := func(event map[string]any) error {
 		chunks, _, err := adapter.ProcessEvent(event)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if len(chunks) > 0 && firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
@@ -192,9 +323,47 @@ func (s *GatewayService) handleKiroStreamingResponse(
 		}
 		for _, chunk := range chunks {
 			if _, err := io.WriteString(c.Writer, chunk); err != nil {
-				return nil, err
+				return err
 			}
 			flusher.Flush()
+		}
+		return nil
+	}
+
+	if isKiroEventStreamContentType(resp.Header) {
+		decoder := newKiroEventStreamDecoder(resp.Body)
+		for {
+			frame, err := decoder.Decode()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return nil, err
+			}
+			event, err := frameToKiroEventMap(frame)
+			if err != nil {
+				return nil, err
+			}
+			if event == nil {
+				continue
+			}
+			if err := processEvent(event); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		decoder := json.NewDecoder(resp.Body)
+		for {
+			var event map[string]any
+			if err := decoder.Decode(&event); err != nil {
+				if err == io.EOF {
+					break
+				}
+				return nil, err
+			}
+			if err := processEvent(event); err != nil {
+				return nil, err
+			}
 		}
 	}
 
