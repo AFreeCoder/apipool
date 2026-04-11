@@ -3,6 +3,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,4 +60,22 @@ func TestKiroStreamAdapter_ContextUsageAccumulatesUsage(t *testing.T) {
 	require.NotNil(t, usage)
 	require.NotZero(t, usage.InputTokens)
 	require.Contains(t, finalEvents[len(finalEvents)-1], "event: message_stop")
+}
+
+func TestKiroStreamAdapter_RestoresOriginalToolName(t *testing.T) {
+	t.Parallel()
+
+	longToolName := "very_long_tool_name_that_should_be_restored_when_kiro_returns_the_shortened_alias_name"
+	adapter := NewKiroStreamAdapterWithToolNameMap("claude-sonnet-4-5", map[string]string{
+		"short_tool_123": longToolName,
+	})
+
+	events, _, err := adapter.ProcessEvent(map[string]any{
+		"type":      "toolUseEvent",
+		"name":      "short_tool_123",
+		"toolUseId": "tool_1",
+		"input":     map[string]any{"query": "hello"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(events, "\n"), longToolName)
 }

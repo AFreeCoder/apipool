@@ -11,7 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const kiroDefaultChatTriggerType = "MANUAL"
+const (
+	kiroDefaultChatTriggerType = "MANUAL"
+	kiroToolNameMaxLen         = 63
+)
 
 type anthropicKiroRequest struct {
 	Model        string             `json:"model"`
@@ -19,8 +22,8 @@ type anthropicKiroRequest struct {
 	System       json.RawMessage    `json:"system"`
 	Messages     []anthropicMessage `json:"messages"`
 	Tools        []anthropicTool    `json:"tools"`
-	Thinking     any                `json:"thinking"`
-	OutputConfig any                `json:"output_config"`
+	Thinking     map[string]any     `json:"thinking"`
+	OutputConfig map[string]any     `json:"output_config"`
 }
 
 type anthropicMetadata struct {
@@ -142,17 +145,32 @@ type kiroToolUse struct {
 	Input     map[string]any `json:"input"`
 }
 
+type kiroGeneratePayload struct {
+	Request     kiroGenerateRequest
+	Raw         []byte
+	MappedModel string
+	ToolNameMap map[string]string
+}
+
 func BuildKiroGenerateRequest(body []byte, account *Account) ([]byte, string, error) {
+	payload, err := buildKiroGeneratePayload(body, account)
+	if err != nil {
+		return nil, "", err
+	}
+	return payload.Raw, payload.MappedModel, nil
+}
+
+func buildKiroGeneratePayload(body []byte, account *Account) (*kiroGeneratePayload, error) {
 	if account == nil || !account.IsKiro() {
-		return nil, "", fmt.Errorf("not a kiro account")
+		return nil, fmt.Errorf("not a kiro account")
 	}
 
 	var req anthropicKiroRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if len(req.Messages) == 0 {
-		return nil, "", fmt.Errorf("kiro messages are required")
+		return nil, fmt.Errorf("kiro messages are required")
 	}
 
 	mappedModel := strings.TrimSpace(account.GetMappedModel(req.Model))
@@ -160,15 +178,12 @@ func BuildKiroGenerateRequest(body []byte, account *Account) ([]byte, string, er
 		mappedModel = strings.TrimSpace(req.Model)
 	}
 	if mappedModel == "" {
-		return nil, "", fmt.Errorf("kiro model is required")
+		return nil, fmt.Errorf("kiro model is required")
 	}
 
-	messages := req.Messages
-	for len(messages) > 0 && !strings.EqualFold(strings.TrimSpace(messages[len(messages)-1].Role), "user") {
-		messages = messages[:len(messages)-1]
-	}
+	messages := trimKiroPrefillMessages(req.Messages)
 	if len(messages) == 0 {
-		return nil, "", fmt.Errorf("kiro current message must be user role")
+		return nil, fmt.Errorf("kiro current message must be user role")
 	}
 
 	conversationID := uuid.NewString()
@@ -176,71 +191,107 @@ func BuildKiroGenerateRequest(body []byte, account *Account) ([]byte, string, er
 		conversationID = strings.TrimSpace(parsed.SessionID)
 	}
 
-	history := buildKiroHistory(req.System, messages[:len(messages)-1], mappedModel)
+	toolNameMap := make(map[string]string)
+	thinkingPrefix := buildKiroThinkingPrefix(req.Thinking, req.OutputConfig)
+	history := buildKiroHistory(req.System, messages[:len(messages)-1], mappedModel, toolNameMap, thinkingPrefix)
 
 	currentText, currentImages, currentToolResults := parseKiroUserMessageContent(messages[len(messages)-1].Content)
-	currentMessage := kiroCurrentMessage{
-		UserInputMessage: kiroUserInputMessage{
-			UserInputMessageContext: kiroUserInputMessageContext{
-				Tools:       convertKiroTools(req.Tools),
-				ToolResults: currentToolResults,
-			},
-			Content: strings.TrimSpace(currentText),
-			ModelID: mappedModel,
-			Images:  currentImages,
-			Origin:  "AI_EDITOR",
-		},
+	currentToolResults, orphanedToolUseIDs := validateKiroToolPairing(history, currentToolResults)
+	removeOrphanedKiroToolUses(history, orphanedToolUseIDs)
+
+	tools := convertKiroTools(req.Tools, toolNameMap)
+	tools = appendMissingHistoryPlaceholderTools(tools, history)
+
+	currentContent := strings.TrimSpace(currentText)
+	if currentContent == "" && len(currentToolResults) > 0 {
+		currentContent = " "
 	}
 
-	if currentMessage.UserInputMessage.Content == "" && len(currentToolResults) > 0 {
-		currentMessage.UserInputMessage.Content = " "
-	}
-
-	payload := kiroGenerateRequest{
+	request := kiroGenerateRequest{
 		ConversationState: kiroConversationState{
 			AgentContinuationID: stableKiroContinuationID(conversationID),
 			AgentTaskType:       "vibe",
 			ChatTriggerType:     kiroDefaultChatTriggerType,
-			CurrentMessage:      currentMessage,
-			ConversationID:      conversationID,
-			History:             history,
+			CurrentMessage: kiroCurrentMessage{
+				UserInputMessage: kiroUserInputMessage{
+					UserInputMessageContext: kiroUserInputMessageContext{
+						ToolResults: currentToolResults,
+						Tools:       tools,
+					},
+					Content: currentContent,
+					ModelID: mappedModel,
+					Images:  currentImages,
+					Origin:  "AI_EDITOR",
+				},
+			},
+			ConversationID: conversationID,
+			History:        history,
 		},
 		ProfileARN: strings.TrimSpace(account.GetCredential("profile_arn")),
 	}
 
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(request)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return raw, mappedModel, nil
+
+	return &kiroGeneratePayload{
+		Request:     request,
+		Raw:         raw,
+		MappedModel: mappedModel,
+		ToolNameMap: toolNameMap,
+	}, nil
 }
 
-func buildKiroHistory(systemRaw json.RawMessage, messages []anthropicMessage, modelID string) []kiroHistoryMessage {
+func trimKiroPrefillMessages(messages []anthropicMessage) []anthropicMessage {
+	trimmed := messages
+	for len(trimmed) > 0 && !strings.EqualFold(strings.TrimSpace(trimmed[len(trimmed)-1].Role), "user") {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	return trimmed
+}
+
+func buildKiroHistory(
+	systemRaw json.RawMessage,
+	messages []anthropicMessage,
+	modelID string,
+	toolNameMap map[string]string,
+	thinkingPrefix string,
+) []kiroHistoryMessage {
 	history := make([]kiroHistoryMessage, 0, len(messages)+2)
 
-	if systemText := extractKiroSystemText(systemRaw); systemText != "" {
-		history = append(history,
-			kiroHistoryMessage{
-				UserInputMessage: &kiroHistoryUserMessage{
-					Content: systemText,
-					ModelID: modelID,
-					Origin:  "AI_EDITOR",
+	systemContent := extractKiroSystemText(systemRaw)
+	if systemContent != "" || thinkingPrefix != "" {
+		if thinkingPrefix != "" && !hasKiroThinkingTags(systemContent) {
+			if systemContent != "" {
+				systemContent = thinkingPrefix + "\n" + systemContent
+			} else {
+				systemContent = thinkingPrefix
+			}
+		}
+		if systemContent != "" {
+			history = append(history,
+				kiroHistoryMessage{
+					UserInputMessage: &kiroHistoryUserMessage{
+						Content: systemContent,
+						ModelID: modelID,
+						Origin:  "AI_EDITOR",
+					},
 				},
-			},
-			kiroHistoryMessage{
-				AssistantResponseMessage: &kiroHistoryAssistantMessage{
-					Content: "I will follow these instructions.",
+				kiroHistoryMessage{
+					AssistantResponseMessage: &kiroHistoryAssistantMessage{
+						Content: "I will follow these instructions.",
+					},
 				},
-			},
-		)
+			)
+		}
 	}
 
 	for _, message := range messages {
-		role := strings.ToLower(strings.TrimSpace(message.Role))
-		switch role {
+		switch strings.ToLower(strings.TrimSpace(message.Role)) {
 		case "assistant":
 			history = append(history, kiroHistoryMessage{
-				AssistantResponseMessage: buildKiroAssistantHistoryMessage(message.Content),
+				AssistantResponseMessage: buildKiroAssistantHistoryMessage(message.Content, toolNameMap),
 			})
 		default:
 			text, images, toolResults := parseKiroUserMessageContent(message.Content)
@@ -263,6 +314,38 @@ func buildKiroHistory(systemRaw json.RawMessage, messages []anthropicMessage, mo
 	}
 
 	return history
+}
+
+func buildKiroThinkingPrefix(thinking map[string]any, outputConfig map[string]any) string {
+	if len(thinking) == 0 {
+		return ""
+	}
+
+	thinkingType, _ := thinking["type"].(string)
+	thinkingType = strings.TrimSpace(thinkingType)
+	switch thinkingType {
+	case "enabled":
+		budget := intFromAny(thinking["budget_tokens"])
+		if budget <= 0 {
+			budget = 20000
+		}
+		return fmt.Sprintf("<thinking_mode>enabled</thinking_mode><max_thinking_length>%d</max_thinking_length>", budget)
+	case "adaptive":
+		effort := "high"
+		if len(outputConfig) > 0 {
+			if rawEffort, ok := outputConfig["effort"].(string); ok && strings.TrimSpace(rawEffort) != "" {
+				effort = strings.TrimSpace(rawEffort)
+			}
+		}
+		return fmt.Sprintf("<thinking_mode>adaptive</thinking_mode><thinking_effort>%s</thinking_effort>", effort)
+	default:
+		return ""
+	}
+}
+
+func hasKiroThinkingTags(content string) bool {
+	content = strings.TrimSpace(content)
+	return strings.Contains(content, "<thinking_mode>") || strings.Contains(content, "<max_thinking_length>")
 }
 
 func extractKiroSystemText(raw json.RawMessage) string {
@@ -292,8 +375,8 @@ func extractKiroSystemText(raw json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-func buildKiroAssistantHistoryMessage(contentRaw json.RawMessage) *kiroHistoryAssistantMessage {
-	content, toolUses := parseKiroAssistantMessageContent(contentRaw)
+func buildKiroAssistantHistoryMessage(contentRaw json.RawMessage, toolNameMap map[string]string) *kiroHistoryAssistantMessage {
+	content, toolUses := parseKiroAssistantMessageContent(contentRaw, toolNameMap)
 	if content == "" && len(toolUses) > 0 {
 		content = " "
 	}
@@ -354,7 +437,7 @@ func parseKiroUserMessageContent(raw json.RawMessage) (string, []kiroImage, []ki
 	return strings.Join(textParts, "\n"), images, toolResults
 }
 
-func parseKiroAssistantMessageContent(raw json.RawMessage) (string, []kiroToolUse) {
+func parseKiroAssistantMessageContent(raw json.RawMessage, toolNameMap map[string]string) (string, []kiroToolUse) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", nil
 	}
@@ -393,7 +476,7 @@ func parseKiroAssistantMessageContent(raw json.RawMessage) (string, []kiroToolUs
 			}
 			toolUses = append(toolUses, kiroToolUse{
 				ToolUseID: strings.TrimSpace(block.ID),
-				Name:      strings.TrimSpace(block.Name),
+				Name:      mapKiroToolName(strings.TrimSpace(block.Name), toolNameMap),
 				Input:     input,
 			})
 		}
@@ -416,10 +499,7 @@ func convertAnthropicImageBlock(source *anthropicImageSource) *kiroImage {
 	if source == nil {
 		return nil
 	}
-	if !strings.EqualFold(strings.TrimSpace(source.Type), "base64") {
-		return nil
-	}
-	if strings.TrimSpace(source.Data) == "" {
+	if !strings.EqualFold(strings.TrimSpace(source.Type), "base64") || strings.TrimSpace(source.Data) == "" {
 		return nil
 	}
 	if _, err := base64.StdEncoding.DecodeString(source.Data); err != nil {
@@ -472,7 +552,7 @@ func extractKiroToolResultText(content any) string {
 	}
 }
 
-func convertKiroTools(tools []anthropicTool) []kiroTool {
+func convertKiroTools(tools []anthropicTool, toolNameMap map[string]string) []kiroTool {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -483,12 +563,13 @@ func convertKiroTools(tools []anthropicTool) []kiroTool {
 		if name == "" {
 			continue
 		}
-		schema := normalizeKiroInputSchema(tool.InputSchema)
 		result = append(result, kiroTool{
 			ToolSpecification: kiroToolSpecification{
-				Name:        name,
+				Name:        mapKiroToolName(name, toolNameMap),
 				Description: strings.TrimSpace(tool.Description),
-				InputSchema: kiroInputSchemaWrap{JSON: schema},
+				InputSchema: kiroInputSchemaWrap{
+					JSON: normalizeKiroInputSchema(tool.InputSchema),
+				},
 			},
 		})
 	}
@@ -504,9 +585,10 @@ func normalizeKiroInputSchema(schema map[string]any) map[string]any {
 			"additionalProperties": true,
 		}
 	}
+
 	out := make(map[string]any, len(schema)+2)
-	for k, v := range schema {
-		out[k] = v
+	for key, value := range schema {
+		out[key] = value
 	}
 	if strings.TrimSpace(stringValue(out["type"])) == "" {
 		out["type"] = "object"
@@ -533,6 +615,166 @@ func normalizeKiroInputSchema(schema map[string]any) map[string]any {
 	return out
 }
 
+func appendMissingHistoryPlaceholderTools(tools []kiroTool, history []kiroHistoryMessage) []kiroTool {
+	existing := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		existing[strings.ToLower(strings.TrimSpace(tool.ToolSpecification.Name))] = struct{}{}
+	}
+
+	for _, name := range collectKiroHistoryToolNames(history) {
+		key := strings.ToLower(strings.TrimSpace(name))
+		if key == "" {
+			continue
+		}
+		if _, ok := existing[key]; ok {
+			continue
+		}
+		existing[key] = struct{}{}
+		tools = append(tools, createPlaceholderKiroTool(name))
+	}
+	return tools
+}
+
+func collectKiroHistoryToolNames(history []kiroHistoryMessage) []string {
+	names := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, message := range history {
+		if message.AssistantResponseMessage == nil {
+			continue
+		}
+		for _, toolUse := range message.AssistantResponseMessage.ToolUses {
+			name := strings.TrimSpace(toolUse.Name)
+			if name == "" {
+				continue
+			}
+			key := strings.ToLower(name)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func createPlaceholderKiroTool(name string) kiroTool {
+	return kiroTool{
+		ToolSpecification: kiroToolSpecification{
+			Name:        name,
+			Description: "Tool used in conversation history",
+			InputSchema: kiroInputSchemaWrap{
+				JSON: map[string]any{
+					"type":                 "object",
+					"properties":           map[string]any{},
+					"required":             []string{},
+					"additionalProperties": true,
+				},
+			},
+		},
+	}
+}
+
+func validateKiroToolPairing(history []kiroHistoryMessage, currentResults []kiroToolResult) ([]kiroToolResult, map[string]struct{}) {
+	historyToolUseIDs := make(map[string]struct{})
+	historyToolResultIDs := make(map[string]struct{})
+	for _, message := range history {
+		if message.AssistantResponseMessage != nil {
+			for _, toolUse := range message.AssistantResponseMessage.ToolUses {
+				if strings.TrimSpace(toolUse.ToolUseID) != "" {
+					historyToolUseIDs[toolUse.ToolUseID] = struct{}{}
+				}
+			}
+		}
+		if message.UserInputMessage != nil {
+			for _, result := range message.UserInputMessage.UserInputMessageContext.ToolResults {
+				if strings.TrimSpace(result.ToolUseID) != "" {
+					historyToolResultIDs[result.ToolUseID] = struct{}{}
+				}
+			}
+		}
+	}
+
+	unpaired := make(map[string]struct{})
+	for toolUseID := range historyToolUseIDs {
+		if _, ok := historyToolResultIDs[toolUseID]; !ok {
+			unpaired[toolUseID] = struct{}{}
+		}
+	}
+
+	filtered := make([]kiroToolResult, 0, len(currentResults))
+	for _, result := range currentResults {
+		if _, ok := unpaired[result.ToolUseID]; ok {
+			filtered = append(filtered, result)
+			delete(unpaired, result.ToolUseID)
+		}
+	}
+	return filtered, unpaired
+}
+
+func removeOrphanedKiroToolUses(history []kiroHistoryMessage, orphanedToolUseIDs map[string]struct{}) {
+	if len(orphanedToolUseIDs) == 0 {
+		return
+	}
+
+	for idx := range history {
+		if history[idx].AssistantResponseMessage == nil {
+			continue
+		}
+		toolUses := history[idx].AssistantResponseMessage.ToolUses
+		filtered := toolUses[:0]
+		for _, toolUse := range toolUses {
+			if _, ok := orphanedToolUseIDs[toolUse.ToolUseID]; ok {
+				continue
+			}
+			filtered = append(filtered, toolUse)
+		}
+		if len(filtered) == 0 {
+			history[idx].AssistantResponseMessage.ToolUses = nil
+		} else {
+			history[idx].AssistantResponseMessage.ToolUses = filtered
+		}
+	}
+}
+
+func mapKiroToolName(name string, toolNameMap map[string]string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if len(name) <= kiroToolNameMaxLen {
+		return name
+	}
+	short := shortenKiroToolName(name)
+	if toolNameMap != nil {
+		toolNameMap[short] = name
+	}
+	return short
+}
+
+func restoreKiroToolName(name string, toolNameMap map[string]string) string {
+	if toolNameMap == nil {
+		return name
+	}
+	if original, ok := toolNameMap[name]; ok && strings.TrimSpace(original) != "" {
+		return original
+	}
+	return name
+}
+
+func shortenKiroToolName(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	hash := hex.EncodeToString(sum[:])
+	suffix := hash[:8]
+	prefixMax := kiroToolNameMaxLen - 1 - len(suffix)
+
+	runes := []rune(name)
+	if len(runes) > prefixMax {
+		runes = runes[:prefixMax]
+	}
+	return string(runes) + "_" + suffix
+}
+
 func stableKiroContinuationID(conversationID string) string {
 	sum := sha256.Sum256([]byte(conversationID))
 	return hex.EncodeToString(sum[:16])
@@ -541,4 +783,22 @@ func stableKiroContinuationID(conversationID string) string {
 func stringValue(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+func intFromAny(v any) int {
+	switch value := v.(type) {
+	case float64:
+		return int(value)
+	case float32:
+		return int(value)
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case json.Number:
+		if parsed, err := value.Int64(); err == nil {
+			return int(parsed)
+		}
+	}
+	return 0
 }

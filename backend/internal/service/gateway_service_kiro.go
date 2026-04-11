@@ -40,10 +40,12 @@ func (s *GatewayService) forwardKiro(
 		return nil, err
 	}
 
-	requestBody, mappedModel, err := BuildKiroGenerateRequest(parsed.Body, account)
+	payload, err := buildKiroGeneratePayload(parsed.Body, account)
 	if err != nil {
 		return nil, err
 	}
+	requestBody := payload.Raw
+	mappedModel := payload.MappedModel
 
 	targetURL := fmt.Sprintf("https://q.%s.amazonaws.com/generateAssistantResponse", creds.EffectiveAPIRegion())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(requestBody))
@@ -87,9 +89,9 @@ func (s *GatewayService) forwardKiro(
 	}
 
 	if parsed.Stream {
-		return s.handleKiroStreamingResponse(ctx, c, account, resp, parsed.Model, mappedModel, startTime)
+		return s.handleKiroStreamingResponse(ctx, c, account, resp, parsed.Model, mappedModel, payload.ToolNameMap, startTime)
 	}
-	return s.handleKiroNonStreamingResponse(c, resp, parsed.Model, mappedModel, startTime)
+	return s.handleKiroNonStreamingResponse(c, resp, parsed.Model, mappedModel, payload.ToolNameMap, startTime)
 }
 
 func (s *GatewayService) handleKiroNonStreamingResponse(
@@ -97,6 +99,7 @@ func (s *GatewayService) handleKiroNonStreamingResponse(
 	resp *http.Response,
 	requestModel string,
 	upstreamModel string,
+	toolNameMap map[string]string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	body, err := io.ReadAll(resp.Body)
@@ -104,7 +107,7 @@ func (s *GatewayService) handleKiroNonStreamingResponse(
 		return nil, err
 	}
 
-	contentBlocks, usage, stopReason, err := parseKiroNonStreamingResponseBody(body, resp.Header, requestModel)
+	contentBlocks, usage, stopReason, err := parseKiroNonStreamingResponseBody(body, resp.Header, requestModel, toolNameMap)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +145,7 @@ func (s *GatewayService) handleKiroNonStreamingResponse(
 	return result, nil
 }
 
-func parseKiroNonStreamingResponseBody(body []byte, header http.Header, requestModel string) ([]map[string]any, *ClaudeUsage, string, error) {
+func parseKiroNonStreamingResponseBody(body []byte, header http.Header, requestModel string, toolNameMap map[string]string) ([]map[string]any, *ClaudeUsage, string, error) {
 	var raw struct {
 		Content string `json:"content"`
 		Usage   struct {
@@ -164,7 +167,7 @@ func parseKiroNonStreamingResponseBody(body []byte, header http.Header, requestM
 	if err != nil {
 		return nil, nil, "", err
 	}
-	return aggregateKiroEvents(events, requestModel)
+	return aggregateKiroEvents(events, requestModel, toolNameMap)
 }
 
 func decodeKiroResponseEvents(body []byte, header http.Header) ([]map[string]any, error) {
@@ -203,7 +206,7 @@ func decodeKiroResponseEvents(body []byte, header http.Header) ([]map[string]any
 	}
 }
 
-func aggregateKiroEvents(events []map[string]any, requestModel string) ([]map[string]any, *ClaudeUsage, string, error) {
+func aggregateKiroEvents(events []map[string]any, requestModel string, toolNameMap map[string]string) ([]map[string]any, *ClaudeUsage, string, error) {
 	textBuilder := strings.Builder{}
 	toolBuffers := make(map[string]string)
 	toolUses := make([]map[string]any, 0)
@@ -214,11 +217,12 @@ func aggregateKiroEvents(events []map[string]any, requestModel string) ([]map[st
 		switch strings.TrimSpace(stringFromAny(event["type"])) {
 		case "assistantResponseEvent":
 			content := stringFromAny(event["content"])
-			textBuilder.WriteString(content)
+			_, _ = textBuilder.WriteString(content)
 			usage.OutputTokens += estimateKiroOutputTokens(content)
 		case "toolUseEvent":
 			toolUseID := strings.TrimSpace(stringFromAny(firstNonNil(event["toolUseId"], event["tool_use_id"])))
 			name := strings.TrimSpace(stringFromAny(event["name"]))
+			name = restoreKiroToolName(name, toolNameMap)
 			if toolUseID == "" || name == "" {
 				continue
 			}
@@ -291,6 +295,7 @@ func (s *GatewayService) handleKiroStreamingResponse(
 	resp *http.Response,
 	requestModel string,
 	upstreamModel string,
+	toolNameMap map[string]string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	if c == nil {
@@ -310,7 +315,7 @@ func (s *GatewayService) handleKiroStreamingResponse(
 		c.Header("x-request-id", requestID)
 	}
 
-	adapter := NewKiroStreamAdapter(requestModel)
+	adapter := NewKiroStreamAdapterWithToolNameMap(requestModel, toolNameMap)
 	var firstTokenMs *int
 	processEvent := func(event map[string]any) error {
 		chunks, _, err := adapter.ProcessEvent(event)

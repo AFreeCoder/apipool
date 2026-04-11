@@ -23,12 +23,18 @@ type KiroStreamAdapter struct {
 	inputTokens    int
 	outputTokens   int
 	toolBlocks     map[string]*kiroToolBlockState
+	toolNameMap    map[string]string
 }
 
 func NewKiroStreamAdapter(model string) *KiroStreamAdapter {
+	return NewKiroStreamAdapterWithToolNameMap(model, nil)
+}
+
+func NewKiroStreamAdapterWithToolNameMap(model string, toolNameMap map[string]string) *KiroStreamAdapter {
 	return &KiroStreamAdapter{
-		model:      strings.TrimSpace(model),
-		toolBlocks: make(map[string]*kiroToolBlockState),
+		model:       strings.TrimSpace(model),
+		toolBlocks:  make(map[string]*kiroToolBlockState),
+		toolNameMap: toolNameMap,
 	}
 }
 
@@ -139,6 +145,7 @@ func (a *KiroStreamAdapter) processAssistantResponse(event map[string]any) ([]st
 func (a *KiroStreamAdapter) processToolUse(event map[string]any) ([]string, *ClaudeUsage, error) {
 	toolUseID := strings.TrimSpace(stringFromAny(firstNonNil(event["toolUseId"], event["tool_use_id"])))
 	name := strings.TrimSpace(stringFromAny(event["name"]))
+	name = restoreKiroToolName(name, a.toolNameMap)
 	if toolUseID == "" || name == "" {
 		return nil, nil, nil
 	}
