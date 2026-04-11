@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -17,12 +19,13 @@ const (
 type KiroTokenCache = GeminiTokenCache
 
 type KiroTokenProvider struct {
-	accountRepo   AccountRepository
-	tokenCache    KiroTokenCache
-	authService   *KiroAuthService
-	refreshAPI    *OAuthRefreshAPI
-	executor      OAuthRefreshExecutor
-	refreshPolicy ProviderRefreshPolicy
+	accountRepo      AccountRepository
+	tokenCache       KiroTokenCache
+	authService      *KiroAuthService
+	refreshAPI       *OAuthRefreshAPI
+	executor         OAuthRefreshExecutor
+	refreshPolicy    ProviderRefreshPolicy
+	tempUnschedCache TempUnschedCache
 }
 
 func NewKiroTokenProvider(accountRepo AccountRepository, tokenCache KiroTokenCache, authService *KiroAuthService) *KiroTokenProvider {
@@ -41,6 +44,10 @@ func (p *KiroTokenProvider) SetRefreshAPI(api *OAuthRefreshAPI, executor OAuthRe
 
 func (p *KiroTokenProvider) SetRefreshPolicy(policy ProviderRefreshPolicy) {
 	p.refreshPolicy = policy
+}
+
+func (p *KiroTokenProvider) SetTempUnschedCache(cache TempUnschedCache) {
+	p.tempUnschedCache = cache
 }
 
 func (p *KiroTokenProvider) GetAccessToken(ctx context.Context, account *Account) (string, error) {
@@ -65,6 +72,9 @@ func (p *KiroTokenProvider) GetAccessToken(ctx context.Context, account *Account
 	if needsRefresh && p.refreshAPI != nil && p.executor != nil {
 		result, err := p.refreshAPI.RefreshIfNeeded(ctx, account, p.executor, kiroTokenRefreshSkew)
 		if err != nil {
+			if isKiroRateLimitedRefreshError(err) {
+				p.markTempUnschedulable(account, err)
+			}
 			if p.refreshPolicy.OnRefreshError == ProviderRefreshErrorReturn {
 				return "", err
 			}
@@ -119,4 +129,43 @@ func (p *KiroTokenProvider) GetAccessToken(ctx context.Context, account *Account
 	}
 
 	return accessToken, nil
+}
+
+func (p *KiroTokenProvider) markTempUnschedulable(account *Account, refreshErr error) {
+	if p.accountRepo == nil || account == nil {
+		return
+	}
+
+	now := time.Now()
+	until := now.Add(tokenRefreshTempUnschedDuration)
+	reason := fmt.Sprintf("kiro token refresh rate limited on request path: %v", refreshErr)
+	bgCtx := context.Background()
+
+	if err := p.accountRepo.SetTempUnschedulable(bgCtx, account.ID, until, reason); err != nil {
+		slog.Warn("kiro_token_provider.set_temp_unschedulable_failed",
+			"account_id", account.ID,
+			"error", err,
+		)
+		return
+	}
+
+	if p.tempUnschedCache != nil {
+		state := &TempUnschedState{
+			UntilUnix:       until.Unix(),
+			TriggeredAtUnix: now.Unix(),
+			StatusCode:      http.StatusTooManyRequests,
+			ErrorMessage:    reason,
+		}
+		if err := p.tempUnschedCache.SetTempUnsched(bgCtx, account.ID, state); err != nil {
+			slog.Warn("kiro_token_provider.temp_unsched_cache_set_failed",
+				"account_id", account.ID,
+				"error", err,
+			)
+		}
+	}
+}
+
+func isKiroRateLimitedRefreshError(err error) bool {
+	var refreshErr *KiroRefreshError
+	return errors.As(err, &refreshErr) && refreshErr.Kind == kiroRefreshErrorRateLimited
 }

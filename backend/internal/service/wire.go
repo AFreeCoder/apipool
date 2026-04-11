@@ -70,11 +70,13 @@ func ProvideKiroTokenProvider(
 	tokenCache GeminiTokenCache,
 	kiroAuthService *KiroAuthService,
 	refreshAPI *OAuthRefreshAPI,
+	tempUnschedCache TempUnschedCache,
 ) *KiroTokenProvider {
 	p := NewKiroTokenProvider(accountRepo, tokenCache, kiroAuthService)
 	executor := NewKiroTokenRefresher(kiroAuthService)
 	p.SetRefreshAPI(refreshAPI, executor)
 	p.SetRefreshPolicy(KiroProviderRefreshPolicy())
+	p.SetTempUnschedCache(tempUnschedCache)
 	return p
 }
 

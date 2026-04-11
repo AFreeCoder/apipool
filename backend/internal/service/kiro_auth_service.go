@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -28,6 +30,59 @@ type KiroTokenInfo struct {
 	ExpiresAt    time.Time
 	ExpiresIn    int64
 	ProfileARN   string
+}
+
+type KiroRefreshErrorKind string
+
+const (
+	kiroRefreshErrorInvalidGrant         KiroRefreshErrorKind = "invalid_grant"
+	kiroRefreshErrorUnauthorized         KiroRefreshErrorKind = "unauthorized"
+	kiroRefreshErrorForbidden            KiroRefreshErrorKind = "forbidden"
+	kiroRefreshErrorRateLimited          KiroRefreshErrorKind = "rate_limited"
+	kiroRefreshErrorUpstream             KiroRefreshErrorKind = "upstream"
+	kiroRefreshErrorUnsupportedMediaType KiroRefreshErrorKind = "unsupported_media_type"
+	kiroRefreshErrorFailed               KiroRefreshErrorKind = "failed"
+)
+
+type KiroRefreshError struct {
+	StatusCode int
+	Kind       KiroRefreshErrorKind
+	Body       string
+}
+
+func (e *KiroRefreshError) Error() string {
+	if e == nil {
+		return ""
+	}
+
+	body := strings.TrimSpace(e.Body)
+	switch e.Kind {
+	case kiroRefreshErrorInvalidGrant:
+		return fmt.Sprintf("invalid_grant: %d %s", e.StatusCode, body)
+	case kiroRefreshErrorUnauthorized:
+		return fmt.Sprintf("kiro refresh unauthorized: %d %s", e.StatusCode, body)
+	case kiroRefreshErrorForbidden:
+		return fmt.Sprintf("kiro refresh forbidden: %d %s", e.StatusCode, body)
+	case kiroRefreshErrorRateLimited:
+		return fmt.Sprintf("kiro refresh rate limited: %d %s", e.StatusCode, body)
+	case kiroRefreshErrorUpstream:
+		return fmt.Sprintf("kiro refresh upstream error: %d %s", e.StatusCode, body)
+	case kiroRefreshErrorUnsupportedMediaType:
+		return fmt.Sprintf("kiro refresh unsupported media type: %d %s", e.StatusCode, body)
+	default:
+		return fmt.Sprintf("kiro refresh failed: %d %s", e.StatusCode, body)
+	}
+}
+
+func (e *KiroRefreshError) Is(target error) bool {
+	other, ok := target.(*KiroRefreshError)
+	if !ok {
+		return false
+	}
+	if other.Kind != "" && other.Kind != e.Kind {
+		return false
+	}
+	return other.StatusCode == 0 || other.StatusCode == e.StatusCode
 }
 
 type KiroAuthService struct {
@@ -101,28 +156,29 @@ func (s *KiroAuthService) refreshSocial(ctx context.Context, account *Account, c
 }
 
 func (s *KiroAuthService) refreshIDC(ctx context.Context, account *Account, creds *KiroCredentials, proxyURL string) (*KiroTokenInfo, error) {
-	body, err := json.Marshal(map[string]string{
-		"clientId":     creds.ClientID,
-		"clientSecret": creds.ClientSecret,
-		"refreshToken": creds.RefreshToken,
-		"grantType":    "refresh_token",
-	})
-	if err != nil {
-		return nil, err
+	info, err := s.refreshIDCWithEncoding(ctx, account, creds, proxyURL, true)
+	if err == nil {
+		return info, nil
 	}
 
-	url := fmt.Sprintf("https://oidc.%s.amazonaws.com/token", creds.EffectiveAuthRegion())
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	var refreshErr *KiroRefreshError
+	if errors.As(err, &refreshErr) && refreshErr.StatusCode == http.StatusUnsupportedMediaType {
+		return s.refreshIDCWithEncoding(ctx, account, creds, proxyURL, false)
+	}
+	return nil, err
+}
+
+func (s *KiroAuthService) refreshIDCWithEncoding(
+	ctx context.Context,
+	account *Account,
+	creds *KiroCredentials,
+	proxyURL string,
+	useJSON bool,
+) (*KiroTokenInfo, error) {
+	req, err := buildKiroIDCRefreshRequest(ctx, creds, useJSON)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("x-amz-user-agent", kiroIDCSDKUserAgent)
-	req.Header.Set("user-agent", kiroIDCUserAgent)
-	req.Header.Set("host", req.URL.Host)
-	req.Header.Set("amz-sdk-invocation-id", uuid.NewString())
-	req.Header.Set("amz-sdk-request", kiroIDCSDKRequestHeader)
-	req.Header.Set("Connection", kiroRefreshConnectionHeader)
 
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
@@ -143,6 +199,49 @@ func (s *KiroAuthService) refreshIDC(ctx context.Context, account *Account, cred
 	return info, nil
 }
 
+func buildKiroIDCRefreshRequest(ctx context.Context, creds *KiroCredentials, useJSON bool) (*http.Request, error) {
+	urlStr := fmt.Sprintf("https://oidc.%s.amazonaws.com/token", creds.EffectiveAuthRegion())
+	var (
+		body        io.Reader
+		contentType string
+	)
+
+	if useJSON {
+		payload, err := json.Marshal(map[string]string{
+			"clientId":     creds.ClientID,
+			"clientSecret": creds.ClientSecret,
+			"refreshToken": creds.RefreshToken,
+			"grantType":    "refresh_token",
+		})
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(payload)
+		contentType = "application/json"
+	} else {
+		form := url.Values{}
+		form.Set("client_id", creds.ClientID)
+		form.Set("client_secret", creds.ClientSecret)
+		form.Set("refresh_token", creds.RefreshToken)
+		form.Set("grant_type", "refresh_token")
+		body = strings.NewReader(form.Encode())
+		contentType = "application/x-www-form-urlencoded; charset=utf-8"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("content-type", contentType)
+	req.Header.Set("x-amz-user-agent", kiroIDCSDKUserAgent)
+	req.Header.Set("user-agent", kiroIDCUserAgent)
+	req.Header.Set("host", req.URL.Host)
+	req.Header.Set("amz-sdk-invocation-id", uuid.NewString())
+	req.Header.Set("amz-sdk-request", kiroIDCSDKRequestHeader)
+	req.Header.Set("Connection", kiroRefreshConnectionHeader)
+	return req, nil
+}
+
 func parseKiroRefreshResponse(resp *http.Response) (*KiroTokenInfo, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -151,10 +250,7 @@ func parseKiroRefreshResponse(resp *http.Response) (*KiroTokenInfo, error) {
 
 	bodyText := strings.TrimSpace(string(body))
 	if resp.StatusCode >= http.StatusBadRequest {
-		if resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(bodyText), "invalid_grant") {
-			return nil, fmt.Errorf("invalid_grant: %s", bodyText)
-		}
-		return nil, fmt.Errorf("kiro refresh failed: %s", bodyText)
+		return nil, classifyKiroRefreshError(resp.StatusCode, bodyText)
 	}
 
 	var raw struct {
@@ -180,4 +276,24 @@ func parseKiroRefreshResponse(resp *http.Response) (*KiroTokenInfo, error) {
 		info.ExpiresAt = time.Now().Add(time.Duration(raw.ExpiresIn) * time.Second)
 	}
 	return info, nil
+}
+
+func classifyKiroRefreshError(statusCode int, bodyText string) error {
+	lowerBody := strings.ToLower(bodyText)
+	switch {
+	case statusCode == http.StatusBadRequest && strings.Contains(lowerBody, "invalid_grant"):
+		return &KiroRefreshError{StatusCode: statusCode, Kind: kiroRefreshErrorInvalidGrant, Body: bodyText}
+	case statusCode == http.StatusUnauthorized:
+		return &KiroRefreshError{StatusCode: statusCode, Kind: kiroRefreshErrorUnauthorized, Body: bodyText}
+	case statusCode == http.StatusForbidden:
+		return &KiroRefreshError{StatusCode: statusCode, Kind: kiroRefreshErrorForbidden, Body: bodyText}
+	case statusCode == http.StatusTooManyRequests:
+		return &KiroRefreshError{StatusCode: statusCode, Kind: kiroRefreshErrorRateLimited, Body: bodyText}
+	case statusCode == http.StatusUnsupportedMediaType:
+		return &KiroRefreshError{StatusCode: statusCode, Kind: kiroRefreshErrorUnsupportedMediaType, Body: bodyText}
+	case statusCode >= http.StatusInternalServerError:
+		return &KiroRefreshError{StatusCode: statusCode, Kind: kiroRefreshErrorUpstream, Body: bodyText}
+	default:
+		return &KiroRefreshError{StatusCode: statusCode, Kind: kiroRefreshErrorFailed, Body: bodyText}
+	}
 }

@@ -840,18 +840,27 @@ func (a *Account) IsKiro() bool {
 	return a.Platform == PlatformAnthropic && a.Type == AccountTypeKiro
 }
 
+func AccountTypeSupportsQuotaLimit(accountType string) bool {
+	switch strings.ToLower(strings.TrimSpace(accountType)) {
+	case AccountTypeAPIKey, AccountTypeBedrock, AccountTypeKiro:
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *Account) SupportsQuotaLimit() bool {
 	if a == nil {
 		return false
 	}
-	return a.Type == AccountTypeAPIKey || a.Type == AccountTypeBedrock || a.Type == AccountTypeKiro
+	return AccountTypeSupportsQuotaLimit(a.Type)
 }
 
 func (a *Account) SupportsPoolMode() bool {
 	if a == nil {
 		return false
 	}
-	return a.Type == AccountTypeAPIKey || a.Type == AccountTypeBedrock || a.Type == AccountTypeKiro
+	return AccountTypeSupportsQuotaLimit(a.Type)
 }
 
 func (a *Account) SupportsCustomErrorCodes() bool {

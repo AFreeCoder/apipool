@@ -46,3 +46,20 @@ func TestGatewayServiceIsModelSupportedByAccount_BedrockCustomMappingStillActsAs
 		t.Fatalf("expected unsupported model to still be rejected")
 	}
 }
+
+func TestGatewayServiceIsModelSupportedByAccount_KiroKeepsShortAliasMapping(t *testing.T) {
+	svc := &GatewayService{}
+	account := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeKiro,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"claude-sonnet-4-5": "claude-sonnet-4-5",
+			},
+		},
+	}
+
+	if !svc.isModelSupportedByAccount(account, "claude-sonnet-4-5") {
+		t.Fatalf("expected kiro account to respect short alias mapping without Claude OAuth normalization")
+	}
+}

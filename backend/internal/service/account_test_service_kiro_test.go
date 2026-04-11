@@ -3,6 +3,7 @@
 package service
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -66,4 +67,32 @@ func TestAccountTestService_KiroUpstreamError(t *testing.T) {
 
 	err := svc.testKiroAccountConnection(ctx, account)
 	require.Error(t, err)
+}
+
+func TestAccountTestService_KiroTransportErrorIsSanitized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	upstream := &queuedHTTPUpstream{err: errors.New("dial tcp 10.0.0.1:443: i/o timeout")}
+	svc := &AccountTestService{
+		httpUpstream:      upstream,
+		kiroTokenProvider: &KiroTokenProvider{},
+	}
+	account := &Account{
+		ID:          103,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeKiro,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":  "at-1",
+			"refresh_token": "rt-1",
+			"auth_method":   "social",
+		},
+	}
+
+	err := svc.testKiroAccountConnection(ctx, account)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Kiro request failed")
+	require.NotContains(t, err.Error(), "10.0.0.1")
+	require.Contains(t, recorder.Body.String(), "\"error\":\"Kiro request failed\"")
 }

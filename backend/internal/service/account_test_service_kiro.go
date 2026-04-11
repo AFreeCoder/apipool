@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -15,12 +16,14 @@ func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *
 
 	token, err := s.kiroTokenProvider.GetAccessToken(ctx, account)
 	if err != nil {
-		return s.sendErrorAndEnd(c, err.Error())
+		slog.Warn("account_test.kiro.get_access_token_failed", "account_id", account.ID, "error", err)
+		return s.sendErrorAndEnd(c, "Failed to obtain Kiro access token")
 	}
 
 	creds, err := ParseKiroCredentials(account)
 	if err != nil {
-		return s.sendErrorAndEnd(c, err.Error())
+		slog.Warn("account_test.kiro.parse_credentials_failed", "account_id", account.ID, "error", err)
+		return s.sendErrorAndEnd(c, "Invalid Kiro credentials")
 	}
 
 	reqURL := fmt.Sprintf(
@@ -37,7 +40,8 @@ func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return s.sendErrorAndEnd(c, err.Error())
+		slog.Warn("account_test.kiro.build_request_failed", "account_id", account.ID, "error", err)
+		return s.sendErrorAndEnd(c, "Failed to create Kiro request")
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("x-amz-user-agent", kiroIDCSDKUserAgent)
@@ -54,7 +58,8 @@ func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *
 
 	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
 	if err != nil {
-		return s.sendErrorAndEnd(c, err.Error())
+		slog.Warn("account_test.kiro.request_failed", "account_id", account.ID, "error", err)
+		return s.sendErrorAndEnd(c, "Kiro request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 

@@ -199,6 +199,44 @@ func TestUsageBillingRepositoryApply_UpdatesAccountQuota(t *testing.T) {
 	require.InDelta(t, 3.5, quotaUsed, 0.000001)
 }
 
+func TestUsageBillingRepositoryApply_UpdatesAccountQuota_Kiro(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := NewUsageBillingRepository(client, integrationDB)
+
+	user := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("usage-billing-kiro-user-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+	})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID: user.ID,
+		Key:    "sk-usage-billing-kiro-" + uuid.NewString(),
+		Name:   "billing-kiro",
+	})
+	account := mustCreateAccount(t, client, &service.Account{
+		Name:     "usage-billing-kiro-account-" + uuid.NewString(),
+		Platform: service.PlatformAnthropic,
+		Type:     service.AccountTypeKiro,
+		Extra: map[string]any{
+			"quota_limit": 100.0,
+		},
+	})
+
+	_, err := repo.Apply(ctx, &service.UsageBillingCommand{
+		RequestID:        uuid.NewString(),
+		APIKeyID:         apiKey.ID,
+		UserID:           user.ID,
+		AccountID:        account.ID,
+		AccountType:      service.AccountTypeKiro,
+		AccountQuotaCost: 4.25,
+	})
+	require.NoError(t, err)
+
+	var quotaUsed float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COALESCE((extra->>'quota_used')::numeric, 0) FROM accounts WHERE id = $1", account.ID).Scan(&quotaUsed))
+	require.InDelta(t, 4.25, quotaUsed, 0.000001)
+}
+
 func TestDashboardAggregationRepositoryCleanupUsageBillingDedup_BatchDeletesOldRows(t *testing.T) {
 	ctx := context.Background()
 	repo := newDashboardAggregationRepositoryWithSQL(integrationDB)
