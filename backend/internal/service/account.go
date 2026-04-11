@@ -695,7 +695,7 @@ func matchWildcardMappingResult(mapping map[string]string, requestedModel string
 }
 
 func (a *Account) IsCustomErrorCodesEnabled() bool {
-	if a.Type != AccountTypeAPIKey || a.Credentials == nil {
+	if !a.SupportsCustomErrorCodes() || a.Credentials == nil {
 		return false
 	}
 	if v, ok := a.Credentials["custom_error_codes_enabled"]; ok {
@@ -709,7 +709,7 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 // IsPoolMode 检查 API Key 账号是否启用池模式。
 // 池模式下，上游错误不标记本地账号状态，而是在同一账号上重试。
 func (a *Account) IsPoolMode() bool {
-	if !a.IsAPIKeyOrBedrock() || a.Credentials == nil {
+	if !a.SupportsPoolMode() || a.Credentials == nil {
 		return false
 	}
 	if v, ok := a.Credentials["pool_mode"]; ok {
@@ -834,6 +834,31 @@ func (a *Account) IsBedrockAPIKey() bool {
 // IsAPIKeyOrBedrock 返回账号类型是否支持配额和池模式等特性
 func (a *Account) IsAPIKeyOrBedrock() bool {
 	return a.Type == AccountTypeAPIKey || a.Type == AccountTypeBedrock
+}
+
+func (a *Account) IsKiro() bool {
+	return a.Platform == PlatformAnthropic && a.Type == AccountTypeKiro
+}
+
+func (a *Account) SupportsQuotaLimit() bool {
+	if a == nil {
+		return false
+	}
+	return a.Type == AccountTypeAPIKey || a.Type == AccountTypeBedrock || a.Type == AccountTypeKiro
+}
+
+func (a *Account) SupportsPoolMode() bool {
+	if a == nil {
+		return false
+	}
+	return a.Type == AccountTypeAPIKey || a.Type == AccountTypeBedrock || a.Type == AccountTypeKiro
+}
+
+func (a *Account) SupportsCustomErrorCodes() bool {
+	if a == nil {
+		return false
+	}
+	return a.Type == AccountTypeAPIKey
 }
 
 func (a *Account) IsOpenAI() bool {

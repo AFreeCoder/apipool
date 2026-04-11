@@ -24,7 +24,7 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 	if c == nil || c.cache == nil || account == nil {
 		return nil
 	}
-	if account.Type != AccountTypeOAuth {
+	if account.Type != AccountTypeOAuth && !account.IsKiro() {
 		return nil
 	}
 
@@ -32,6 +32,12 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 	accountIDKey := "account:" + strconv.FormatInt(account.ID, 10)
 
 	switch account.Platform {
+	case PlatformAnthropic:
+		if account.IsKiro() {
+			keysToDelete = append(keysToDelete, KiroTokenCacheKey(account))
+		} else {
+			keysToDelete = append(keysToDelete, ClaudeTokenCacheKey(account))
+		}
 	case PlatformGemini:
 		// Gemini 可能有两种缓存键：project_id 或 account_id
 		// 首次获取 token 时可能没有 project_id，之后自动检测到 project_id 后会使用新 key
@@ -44,8 +50,6 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 		keysToDelete = append(keysToDelete, "ag:"+accountIDKey)
 	case PlatformOpenAI:
 		keysToDelete = append(keysToDelete, OpenAITokenCacheKey(account))
-	case PlatformAnthropic:
-		keysToDelete = append(keysToDelete, ClaudeTokenCacheKey(account))
 	default:
 		return nil
 	}

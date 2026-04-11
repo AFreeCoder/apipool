@@ -246,6 +246,13 @@ func TestClaudeTokenCacheKey(t *testing.T) {
 	}
 }
 
+func TestKiroTokenCacheKey(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{ID: 555}
+	require.Equal(t, "kiro:account:555", KiroTokenCacheKey(account))
+}
+
 func TestCacheKeyUniqueness(t *testing.T) {
 	// 确保不同平台的缓存键不会冲突
 	account := &Account{ID: 123}
