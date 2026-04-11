@@ -555,6 +555,7 @@ type GatewayService struct {
 	deferredService       *DeferredService
 	concurrencyService    *ConcurrencyService
 	claudeTokenProvider   *ClaudeTokenProvider
+	kiroTokenProvider     *KiroTokenProvider
 	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
 	rpmCache              RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
 	userGroupRateResolver *userGroupRateResolver
@@ -592,6 +593,7 @@ func NewGatewayService(
 	httpUpstream HTTPUpstream,
 	deferredService *DeferredService,
 	claudeTokenProvider *ClaudeTokenProvider,
+	kiroTokenProvider *KiroTokenProvider,
 	sessionLimitCache SessionLimitCache,
 	rpmCache RPMCache,
 	digestStore *DigestSessionStore,
@@ -623,6 +625,7 @@ func NewGatewayService(
 		httpUpstream:         httpUpstream,
 		deferredService:      deferredService,
 		claudeTokenProvider:  claudeTokenProvider,
+		kiroTokenProvider:    kiroTokenProvider,
 		sessionLimitCache:    sessionLimitCache,
 		rpmCache:             rpmCache,
 		userGroupRateCache:   gocache.New(userGroupRateTTL, time.Minute),
@@ -3452,6 +3455,12 @@ func (s *GatewayService) GetAccessToken(ctx context.Context, account *Account) (
 		return apiKey, "apikey", nil
 	case AccountTypeBedrock:
 		return "", "bedrock", nil // Bedrock 使用 SigV4 签名或 API Key，由 forwardBedrock 处理
+	case AccountTypeKiro:
+		if s.kiroTokenProvider == nil {
+			return "", "", errors.New("kiro token provider is not configured")
+		}
+		token, err := s.kiroTokenProvider.GetAccessToken(ctx, account)
+		return token, "kiro", err
 	default:
 		return "", "", fmt.Errorf("unsupported account type: %s", account.Type)
 	}

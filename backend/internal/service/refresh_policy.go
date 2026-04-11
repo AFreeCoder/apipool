@@ -45,6 +45,14 @@ func OpenAIProviderRefreshPolicy() ProviderRefreshPolicy {
 	}
 }
 
+func KiroProviderRefreshPolicy() ProviderRefreshPolicy {
+	return ProviderRefreshPolicy{
+		OnRefreshError: ProviderRefreshErrorUseExistingToken,
+		OnLockHeld:     ProviderLockHeldWaitForCache,
+		FailureTTL:     time.Minute,
+	}
+}
+
 func GeminiProviderRefreshPolicy() ProviderRefreshPolicy {
 	return ProviderRefreshPolicy{
 		OnRefreshError: ProviderRefreshErrorReturn,
