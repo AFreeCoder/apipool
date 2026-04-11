@@ -116,6 +116,23 @@ func TestParseKiroCredentials_IDCRequiresClientCredentials(t *testing.T) {
 	require.ErrorContains(t, err, "client_id and client_secret")
 }
 
+func TestParseKiroCredentials_RejectsInvalidMachineID(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeKiro,
+		Credentials: map[string]any{
+			"auth_method":   "social",
+			"refresh_token": "rt-machine-id",
+			"machine_id":    "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz",
+		},
+	}
+
+	_, err := ParseKiroCredentials(account)
+	require.ErrorContains(t, err, "invalid kiro machine_id")
+}
+
 func TestAccount_KiroCapabilities(t *testing.T) {
 	t.Parallel()
 

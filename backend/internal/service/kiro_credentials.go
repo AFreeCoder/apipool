@@ -87,6 +87,9 @@ func NormalizeKiroMachineID(raw string, refreshToken string) (string, error) {
 	}
 
 	normalized := strings.ReplaceAll(trimmed, "-", "")
+	if _, err := hex.DecodeString(normalized); err != nil {
+		return "", fmt.Errorf("invalid kiro machine_id")
+	}
 	switch len(normalized) {
 	case 32:
 		return normalized + normalized, nil

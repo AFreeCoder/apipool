@@ -2243,10 +2243,10 @@ func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []
 	return context.WithValue(ctx, windowCostPrefetchContextKey, costs)
 }
 
-// isAccountSchedulableForQuota 检查账号是否在配额限制内
-// 适用于配置了 quota_limit 的 apikey 和 bedrock 类型账号
+// isAccountSchedulableForQuota 检查账号是否在配额限制内。
+// 仅对支持账号配额能力的账号生效。
 func (s *GatewayService) isAccountSchedulableForQuota(account *Account) bool {
-	if !account.IsAPIKeyOrBedrock() {
+	if !account.SupportsQuotaLimit() {
 		return true
 	}
 	return !account.IsQuotaExceeded()
@@ -7325,7 +7325,7 @@ func (p *postUsageBillingParams) shouldUpdateRateLimits() bool {
 }
 
 func (p *postUsageBillingParams) shouldUpdateAccountQuota() bool {
-	return p.Cost.TotalCost > 0 && p.Account.IsAPIKeyOrBedrock() && p.Account.HasAnyQuotaLimit()
+	return p.Cost.TotalCost > 0 && p.Account.SupportsQuotaLimit() && p.Account.HasAnyQuotaLimit()
 }
 
 // postUsageBilling 统一处理使用量记录后的扣费逻辑：
