@@ -503,7 +503,6 @@ type ForwardResult struct {
 	// 图片生成计费字段（图片生成模型使用）
 	ImageCount int    // 生成的图片数量
 	ImageSize  string // 图片尺寸 "1K", "2K", "4K"
-
 }
 
 // UpstreamFailoverError indicates an upstream error that should trigger account failover.
@@ -571,6 +570,7 @@ type GatewayService struct {
 	resolver              *ModelPricingResolver
 	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
 	tlsFPProfileService   *TLSFingerprintProfileService
+	balanceNotifyService  *BalanceNotifyService
 }
 
 // NewGatewayService creates a new GatewayService
@@ -601,6 +601,7 @@ func NewGatewayService(
 	tlsFPProfileService *TLSFingerprintProfileService,
 	channelService *ChannelService,
 	resolver *ModelPricingResolver,
+	balanceNotifyService *BalanceNotifyService,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -636,6 +637,7 @@ func NewGatewayService(
 		tlsFPProfileService:  tlsFPProfileService,
 		channelService:       channelService,
 		resolver:             resolver,
+		balanceNotifyService: balanceNotifyService,
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -1195,12 +1197,20 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 	// anthropic/gemini 分组支持混合调度（包含启用了 mixed_scheduling 的 antigravity 账户）
 	// 注意：强制平台模式不走混合调度
 	if (platform == PlatformAnthropic || platform == PlatformGemini) && !hasForcePlatform {
-		return s.selectAccountWithMixedScheduling(ctx, groupID, sessionHash, requestedModel, excludedIDs, platform)
+		account, err := s.selectAccountWithMixedScheduling(ctx, groupID, sessionHash, requestedModel, excludedIDs, platform)
+		if err != nil {
+			return nil, err
+		}
+		return s.hydrateSelectedAccount(ctx, account)
 	}
 
 	// antigravity 分组、强制平台模式或无分组使用单平台选择
 	// 注意：强制平台模式也必须遵守分组限制，不再回退到全平台查询
-	return s.selectAccountForModelWithPlatform(ctx, groupID, sessionHash, requestedModel, excludedIDs, platform)
+	account, err := s.selectAccountForModelWithPlatform(ctx, groupID, sessionHash, requestedModel, excludedIDs, platform)
+	if err != nil {
+		return nil, err
+	}
+	return s.hydrateSelectedAccount(ctx, account)
 }
 
 // SelectAccountWithLoadAwareness selects account with load-awareness and wait plan.
@@ -1276,11 +1286,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					localExcluded[account.ID] = struct{}{} // 排除此账号
 					continue                               // 重新选择
 				}
-				return &AccountSelectionResult{
-					Account:     account,
-					Acquired:    true,
-					ReleaseFunc: result.ReleaseFunc,
-				}, nil
+				return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
 			}
 
 			// 对于等待计划的情况，也需要先检查会话限制
@@ -1292,26 +1298,20 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
 				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
 				if waitingCount < cfg.StickySessionMaxWaiting {
-					return &AccountSelectionResult{
-						Account: account,
-						WaitPlan: &AccountWaitPlan{
-							AccountID:      account.ID,
-							MaxConcurrency: account.Concurrency,
-							Timeout:        cfg.StickySessionWaitTimeout,
-							MaxWaiting:     cfg.StickySessionMaxWaiting,
-						},
-					}, nil
+					return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+						AccountID:      account.ID,
+						MaxConcurrency: account.Concurrency,
+						Timeout:        cfg.StickySessionWaitTimeout,
+						MaxWaiting:     cfg.StickySessionMaxWaiting,
+					})
 				}
 			}
-			return &AccountSelectionResult{
-				Account: account,
-				WaitPlan: &AccountWaitPlan{
-					AccountID:      account.ID,
-					MaxConcurrency: account.Concurrency,
-					Timeout:        cfg.FallbackWaitTimeout,
-					MaxWaiting:     cfg.FallbackMaxWaiting,
-				},
-			}, nil
+			return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+				AccountID:      account.ID,
+				MaxConcurrency: account.Concurrency,
+				Timeout:        cfg.FallbackWaitTimeout,
+				MaxWaiting:     cfg.FallbackMaxWaiting,
+			})
 		}
 	}
 
@@ -1334,18 +1334,17 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
 
+	// 提前构建 accountByID（供 Layer 1 和 Layer 1.5 使用）
+	accountByID := make(map[int64]*Account, len(accounts))
+	for i := range accounts {
+		accountByID[accounts[i].ID] = &accounts[i]
+	}
 	isExcluded := func(accountID int64) bool {
 		if excludedIDs == nil {
 			return false
 		}
 		_, excluded := excludedIDs[accountID]
 		return excluded
-	}
-
-	// 提前构建 accountByID（供 Layer 1 和 Layer 1.5 使用）
-	accountByID := make(map[int64]*Account, len(accounts))
-	for i := range accounts {
-		accountByID[accounts[i].ID] = &accounts[i]
 	}
 
 	// 获取模型路由配置（仅 anthropic 平台）
@@ -1458,11 +1457,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 									if s.debugModelRoutingEnabled() {
 										logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), stickyAccountID)
 									}
-									return &AccountSelectionResult{
-										Account:     stickyAccount,
-										Acquired:    true,
-										ReleaseFunc: result.ReleaseFunc,
-									}, nil
+									return s.newSelectionResult(ctx, stickyAccount, true, result.ReleaseFunc, nil)
 								}
 							}
 
@@ -1573,11 +1568,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						if s.debugModelRoutingEnabled() {
 							logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed select: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID)
 						}
-						return &AccountSelectionResult{
-							Account:     item.account,
-							Acquired:    true,
-							ReleaseFunc: result.ReleaseFunc,
-						}, nil
+						return s.newSelectionResult(ctx, item.account, true, result.ReleaseFunc, nil)
 					}
 				}
 
@@ -1590,15 +1581,12 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					if s.debugModelRoutingEnabled() {
 						logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed wait: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), item.account.ID)
 					}
-					return &AccountSelectionResult{
-						Account: item.account,
-						WaitPlan: &AccountWaitPlan{
-							AccountID:      item.account.ID,
-							MaxConcurrency: item.account.Concurrency,
-							Timeout:        cfg.StickySessionWaitTimeout,
-							MaxWaiting:     cfg.StickySessionMaxWaiting,
-						},
-					}, nil
+					return s.newSelectionResult(ctx, item.account, false, nil, &AccountWaitPlan{
+						AccountID:      item.account.ID,
+						MaxConcurrency: item.account.Concurrency,
+						Timeout:        cfg.StickySessionWaitTimeout,
+						MaxWaiting:     cfg.StickySessionMaxWaiting,
+					})
 				}
 				// 所有路由账号会话限制都已满，继续到 Layer 2 回退
 			}
@@ -1614,7 +1602,6 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			account, ok := accountByID[accountID]
 			if ok {
 				// 检查账户是否需要清理粘性会话绑定
-				// Check if the account needs sticky session cleanup
 				clearSticky := shouldClearStickySession(account, requestedModel)
 				if clearSticky {
 					_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
@@ -1630,35 +1617,28 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 					if err == nil && result.Acquired {
 						// 会话数量限制检查
-						// Session count limit check
 						if !s.checkAndRegisterSession(ctx, account, sessionHash) {
 							result.ReleaseFunc() // 释放槽位，继续到 Layer 2
 						} else {
-							return &AccountSelectionResult{
-								Account:     account,
-								Acquired:    true,
-								ReleaseFunc: result.ReleaseFunc,
-							}, nil
+							if s.cache != nil {
+								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
+							}
+							return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
 						}
 					}
 
 					waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
 					if waitingCount < cfg.StickySessionMaxWaiting {
 						// 会话数量限制检查（等待计划也需要占用会话配额）
-						// Session count limit check (wait plan also requires session quota)
 						if !s.checkAndRegisterSession(ctx, account, sessionHash) {
 							// 会话限制已满，继续到 Layer 2
-							// Session limit full, continue to Layer 2
 						} else {
-							return &AccountSelectionResult{
-								Account: account,
-								WaitPlan: &AccountWaitPlan{
-									AccountID:      accountID,
-									MaxConcurrency: account.Concurrency,
-									Timeout:        cfg.StickySessionWaitTimeout,
-									MaxWaiting:     cfg.StickySessionMaxWaiting,
-								},
-							}, nil
+							return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+								AccountID:      accountID,
+								MaxConcurrency: account.Concurrency,
+								Timeout:        cfg.StickySessionWaitTimeout,
+								MaxWaiting:     cfg.StickySessionMaxWaiting,
+							})
 						}
 					}
 				}
@@ -1717,7 +1697,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
-		if result, ok := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); ok {
+		if result, ok, legacyErr := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); legacyErr != nil {
+			return nil, legacyErr
+		} else if ok {
 			return result, nil
 		}
 	} else {
@@ -1756,11 +1738,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					if sessionHash != "" && s.cache != nil {
 						_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, selected.account.ID, stickySessionTTL)
 					}
-					return &AccountSelectionResult{
-						Account:     selected.account,
-						Acquired:    true,
-						ReleaseFunc: result.ReleaseFunc,
-					}, nil
+					return s.newSelectionResult(ctx, selected.account, true, result.ReleaseFunc, nil)
 				}
 			}
 
@@ -1783,20 +1761,17 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
 			continue // 会话限制已满，尝试下一个账号
 		}
-		return &AccountSelectionResult{
-			Account: acc,
-			WaitPlan: &AccountWaitPlan{
-				AccountID:      acc.ID,
-				MaxConcurrency: acc.Concurrency,
-				Timeout:        cfg.FallbackWaitTimeout,
-				MaxWaiting:     cfg.FallbackMaxWaiting,
-			},
-		}, nil
+		return s.newSelectionResult(ctx, acc, false, nil, &AccountWaitPlan{
+			AccountID:      acc.ID,
+			MaxConcurrency: acc.Concurrency,
+			Timeout:        cfg.FallbackWaitTimeout,
+			MaxWaiting:     cfg.FallbackMaxWaiting,
+		})
 	}
 	return nil, ErrNoAvailableAccounts
 }
 
-func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool) {
+func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
 	ordered := append([]*Account(nil), candidates...)
 	sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
 
@@ -1811,15 +1786,15 @@ func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates
 			if sessionHash != "" && s.cache != nil {
 				_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, acc.ID, stickySessionTTL)
 			}
-			return &AccountSelectionResult{
-				Account:     acc,
-				Acquired:    true,
-				ReleaseFunc: result.ReleaseFunc,
-			}, true
+			selection, err := s.newSelectionResult(ctx, acc, true, result.ReleaseFunc, nil)
+			if err != nil {
+				return nil, false, err
+			}
+			return selection, true, nil
 		}
 	}
 
-	return nil, false
+	return nil, false, nil
 }
 
 func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
@@ -2434,6 +2409,33 @@ func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID in
 	return s.accountRepo.GetByID(ctx, accountID)
 }
 
+func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
+	if account == nil || s.schedulerSnapshot == nil {
+		return account, nil
+	}
+	hydrated, err := s.schedulerSnapshot.GetAccount(ctx, account.ID)
+	if err != nil {
+		return nil, err
+	}
+	if hydrated == nil {
+		return nil, fmt.Errorf("selected gateway account %d not found during hydration", account.ID)
+	}
+	return hydrated, nil
+}
+
+func (s *GatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
+	hydrated, err := s.hydrateSelectedAccount(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	return &AccountSelectionResult{
+		Account:     hydrated,
+		Acquired:    acquired,
+		ReleaseFunc: release,
+		WaitPlan:    waitPlan,
+	}, nil
+}
+
 // filterByMinPriority 过滤出优先级最小的账号集合
 func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
@@ -2738,7 +2740,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
-						if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
+						if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 							if s.debugModelRoutingEnabled() {
 								logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
 							}
@@ -3117,7 +3119,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
-					if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
+					if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 						if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
 							return account, nil
 						}
@@ -3435,6 +3437,10 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 	}
 	if account.IsKiro() {
 		return account.IsModelSupported(requestedModel)
+	}
+	// OpenAI 透传模式：仅替换认证，允许所有模型
+	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() {
+		return true
 	}
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
@@ -3939,6 +3945,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	startTime := time.Now()
 	if parsed == nil {
 		return nil, fmt.Errorf("parse request: empty request")
+	}
+
+	// Web Search 模拟：纯 web_search 请求时，直接调用搜索 API 构造响应
+	if account != nil && s.shouldEmulateWebSearch(ctx, account, parsed.GroupID, parsed.Body) {
+		return s.handleWebSearchEmulation(ctx, c, account, parsed)
 	}
 
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
@@ -5125,19 +5136,8 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
 
-	maxBytes := resolveUpstreamResponseReadLimit(s.cfg)
-	body, err := readUpstreamResponseBodyLimited(resp.Body, maxBytes)
+	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
-		if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-			setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-			c.JSON(http.StatusBadGateway, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    "upstream_error",
-					"message": "Upstream response too large",
-				},
-			})
-		}
 		return nil, err
 	}
 
@@ -5503,19 +5503,8 @@ func (s *GatewayService) handleBedrockNonStreamingResponse(
 	c *gin.Context,
 	account *Account,
 ) (*ClaudeUsage, error) {
-	maxBytes := resolveUpstreamResponseReadLimit(s.cfg)
-	body, err := readUpstreamResponseBodyLimited(resp.Body, maxBytes)
+	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
-		if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-			setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-			c.JSON(http.StatusBadGateway, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    "upstream_error",
-					"message": "Upstream response too large",
-				},
-			})
-		}
 		return nil, err
 	}
 
@@ -7180,19 +7169,8 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 
-	maxBytes := resolveUpstreamResponseReadLimit(s.cfg)
-	body, err := readUpstreamResponseBodyLimited(resp.Body, maxBytes)
+	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
-		if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-			setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-			c.JSON(http.StatusBadGateway, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    "upstream_error",
-					"message": "Upstream response too large",
-				},
-			})
-		}
 		return nil, err
 	}
 
@@ -7290,6 +7268,7 @@ func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID,
 // RecordUsageInput 记录使用量的输入参数
 type RecordUsageInput struct {
 	Result             *ForwardResult
+	ParsedRequest      *ParsedRequest
 	APIKey             *APIKey
 	User               *User
 	Account            *Account
@@ -7344,49 +7323,41 @@ func (p *postUsageBillingParams) shouldUpdateAccountQuota() bool {
 	return p.Cost.TotalCost > 0 && p.Account.SupportsQuotaLimit() && p.Account.HasAnyQuotaLimit()
 }
 
-// postUsageBilling 统一处理使用量记录后的扣费逻辑：
-//   - 订阅/余额扣费
-//   - API Key 配额更新
-//   - API Key 限速用量更新
-//   - 账号配额用量更新（账号口径：TotalCost × 账号计费倍率）
+// postUsageBilling is the legacy fallback billing path used when the unified
+// billing repo is unavailable (nil). Production uses applyUsageBilling → repo.Apply
+// for atomic billing. This path only runs in tests or degraded mode.
 func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *billingDeps) {
 	billingCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
 
 	cost := p.Cost
 
-	// 1. 订阅 / 余额扣费
 	if p.IsSubscriptionBill {
 		if cost.TotalCost > 0 {
 			if err := deps.userSubRepo.IncrementUsage(billingCtx, p.Subscription.ID, cost.TotalCost); err != nil {
 				slog.Error("increment subscription usage failed", "subscription_id", p.Subscription.ID, "error", err)
 			}
-			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, cost.TotalCost)
 		}
 	} else {
 		if cost.ActualCost > 0 {
 			if err := deps.userRepo.DeductBalance(billingCtx, p.User.ID, cost.ActualCost); err != nil {
 				slog.Error("deduct balance failed", "user_id", p.User.ID, "error", err)
 			}
-			deps.billingCacheService.QueueDeductBalance(p.User.ID, cost.ActualCost)
 		}
 	}
 
-	// 2. API Key 配额
 	if p.shouldDeductAPIKeyQuota() {
 		if err := p.APIKeyService.UpdateQuotaUsed(billingCtx, p.APIKey.ID, cost.ActualCost); err != nil {
 			slog.Error("update api key quota failed", "api_key_id", p.APIKey.ID, "error", err)
 		}
 	}
 
-	// 3. API Key 限速用量
 	if p.shouldUpdateRateLimits() {
 		if err := p.APIKeyService.UpdateRateLimitUsage(billingCtx, p.APIKey.ID, cost.ActualCost); err != nil {
 			slog.Error("update api key rate limit usage failed", "api_key_id", p.APIKey.ID, "error", err)
 		}
 	}
 
-	// 4. 账号配额用量（账号口径：TotalCost × 账号计费倍率）
 	if p.shouldUpdateAccountQuota() {
 		accountCost := cost.TotalCost * p.AccountRateMultiplier
 		if err := deps.accountRepo.IncrementQuotaUsed(billingCtx, p.Account.ID, accountCost); err != nil {
@@ -7394,7 +7365,10 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 		}
 	}
 
-	finalizePostUsageBilling(p, deps)
+	// NOTE: finalizePostUsageBilling is NOT called here to avoid double-queuing
+	// cache updates. The legacy path does DB writes directly; the finalize path
+	// does cache queue + notifications. Notifications are dispatched separately
+	// by the caller after recording the usage log.
 }
 
 func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string) string {
@@ -7510,11 +7484,11 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		}
 	}
 
-	finalizePostUsageBilling(p, deps)
+	finalizePostUsageBilling(p, deps, result)
 	return true, nil
 }
 
-func finalizePostUsageBilling(p *postUsageBillingParams, deps *billingDeps) {
+func finalizePostUsageBilling(p *postUsageBillingParams, deps *billingDeps, result *UsageBillingApplyResult) {
 	if p == nil || p.Cost == nil || deps == nil {
 		return
 	}
@@ -7532,6 +7506,83 @@ func finalizePostUsageBilling(p *postUsageBillingParams, deps *billingDeps) {
 	}
 
 	deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
+
+	// Notification checks run async — all parameters are already captured,
+	// no dependency on the request context or upstream connection.
+	go notifyBalanceLow(p, deps, result)
+	go notifyAccountQuota(p, deps, result)
+}
+
+// notifyBalanceLow sends balance low notification after deduction.
+// When result.NewBalance is available (from DB transaction RETURNING), it is used directly
+// to reconstruct oldBalance, avoiding stale Redis reads and concurrent-deduction races.
+func notifyBalanceLow(p *postUsageBillingParams, deps *billingDeps, result *UsageBillingApplyResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in notifyBalanceLow", "recover", r)
+		}
+	}()
+	if p.IsSubscriptionBill || p.Cost.ActualCost <= 0 || p.User == nil || deps.balanceNotifyService == nil {
+		slog.Debug("notifyBalanceLow: skipped",
+			"is_subscription", p.IsSubscriptionBill,
+			"actual_cost", p.Cost.ActualCost,
+			"user_nil", p.User == nil,
+			"service_nil", deps.balanceNotifyService == nil,
+		)
+		return
+	}
+
+	oldBalance := resolveOldBalance(p, result)
+	slog.Debug("notifyBalanceLow: calling CheckBalanceAfterDeduction",
+		"user_id", p.User.ID,
+		"old_balance", oldBalance,
+		"cost", p.Cost.ActualCost,
+		"notify_enabled", p.User.BalanceNotifyEnabled,
+		"threshold", p.User.BalanceNotifyThreshold,
+		"result_has_new_balance", result != nil && result.NewBalance != nil,
+	)
+	deps.balanceNotifyService.CheckBalanceAfterDeduction(context.Background(), p.User, oldBalance, p.Cost.ActualCost)
+}
+
+// resolveOldBalance returns the pre-deduction balance.
+// Prefers the DB transaction result (newBalance + cost) over snapshot.
+func resolveOldBalance(p *postUsageBillingParams, result *UsageBillingApplyResult) float64 {
+	if result != nil && result.NewBalance != nil {
+		return *result.NewBalance + p.Cost.ActualCost
+	}
+	// Legacy fallback: snapshot balance from request context
+	return p.User.Balance
+}
+
+// notifyAccountQuota sends account quota threshold notification after increment.
+// When result.QuotaState is available (from DB transaction RETURNING), it is passed directly
+// to avoid a separate DB read that may see stale or concurrently-modified data.
+func notifyAccountQuota(p *postUsageBillingParams, deps *billingDeps, result *UsageBillingApplyResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in notifyAccountQuota", "recover", r)
+		}
+	}()
+	if p.Cost.TotalCost <= 0 || p.Account == nil || !p.Account.IsAPIKeyOrBedrock() || deps.balanceNotifyService == nil {
+		slog.Debug("notifyAccountQuota: skipped",
+			"total_cost", p.Cost.TotalCost,
+			"account_nil", p.Account == nil,
+			"is_apikey_or_bedrock", p.Account != nil && p.Account.IsAPIKeyOrBedrock(),
+			"service_nil", deps.balanceNotifyService == nil,
+		)
+		return
+	}
+	accountCost := p.Cost.TotalCost * p.AccountRateMultiplier
+	var quotaState *AccountQuotaState
+	if result != nil {
+		quotaState = result.QuotaState
+	}
+	slog.Debug("notifyAccountQuota: calling CheckAccountQuotaAfterIncrement",
+		"account_id", p.Account.ID,
+		"account_cost", accountCost,
+		"has_quota_state", quotaState != nil,
+	)
+	deps.balanceNotifyService.CheckAccountQuotaAfterIncrement(context.Background(), p.Account, accountCost, quotaState)
 }
 
 func detachedBillingContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -7554,20 +7605,22 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 
 // billingDeps 扣费逻辑依赖的服务（由各 gateway service 提供）
 type billingDeps struct {
-	accountRepo         AccountRepository
-	userRepo            UserRepository
-	userSubRepo         UserSubscriptionRepository
-	billingCacheService *BillingCacheService
-	deferredService     *DeferredService
+	accountRepo          AccountRepository
+	userRepo             UserRepository
+	userSubRepo          UserSubscriptionRepository
+	billingCacheService  *BillingCacheService
+	deferredService      *DeferredService
+	balanceNotifyService *BalanceNotifyService
 }
 
 func (s *GatewayService) billingDeps() *billingDeps {
 	return &billingDeps{
-		accountRepo:         s.accountRepo,
-		userRepo:            s.userRepo,
-		userSubRepo:         s.userSubRepo,
-		billingCacheService: s.billingCacheService,
-		deferredService:     s.deferredService,
+		accountRepo:          s.accountRepo,
+		userRepo:             s.userRepo,
+		userSubRepo:          s.userSubRepo,
+		billingCacheService:  s.billingCacheService,
+		deferredService:      s.deferredService,
+		balanceNotifyService: s.balanceNotifyService,
 	}
 }
 
@@ -7756,6 +7809,23 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	accountRateMultiplier := account.BillingRateMultiplier()
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
+
+	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
+	if apiKey.GroupID != nil {
+		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
+			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
+			// Anthropic's input_tokens excludes cache_read and cache_creation (billed separately);
+			// OpenAI gateway uses actualInputTokens which also excludes cache_read for the same reason.
+			UsageTokens{
+				InputTokens:         result.Usage.InputTokens,
+				OutputTokens:        result.Usage.OutputTokens,
+				CacheCreationTokens: result.Usage.CacheCreationInputTokens,
+				CacheReadTokens:     result.Usage.CacheReadInputTokens,
+				ImageOutputTokens:   result.Usage.ImageOutputTokens,
+			},
+			cost.TotalCost,
+		)
+	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
@@ -8097,6 +8167,19 @@ func (s *GatewayService) needsUpstreamChannelRestrictionCheck(ctx context.Contex
 	return ch.BillingModelSource == BillingModelSourceUpstream
 }
 
+// isStickyAccountUpstreamRestricted 检查粘性会话命中的账号是否受 upstream 渠道限制。
+// 合并 needsUpstreamChannelRestrictionCheck + isUpstreamModelRestrictedByChannel 两步调用，
+// 供 sticky session 条件链使用，避免内联多个函数调用导致行过长。
+func (s *GatewayService) isStickyAccountUpstreamRestricted(ctx context.Context, groupID *int64, account *Account, requestedModel string) bool {
+	if groupID == nil {
+		return false
+	}
+	if !s.needsUpstreamChannelRestrictionCheck(ctx, groupID) {
+		return false
+	}
+	return s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel)
+}
+
 // ForwardCountTokens 转发 count_tokens 请求到上游 API
 // 特点：不记录使用量、仅支持非流式响应
 func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context, account *Account, parsed *ParsedRequest) error {
@@ -8200,16 +8283,15 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 读取响应体
-	maxReadBytes := resolveUpstreamResponseReadLimit(s.cfg)
-	respBody, err := readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
+	countTokensTooLarge := func(c *gin.Context) {
+		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
+	}
+	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, countTokensTooLarge)
 	_ = resp.Body.Close()
 	if err != nil {
-		if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-			setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-			s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
-			return err
+		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+			s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
 		}
-		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
 		return err
 	}
 
@@ -8223,15 +8305,12 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 			if retryErr == nil {
 				resp = retryResp
-				respBody, err = readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
+				respBody, err = ReadUpstreamResponseBody(resp.Body, s.cfg, c, countTokensTooLarge)
 				_ = resp.Body.Close()
 				if err != nil {
-					if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-						setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-						s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
-						return err
+					if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+						s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
 					}
-					s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
 					return err
 				}
 			}
@@ -8326,16 +8405,15 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		return fmt.Errorf("upstream request failed: %w", err)
 	}
 
-	maxReadBytes := resolveUpstreamResponseReadLimit(s.cfg)
-	respBody, err := readUpstreamResponseBodyLimited(resp.Body, maxReadBytes)
+	countTokensTooLarge := func(c *gin.Context) {
+		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
+	}
+	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, countTokensTooLarge)
 	_ = resp.Body.Close()
 	if err != nil {
-		if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
-			setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
-			s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream response too large")
-			return err
+		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
+			s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
 		}
-		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to read response")
 		return err
 	}
 

@@ -14,6 +14,7 @@ API 端点：**https://api.apipool.dev**（推荐，国内直连无需代理）
 - **智能调度** - 智能账号选择与会话粘滞
 - **并发控制** - 用户级与账号级并发限制
 - **限速策略** - 可配置的请求与 Token 限速
+- **支付能力** - 已合入上游内建支付相关能力，同时保留当前项目通过 iframe 接入外部充值页的方式
 - **管理后台** - Web 界面进行监控与管理
 - **外部系统集成** - 可通过 iframe 嵌入支付、工单等外部系统扩展后台能力
 
@@ -74,6 +75,8 @@ docker compose -f docker-compose.deploy.yml restart      # 重启服务
   必要时恢复数据库，并显式指定恢复后启动的应用版本
 
 详细说明见 [deploy/ROLLBACK_CN.md](deploy/ROLLBACK_CN.md)。
+
+上游内建支付功能的配置文档见 [docs/PAYMENT.md](docs/PAYMENT.md) 与 [docs/PAYMENT_CN.md](docs/PAYMENT_CN.md)。当前 APIPool 仍保留通过系统设置配置 iframe 充值页的本地方案，两种能力并存，合入上游时不要默认互相替换。
 
 ## 本地开发
 

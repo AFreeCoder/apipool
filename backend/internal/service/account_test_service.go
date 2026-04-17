@@ -522,22 +522,13 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			_ = s.accountRepo.UpdateExtra(ctx, account.ID, updates)
 			mergeAccountExtra(account, updates)
 		}
-		if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-			if resetAt := codexRateLimitResetAtFromSnapshot(snapshot, time.Now()); resetAt != nil {
-				_ = s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt)
-				account.RateLimitResetAt = resetAt
-			}
-		}
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		if isOAuth && s.accountRepo != nil {
 			persistOpenAIOAuthStatusFromHTTPError(ctx, s.accountRepo, account, resp.StatusCode, body)
-			if resetAt := (&RateLimitService{}).calculateOpenAI429ResetTime(resp.Header); resetAt != nil {
-				_ = s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt)
-				account.RateLimitResetAt = resetAt
-			}
+			// Codex 探测头反映的是账号用量快照，不应提升为运行时限流状态。
 		}
 		// 401 Unauthorized: API Key 账号标记为永久错误。
 		// OpenAI OAuth 账号已在上面的专用错误同步里落了更精确的状态，避免这里再覆盖。

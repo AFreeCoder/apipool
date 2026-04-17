@@ -34,6 +34,15 @@ vi.mock('@/api/admin', () => ({
       create: createMock,
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false })
     },
+    settings: {
+      getSettings: vi.fn().mockResolvedValue({
+        account_quota_notify_enabled: false
+      }),
+      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({
+        enabled: false,
+        providers: []
+      })
+    },
     kiro: {
       generateAuthUrl: kiroGenerateAuthUrlMock,
       exchangeCode: kiroExchangeCodeMock

@@ -27,6 +27,7 @@ import scheduledTestsAPI from './scheduledTests'
 import backupAPI from './backup'
 import tlsFingerprintProfileAPI from './tlsFingerprintProfile'
 import channelsAPI from './channels'
+import adminPaymentAPI from './payment'
 
 /**
  * Unified admin API object for convenient access
@@ -55,7 +56,8 @@ export const adminAPI = {
   scheduledTests: scheduledTestsAPI,
   backup: backupAPI,
   tlsFingerprintProfiles: tlsFingerprintProfileAPI,
-  channels: channelsAPI
+  channels: channelsAPI,
+  payment: adminPaymentAPI
 }
 
 export {
@@ -82,7 +84,8 @@ export {
   scheduledTestsAPI,
   backupAPI,
   tlsFingerprintProfileAPI,
-  channelsAPI
+  channelsAPI,
+  adminPaymentAPI
 }
 
 export default adminAPI

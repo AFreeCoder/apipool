@@ -26,6 +26,15 @@ vi.mock('@/api/admin', () => ({
     accounts: {
       update: updateAccountMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
+    },
+    settings: {
+      getSettings: vi.fn().mockResolvedValue({
+        account_quota_notify_enabled: false
+      }),
+      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({
+        enabled: false,
+        providers: []
+      })
     }
   }
 }))
