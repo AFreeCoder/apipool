@@ -1510,11 +1510,11 @@
       </div>
 
       <!-- Kiro credentials -->
-      <div v-if="form.platform === 'anthropic' && accountCategory === 'kiro'" class="space-y-4">
-        <div>
-          <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-          <div class="mt-2 flex gap-4">
-            <label class="flex cursor-pointer items-center">
+	      <div v-if="form.platform === 'anthropic' && accountCategory === 'kiro'" class="space-y-4">
+	        <div>
+	          <label class="input-label">{{ t('admin.accounts.kiroAuthMethod') }}</label>
+	          <div class="mt-2 flex gap-4">
+	            <label class="flex cursor-pointer items-center">
               <input
                 v-model="kiroAuthMethod"
                 id="kiro-auth-method-social"
@@ -1536,12 +1536,52 @@
               <span class="text-sm text-gray-700 dark:text-gray-300">idc</span>
             </label>
           </div>
-        </div>
+	        </div>
 
-        <div>
-          <label class="input-label">{{ t('admin.accounts.kiroRefreshTokenRequired') }}</label>
-          <input
-            id="kiro-refresh-token"
+	        <div v-if="kiroAuthMethod === 'social'" class="space-y-4 rounded-lg border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-800 dark:bg-sky-950/20">
+	          <div>
+	            <label class="input-label">{{ t('admin.accounts.oauth.authMethod') }}</label>
+	            <div class="mt-2 flex gap-4">
+	              <label class="flex cursor-pointer items-center">
+	                <input
+	                  v-model="kiroSocialInputMode"
+	                  id="kiro-social-input-mode-manual"
+	                  type="radio"
+	                  value="manual"
+	                  class="mr-2 text-primary-600 focus:ring-primary-500"
+	                />
+	                <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.oauth.kiro.manualInput') }}</span>
+	              </label>
+	              <label class="flex cursor-pointer items-center">
+	                <input
+	                  v-model="kiroSocialInputMode"
+	                  id="kiro-social-input-mode-oauth"
+	                  data-testid="kiro-social-input-mode-oauth"
+	                  type="radio"
+	                  value="oauth"
+	                  class="mr-2 text-primary-600 focus:ring-primary-500"
+	                />
+	                <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.oauth.kiro.browserLogin') }}</span>
+	              </label>
+	            </div>
+	          </div>
+
+	          <div v-if="kiroSocialInputMode === 'oauth'">
+	            <label class="input-label">{{ t('admin.accounts.oauth.kiro.provider') }}</label>
+	            <select id="kiro-social-provider" v-model="kiroSocialProvider" class="input">
+	              <option value="google">Google</option>
+	              <option value="github">GitHub</option>
+	            </select>
+	            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+	              {{ t('admin.accounts.oauth.kiro.providerHint') }}
+	            </p>
+	          </div>
+	        </div>
+
+	        <div v-if="kiroAuthMethod === 'idc' || (kiroAuthMethod === 'social' && kiroSocialInputMode === 'manual')">
+	          <label class="input-label">{{ t('admin.accounts.kiroRefreshTokenRequired') }}</label>
+	          <input
+	            id="kiro-refresh-token"
             v-model="kiroRefreshToken"
             type="password"
             class="input font-mono"
@@ -1590,27 +1630,27 @@
           </div>
         </div>
 
-        <div class="grid gap-4 md:grid-cols-2">
-          <div>
-            <label class="input-label">Machine ID</label>
-            <input
-              id="kiro-machine-id"
-              v-model="kiroMachineId"
-              type="text"
-              class="input font-mono"
-            />
-          </div>
-          <div>
-            <label class="input-label">Profile ARN</label>
-            <input
-              id="kiro-profile-arn"
-              v-model="kiroProfileArn"
-              type="text"
-              class="input font-mono"
-            />
-          </div>
-        </div>
-      </div>
+	        <div v-if="kiroAuthMethod === 'idc' || (kiroAuthMethod === 'social' && kiroSocialInputMode === 'manual')" class="grid gap-4 md:grid-cols-2">
+	          <div>
+	            <label class="input-label">Machine ID</label>
+	            <input
+	              id="kiro-machine-id"
+	              v-model="kiroMachineId"
+	              type="text"
+	              class="input font-mono"
+	            />
+	          </div>
+	          <div>
+	            <label class="input-label">Profile ARN</label>
+	            <input
+	              id="kiro-profile-arn"
+	              v-model="kiroProfileArn"
+	              type="text"
+	              class="input font-mono"
+	            />
+	          </div>
+	        </div>
+	      </div>
 
       <!-- API Key / Bedrock 账号配额限制 -->
       <div v-if="supportsQuotaLimit(form.type)" class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
@@ -2591,23 +2631,23 @@
 
     <!-- Step 2: OAuth Authorization -->
     <div v-else class="space-y-5">
-      <OAuthAuthorizationFlow
-        ref="oauthFlowRef"
-        :add-method="form.platform === 'anthropic' ? addMethod : 'oauth'"
-        :auth-url="currentAuthUrl"
-        :session-id="currentSessionId"
-        :loading="currentOAuthLoading"
-        :error="currentOAuthError"
-        :show-help="form.platform === 'anthropic'"
-        :show-proxy-warning="form.platform !== 'openai' && !!form.proxy_id"
-        :allow-multiple="form.platform === 'anthropic'"
-        :show-cookie-option="form.platform === 'anthropic'"
-        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity'"
-        :show-mobile-refresh-token-option="form.platform === 'openai'"
-        :show-session-token-option="false"
-        :show-access-token-option="false"
-        :platform="form.platform"
-        :show-project-id="geminiOAuthType === 'code_assist'"
+	      <OAuthAuthorizationFlow
+	        ref="oauthFlowRef"
+	        :add-method="form.platform === 'anthropic' ? addMethod : 'oauth'"
+	        :auth-url="currentAuthUrl"
+	        :session-id="currentSessionId"
+	        :loading="currentOAuthLoading"
+	        :error="currentOAuthError"
+	        :show-help="form.platform === 'anthropic' && !isKiroSocialOAuthFlow"
+	        :show-proxy-warning="form.platform !== 'openai' && !!form.proxy_id"
+	        :allow-multiple="form.platform === 'anthropic' && !isKiroSocialOAuthFlow"
+	        :show-cookie-option="form.platform === 'anthropic' && !isKiroSocialOAuthFlow"
+	        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity'"
+	        :show-mobile-refresh-token-option="form.platform === 'openai'"
+	        :show-session-token-option="false"
+	        :show-access-token-option="false"
+	        :platform="currentOAuthPlatform"
+	        :show-project-id="geminiOAuthType === 'code_assist'"
         @generate-url="handleGenerateUrl"
         @cookie-auth="handleCookieAuth"
         @validate-refresh-token="handleValidateRefreshToken"
@@ -2952,6 +2992,7 @@ import {
 import { useOpenAIOAuth } from '@/composables/useOpenAIOAuth'
 import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
+import { useKiroOAuth } from '@/composables/useKiroOAuth'
 import type {
   Proxy,
   AdminGroup,
@@ -2998,7 +3039,10 @@ interface OAuthFlowExposed {
 const { t } = useI18n()
 const authStore = useAuthStore()
 
+type OAuthFlowPlatform = AccountPlatform | 'kiro'
+
 const oauthStepTitle = computed(() => {
+  if (isKiroSocialOAuthFlow.value) return t('admin.accounts.oauth.kiro.title')
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
   if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
   if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
@@ -3037,9 +3081,11 @@ const oauth = useAccountOAuth() // For Anthropic OAuth
 const openaiOAuth = useOpenAIOAuth() // For OpenAI OAuth
 const geminiOAuth = useGeminiOAuth() // For Gemini OAuth
 const antigravityOAuth = useAntigravityOAuth() // For Antigravity OAuth
+const kiroOAuth = useKiroOAuth() // For Kiro Social OAuth
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
+  if (isKiroSocialOAuthFlow.value) return kiroOAuth.authUrl.value
   if (form.platform === 'openai') return openaiOAuth.authUrl.value
   if (form.platform === 'gemini') return geminiOAuth.authUrl.value
   if (form.platform === 'antigravity') return antigravityOAuth.authUrl.value
@@ -3047,6 +3093,7 @@ const currentAuthUrl = computed(() => {
 })
 
 const currentSessionId = computed(() => {
+  if (isKiroSocialOAuthFlow.value) return kiroOAuth.sessionId.value
   if (form.platform === 'openai') return openaiOAuth.sessionId.value
   if (form.platform === 'gemini') return geminiOAuth.sessionId.value
   if (form.platform === 'antigravity') return antigravityOAuth.sessionId.value
@@ -3054,6 +3101,7 @@ const currentSessionId = computed(() => {
 })
 
 const currentOAuthLoading = computed(() => {
+  if (isKiroSocialOAuthFlow.value) return kiroOAuth.loading.value
   if (form.platform === 'openai') return openaiOAuth.loading.value
   if (form.platform === 'gemini') return geminiOAuth.loading.value
   if (form.platform === 'antigravity') return antigravityOAuth.loading.value
@@ -3061,6 +3109,7 @@ const currentOAuthLoading = computed(() => {
 })
 
 const currentOAuthError = computed(() => {
+  if (isKiroSocialOAuthFlow.value) return kiroOAuth.error.value
   if (form.platform === 'openai') return openaiOAuth.error.value
   if (form.platform === 'gemini') return geminiOAuth.error.value
   if (form.platform === 'antigravity') return antigravityOAuth.error.value
@@ -3136,6 +3185,8 @@ const bedrockRegion = ref('us-east-1')
 const bedrockForceGlobal = ref(false)
 const bedrockApiKeyValue = ref('')
 const kiroAuthMethod = ref<'social' | 'idc'>('social')
+const kiroSocialInputMode = ref<'manual' | 'oauth'>('manual')
+const kiroSocialProvider = ref<'google' | 'github'>('google')
 const kiroRefreshToken = ref('')
 const kiroAuthRegion = ref('us-east-1')
 const kiroApiRegion = ref('us-east-1')
@@ -3313,6 +3364,15 @@ const form = reactive({
 })
 
 // Helper to check if current type needs OAuth flow
+const isKiroSocialOAuthFlow = computed(() => {
+  return (
+    form.platform === 'anthropic' &&
+    accountCategory.value === 'kiro' &&
+    kiroAuthMethod.value === 'social' &&
+    kiroSocialInputMode.value === 'oauth'
+  )
+})
+
 const isOAuthFlow = computed(() => {
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
@@ -3321,6 +3381,9 @@ const isOAuthFlow = computed(() => {
   // Bedrock 类型不需要 OAuth 流程
   if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
     return false
+  }
+  if (isKiroSocialOAuthFlow.value) {
+    return true
   }
   return accountCategory.value === 'oauth-based'
 })
@@ -3338,6 +3401,9 @@ const expiresAtInput = computed({
 
 const canExchangeCode = computed(() => {
   const authCode = oauthFlowRef.value?.authCode || ''
+  if (isKiroSocialOAuthFlow.value) {
+    return authCode.trim() && kiroOAuth.sessionId.value && !kiroOAuth.loading.value
+  }
   if (form.platform === 'openai') {
     return authCode.trim() && openaiOAuth.sessionId.value && !openaiOAuth.loading.value
   }
@@ -3348,6 +3414,11 @@ const canExchangeCode = computed(() => {
     return authCode.trim() && antigravityOAuth.sessionId.value && !antigravityOAuth.loading.value
   }
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
+})
+
+const currentOAuthPlatform = computed<OAuthFlowPlatform>(() => {
+  if (isKiroSocialOAuthFlow.value) return 'kiro'
+  return form.platform
 })
 
 // Watchers
@@ -3441,16 +3512,18 @@ watch(
     bedrockSessionToken.value = ''
     bedrockRegion.value = 'us-east-1'
     bedrockForceGlobal.value = false
-  bedrockAuthMode.value = 'sigv4'
-  bedrockApiKeyValue.value = ''
-  kiroAuthMethod.value = 'social'
-  kiroRefreshToken.value = ''
-  kiroAuthRegion.value = 'us-east-1'
-  kiroApiRegion.value = 'us-east-1'
-  kiroMachineId.value = ''
-  kiroClientId.value = ''
-  kiroClientSecret.value = ''
-  kiroProfileArn.value = ''
+	    bedrockAuthMode.value = 'sigv4'
+	    bedrockApiKeyValue.value = ''
+	    kiroAuthMethod.value = 'social'
+	    kiroSocialInputMode.value = 'manual'
+	    kiroSocialProvider.value = 'google'
+	    kiroRefreshToken.value = ''
+	    kiroAuthRegion.value = 'us-east-1'
+	    kiroApiRegion.value = 'us-east-1'
+	    kiroMachineId.value = ''
+	    kiroClientId.value = ''
+	    kiroClientSecret.value = ''
+	    kiroProfileArn.value = ''
     // Reset Anthropic/Antigravity-specific settings when switching to other platforms
     if (newPlatform !== 'anthropic' && newPlatform !== 'antigravity') {
       interceptWarmupRequests.value = false
@@ -3464,14 +3537,14 @@ watch(
     if (newPlatform !== 'anthropic') {
       anthropicPassthroughEnabled.value = false
     }
-    // Reset OAuth states
-    oauth.resetState()
-    openaiOAuth.resetState()
-
-    geminiOAuth.resetState()
-    antigravityOAuth.resetState()
-  }
-)
+	    // Reset OAuth states
+	    oauth.resetState()
+	    openaiOAuth.resetState()
+	    geminiOAuth.resetState()
+	    antigravityOAuth.resetState()
+	    kiroOAuth.resetState()
+	  }
+	)
 
 // Gemini AI Studio OAuth availability (requires operator-configured OAuth client)
 watch(
@@ -3869,6 +3942,16 @@ const resetForm = () => {
   antigravityAccountType.value = 'oauth'
   upstreamBaseUrl.value = ''
   upstreamApiKey.value = ''
+  kiroAuthMethod.value = 'social'
+  kiroSocialInputMode.value = 'manual'
+  kiroSocialProvider.value = 'google'
+  kiroRefreshToken.value = ''
+  kiroAuthRegion.value = 'us-east-1'
+  kiroApiRegion.value = 'us-east-1'
+  kiroMachineId.value = ''
+  kiroClientId.value = ''
+  kiroClientSecret.value = ''
+  kiroProfileArn.value = ''
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -3879,6 +3962,7 @@ const resetForm = () => {
   openaiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
+  kiroOAuth.resetState()
   oauthFlowRef.value?.reset()
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
@@ -4201,11 +4285,19 @@ const goBackToBasicInfo = () => {
   openaiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
+  kiroOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
 const handleGenerateUrl = async () => {
-  if (form.platform === 'openai') {
+  if (isKiroSocialOAuthFlow.value) {
+    await kiroOAuth.generateAuthUrl(
+      form.proxy_id,
+      kiroSocialProvider.value,
+      kiroAuthRegion.value,
+      kiroApiRegion.value
+    )
+  } else if (form.platform === 'openai') {
     await openaiOAuth.generateAuthUrl(form.proxy_id)
   } else if (form.platform === 'gemini') {
     await geminiOAuth.generateAuthUrl(
@@ -4657,6 +4749,49 @@ const handleAntigravityExchange = async (authCode: string) => {
   }
 }
 
+const handleKiroExchange = async (authCode: string) => {
+  if (!authCode.trim() || !kiroOAuth.sessionId.value) return
+
+  kiroOAuth.loading.value = true
+  kiroOAuth.error.value = ''
+
+  try {
+    const stateToUse = (oauthFlowRef.value?.oauthState || kiroOAuth.state.value || '').trim()
+    if (!stateToUse) {
+      kiroOAuth.error.value = t('admin.accounts.oauth.authFailed')
+      appStore.showError(kiroOAuth.error.value)
+      return
+    }
+
+    const tokenInfo = await kiroOAuth.exchangeAuthCode({
+      code: authCode.trim(),
+      sessionId: kiroOAuth.sessionId.value,
+      state: stateToUse,
+      proxyId: form.proxy_id
+    })
+    if (!tokenInfo) return
+
+    const credentials = kiroOAuth.buildCredentials(tokenInfo)
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    }
+
+    if (poolModeEnabled.value) {
+      credentials.pool_mode = true
+      credentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+    }
+
+    applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+    await createAccountAndFinish('anthropic', 'kiro', credentials)
+  } catch (error: any) {
+    kiroOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    appStore.showError(kiroOAuth.error.value)
+  } finally {
+    kiroOAuth.loading.value = false
+  }
+}
+
 // Anthropic OAuth 授权码兑换
 const handleAnthropicExchange = async (authCode: string) => {
   if (!authCode.trim() || !oauth.sessionId.value) return
@@ -4749,6 +4884,10 @@ const handleAnthropicExchange = async (authCode: string) => {
 // 主入口：根据平台路由到对应处理函数
 const handleExchangeCode = async () => {
   const authCode = oauthFlowRef.value?.authCode || ''
+
+  if (isKiroSocialOAuthFlow.value) {
+    return handleKiroExchange(authCode)
+  }
 
   switch (form.platform) {
     case 'openai':

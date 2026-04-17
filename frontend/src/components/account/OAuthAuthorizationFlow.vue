@@ -546,6 +546,8 @@ import Icon from '@/components/icons/Icon.vue'
 import type { AddMethod, AuthInputMethod } from '@/composables/useAccountOAuth'
 import type { AccountPlatform } from '@/types'
 
+type OAuthDisplayPlatform = AccountPlatform | 'kiro'
+
 interface Props {
   addMethod: AddMethod
   authUrl?: string
@@ -561,7 +563,7 @@ interface Props {
   showMobileRefreshTokenOption?: boolean // Whether to show mobile refresh token option (OpenAI only)
   showSessionTokenOption?: boolean
   showAccessTokenOption?: boolean
-  platform?: AccountPlatform // Platform type for different UI/text
+  platform?: OAuthDisplayPlatform // Platform type for different UI/text
   showProjectId?: boolean // New prop to control project ID visibility
 }
 
@@ -603,6 +605,7 @@ const getOAuthKey = (key: string) => {
   if (props.platform === 'openai') return `admin.accounts.oauth.openai.${key}`
   if (props.platform === 'gemini') return `admin.accounts.oauth.gemini.${key}`
   if (props.platform === 'antigravity') return `admin.accounts.oauth.antigravity.${key}`
+  if (props.platform === 'kiro') return `admin.accounts.oauth.kiro.${key}`
   return `admin.accounts.oauth.${key}`
 }
 
@@ -621,6 +624,7 @@ const oauthAuthCodeHint = computed(() => t(getOAuthKey('authCodeHint')))
 const oauthImportantNotice = computed(() => {
   if (props.platform === 'openai') return t('admin.accounts.oauth.openai.importantNotice')
   if (props.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.importantNotice')
+  if (props.platform === 'kiro') return t('admin.accounts.oauth.kiro.importantNotice')
   return ''
 })
 
@@ -664,7 +668,7 @@ watch(inputMethod, (newVal) => {
 // Auto-extract code from callback URL (OpenAI/Gemini/Antigravity)
 // e.g., http://localhost:8085/callback?code=xxx...&state=...
 watch(authCodeInput, (newVal) => {
-  if (props.platform !== 'openai' && props.platform !== 'gemini' && props.platform !== 'antigravity') return
+  if (props.platform !== 'openai' && props.platform !== 'gemini' && props.platform !== 'antigravity' && props.platform !== 'kiro') return
 
   const trimmed = newVal.trim()
   // Check if it looks like a URL with code parameter
@@ -674,7 +678,7 @@ watch(authCodeInput, (newVal) => {
       const url = new URL(trimmed)
       const code = url.searchParams.get('code')
       const stateParam = url.searchParams.get('state')
-      if ((props.platform === 'openai' || props.platform === 'gemini' || props.platform === 'antigravity') && stateParam) {
+      if ((props.platform === 'openai' || props.platform === 'gemini' || props.platform === 'antigravity' || props.platform === 'kiro') && stateParam) {
         oauthState.value = stateParam
       }
       if (code && code !== trimmed) {
@@ -685,7 +689,7 @@ watch(authCodeInput, (newVal) => {
       // If URL parsing fails, try regex extraction
       const match = trimmed.match(/[?&]code=([^&]+)/)
       const stateMatch = trimmed.match(/[?&]state=([^&]+)/)
-      if ((props.platform === 'openai' || props.platform === 'gemini' || props.platform === 'antigravity') && stateMatch && stateMatch[1]) {
+      if ((props.platform === 'openai' || props.platform === 'gemini' || props.platform === 'antigravity' || props.platform === 'kiro') && stateMatch && stateMatch[1]) {
         oauthState.value = stateMatch[1]
       }
       if (match && match[1] && match[1] !== trimmed) {

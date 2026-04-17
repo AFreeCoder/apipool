@@ -16,6 +16,8 @@ export interface KiroCredentialInput {
   refreshToken: string
   authRegion: string
   apiRegion: string
+  accessToken?: string
+  expiresAt?: number | string
   machineId?: string
   clientId?: string
   clientSecret?: string
@@ -44,6 +46,19 @@ export function buildKiroCredentials(input: KiroCredentialInput): Record<string,
     next.profile_arn = profileArn
   } else if (input.mode === 'edit') {
     delete next.profile_arn
+  }
+
+  const accessToken = input.accessToken?.trim()
+  if (accessToken) {
+    next.access_token = accessToken
+  } else if (input.mode === 'edit') {
+    delete next.access_token
+  }
+
+  if (input.expiresAt !== undefined && input.expiresAt !== null && `${input.expiresAt}`.trim() !== '') {
+    next.expires_at = input.expiresAt
+  } else if (input.mode === 'edit') {
+    delete next.expires_at
   }
 
   if (input.authMethod === 'idc') {

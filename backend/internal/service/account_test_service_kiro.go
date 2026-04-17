@@ -45,7 +45,7 @@ func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("x-amz-user-agent", kiroIDCSDKUserAgent)
-	req.Header.Set("user-agent", fmt.Sprintf("KiroIDE-dev-%s", creds.MachineID))
+	req.Header.Set("user-agent", buildKiroDesktopUserAgent(creds.MachineID))
 	req.Header.Set("host", req.URL.Host)
 	req.Header.Set("amz-sdk-invocation-id", uuid.NewString())
 	req.Header.Set("amz-sdk-request", "attempt=1; max=4")

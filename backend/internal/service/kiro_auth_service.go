@@ -86,14 +86,16 @@ func (e *KiroRefreshError) Is(target error) bool {
 }
 
 type KiroAuthService struct {
-	proxyRepo    ProxyRepository
-	httpUpstream HTTPUpstream
+	proxyRepo          ProxyRepository
+	httpUpstream       HTTPUpstream
+	socialSessionStore *kiroSocialOAuthSessionStore
 }
 
 func NewKiroAuthService(proxyRepo ProxyRepository, httpUpstream HTTPUpstream) *KiroAuthService {
 	return &KiroAuthService{
-		proxyRepo:    proxyRepo,
-		httpUpstream: httpUpstream,
+		proxyRepo:          proxyRepo,
+		httpUpstream:       httpUpstream,
+		socialSessionStore: newKiroSocialOAuthSessionStore(),
 	}
 }
 
@@ -132,7 +134,7 @@ func (s *KiroAuthService) refreshSocial(ctx context.Context, account *Account, c
 	req.Header.Set("Accept", kiroSocialAcceptHeader)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept-Encoding", kiroSocialAcceptEncoding)
-	req.Header.Set("User-Agent", fmt.Sprintf("KiroIDE-dev-%s", creds.MachineID))
+	req.Header.Set("User-Agent", buildKiroDesktopUserAgent(creds.MachineID))
 	req.Header.Set("Host", req.URL.Host)
 	req.Header.Set("Connection", kiroRefreshConnectionHeader)
 
@@ -243,6 +245,10 @@ func buildKiroIDCRefreshRequest(ctx context.Context, creds *KiroCredentials, use
 }
 
 func parseKiroRefreshResponse(resp *http.Response) (*KiroTokenInfo, error) {
+	return parseKiroTokenResponse(resp)
+}
+
+func parseKiroTokenResponse(resp *http.Response) (*KiroTokenInfo, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

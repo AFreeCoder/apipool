@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -66,6 +67,95 @@ func TestKiroAuthService_RefreshSocial(t *testing.T) {
 	require.Equal(t, "application/json", upstream.requests[0].Header.Get("Content-Type"))
 	require.Contains(t, upstream.requests[0].Header.Get("User-Agent"), "KiroIDE-")
 	require.Contains(t, upstream.bodies[0], `"refreshToken":"rt-1"`)
+}
+
+func TestKiroAuthService_GenerateSocialAuthURL(t *testing.T) {
+	t.Parallel()
+
+	svc := NewKiroAuthService(nil, &kiroAuthHTTPUpstreamStub{})
+
+	result, err := svc.GenerateSocialAuthURL(context.Background(), &KiroGenerateSocialAuthURLInput{
+		Provider:   "google",
+		AuthRegion: "us-east-1",
+		APIRegion:  "us-west-2",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.AuthURL)
+	require.NotEmpty(t, result.SessionID)
+	require.NotEmpty(t, result.State)
+	require.NotEmpty(t, result.MachineID)
+	require.Equal(t, "us-east-1", result.AuthRegion)
+	require.Equal(t, "us-west-2", result.APIRegion)
+
+	parsed, err := url.Parse(result.AuthURL)
+	require.NoError(t, err)
+	require.Equal(t, "https", parsed.Scheme)
+	require.Equal(t, "prod.us-east-1.auth.desktop.kiro.dev", parsed.Host)
+	require.Equal(t, "/login", parsed.Path)
+	require.Equal(t, "google", parsed.Query().Get("idp"))
+	require.NotEmpty(t, parsed.Query().Get("redirect_uri"))
+	require.Equal(t, result.State, parsed.Query().Get("state"))
+	require.NotEmpty(t, parsed.Query().Get("code_challenge"))
+}
+
+func TestKiroAuthService_ExchangeSocialCode_StateMismatch(t *testing.T) {
+	t.Parallel()
+
+	upstream := &kiroAuthHTTPUpstreamStub{}
+	svc := NewKiroAuthService(nil, upstream)
+
+	result, err := svc.GenerateSocialAuthURL(context.Background(), &KiroGenerateSocialAuthURLInput{
+		Provider: "github",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ExchangeSocialCode(context.Background(), &KiroExchangeSocialCodeInput{
+		SessionID: result.SessionID,
+		State:     "wrong-state",
+		Code:      "auth-code",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "state")
+	require.Empty(t, upstream.requests)
+}
+
+func TestKiroAuthService_ExchangeSocialCode_Success(t *testing.T) {
+	t.Parallel()
+
+	upstream := &kiroAuthHTTPUpstreamStub{
+		responses: []*http.Response{
+			newJSONResponse(http.StatusOK, `{"accessToken":"at-2","refreshToken":"rt-2","expiresIn":3600,"profileArn":"arn:aws:kiro:::profile/default"}`),
+		},
+	}
+	svc := NewKiroAuthService(nil, upstream)
+
+	result, err := svc.GenerateSocialAuthURL(context.Background(), &KiroGenerateSocialAuthURLInput{
+		Provider:   "google",
+		AuthRegion: "us-east-1",
+		APIRegion:  "eu-west-1",
+	})
+	require.NoError(t, err)
+
+	info, err := svc.ExchangeSocialCode(context.Background(), &KiroExchangeSocialCodeInput{
+		SessionID: result.SessionID,
+		State:     result.State,
+		Code:      "auth-code",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "at-2", info.AccessToken)
+	require.Equal(t, "rt-2", info.RefreshToken)
+	require.Equal(t, "social", info.AuthMethod)
+	require.Equal(t, "google", info.Provider)
+	require.Equal(t, "us-east-1", info.AuthRegion)
+	require.Equal(t, "eu-west-1", info.APIRegion)
+	require.Equal(t, result.MachineID, info.MachineID)
+	require.Equal(t, "arn:aws:kiro:::profile/default", info.ProfileARN)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "application/json", upstream.requests[0].Header.Get("Content-Type"))
+	require.Contains(t, upstream.requests[0].Header.Get("User-Agent"), "KiroIDE-")
+	require.Contains(t, upstream.bodies[0], `"code":"auth-code"`)
+	require.Contains(t, upstream.bodies[0], `"redirect_uri":`)
+	require.Contains(t, upstream.bodies[0], `"code_verifier":`)
 }
 
 func TestKiroAuthService_RefreshIDC_InvalidGrant(t *testing.T) {

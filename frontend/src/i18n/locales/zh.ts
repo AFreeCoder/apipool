@@ -2815,6 +2815,27 @@ export default {
           validateAndCreate: '验证并创建账号',
           pleaseEnterRefreshToken: '请输入 Refresh Token',
           failedToValidateRT: '验证 Refresh Token 失败'
+        },
+        kiro: {
+          title: 'Kiro Social 登录',
+          followSteps: '请按照以下步骤完成 Kiro Social 登录，并将生成的凭据回填为 Kiro 账号。',
+          step1GenerateUrl: '生成 Kiro 登录链接',
+          generateAuthUrl: '生成登录链接',
+          step2OpenUrl: '在浏览器中打开链接并完成登录',
+          openUrlDesc: '请在新标签页中打开链接，使用 Google 或 GitHub 登录 Kiro。登录完成后，复制最终跳转的 callback URL 或其中的 code 参数。',
+          importantNotice: '如果浏览器最终跳转到 localhost 且显示无法连接，这通常是正常现象；直接复制地址栏中的完整 callback URL 即可。',
+          step3EnterCode: '输入回调链接或 Code',
+          authCodeDesc: '登录完成后，推荐直接复制完整 callback URL；也可以只复制 code 参数值。',
+          authCode: '回调链接或 Code',
+          authCodePlaceholder: '方式1（推荐）：粘贴完整 callback URL\n方式2：仅粘贴 code 参数值',
+          authCodeHint: '系统会自动从链接中提取 code 和 state。',
+          manualInput: '手动填写 Refresh Token',
+          browserLogin: '浏览器登录获取',
+          provider: '登录提供方',
+          providerHint: '请选择用于登录 Kiro 的社交账号提供方。',
+          failedToGenerateUrl: '生成 Kiro 登录链接失败',
+          missingExchangeParams: '缺少 code / session_id / state',
+          failedToExchangeCode: 'Kiro 授权码兑换失败'
         }
       },
       // Gemini specific (platform-wide)

@@ -57,7 +57,7 @@ func (s *GatewayService) forwardKiro(
 	req.Header.Set("x-amzn-codewhisperer-optout", "true")
 	req.Header.Set("x-amzn-kiro-agent-mode", "vibe")
 	req.Header.Set("x-amz-user-agent", kiroIDCSDKUserAgent)
-	req.Header.Set("user-agent", fmt.Sprintf("KiroIDE-dev-%s", creds.MachineID))
+	req.Header.Set("user-agent", buildKiroDesktopUserAgent(creds.MachineID))
 	req.Header.Set("host", req.URL.Host)
 	req.Header.Set("amz-sdk-invocation-id", uuid.NewString())
 	req.Header.Set("amz-sdk-request", kiroIDCSDKRequestHeader)

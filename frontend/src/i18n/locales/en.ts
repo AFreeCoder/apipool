@@ -2681,7 +2681,28 @@ export default {
                     validateAndCreate: 'Validate & Create',
                     pleaseEnterRefreshToken: 'Please enter Refresh Token',
                     failedToValidateRT: 'Failed to validate Refresh Token'
-                  }
+                  },
+        kiro: {
+          title: 'Kiro Social Login',
+          followSteps: 'Follow these steps to complete Kiro social login and convert the returned credentials into a Kiro account.',
+          step1GenerateUrl: 'Generate the Kiro login URL',
+          generateAuthUrl: 'Generate Login URL',
+          step2OpenUrl: 'Open the URL in your browser and sign in',
+          openUrlDesc: 'Open the URL in a new tab and sign in to Kiro with Google or GitHub. After login, copy the final callback URL or just the code parameter.',
+          importantNotice: 'If the browser finally redirects to localhost and shows a connection error, that is usually expected. Copy the full callback URL from the address bar.',
+          step3EnterCode: 'Enter Callback URL or Code',
+          authCodeDesc: 'After login, it is recommended to paste the full callback URL. You can also paste only the code parameter value.',
+          authCode: 'Callback URL or Code',
+          authCodePlaceholder: 'Option 1 (recommended): paste the full callback URL\nOption 2: paste only the code value',
+          authCodeHint: 'The system will automatically extract code and state from the URL.',
+          manualInput: 'Manual Refresh Token',
+          browserLogin: 'Browser Login',
+          provider: 'Login Provider',
+          providerHint: 'Choose the social provider you use to sign in to Kiro.',
+          failedToGenerateUrl: 'Failed to generate Kiro login URL',
+          missingExchangeParams: 'Missing code / session_id / state',
+          failedToExchangeCode: 'Failed to exchange Kiro auth code'
+        }
                 },      // Gemini specific (platform-wide)
       gemini: {
         helpButton: 'Help',
