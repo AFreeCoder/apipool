@@ -6,8 +6,6 @@
 
 APIPool 是一个 AI API 网关平台，专注于提供御三家 OpenAI、Claude、Gemini 的大模型 API 服务，只做最真的 API，做最靠谱的 API 站。
 
-![74cbec8450496d2477ed1b464a9ceb36](https://tjjsjwhj-blog.oss-cn-beijing.aliyuncs.com/2026/04/03/74cbec8450496d2477ed1b464a9ceb36.jpg)
-
 
 ---
 

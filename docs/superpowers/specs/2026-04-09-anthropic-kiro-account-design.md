@@ -758,110 +758,176 @@ Kiro 使用的上游端点来自社区逆向与兼容实现，虽然当前可用
 
 ---
 
-## 评审意见（2026-04-11）
+## 二次评审意见（2026-04-11）
 
-### 一、方案选型：无异议
+首轮评审的 10 项意见已全部合入正文。以下为二次评审发现的遗留问题：
 
-方案 1（新增独立 `kiro` 类型）是正确选择。现有代码中 `forwardBedrock` / `ClaudeTokenRefresher` / `ClaudeTokenProvider` 都是按类型隔离的，`TokenRefresher.CanRefresh()` 的判断逻辑就是 `platform + type` 组合（`token_refresher.go:42-43`）。这套架构天然支持新增类型，方案 1 是最低摩擦的扩展方式。
+### 1. IdC 刷新的 Content-Type 需确认
 
-### 二、需要修正或补充的问题
+第 7 节 idc 刷新细节指定 `Content-Type: application/json`，请求体也是 JSON。但 AWS OIDC token endpoint（`oidc.{region}.amazonaws.com/token`）标准协议通常使用 `application/x-www-form-urlencoded`。kiro.rs 的实际实现中可能做了适配，但这个点在实现时需要用真实 endpoint 验证。
 
-#### 1. `IsAPIKeyOrBedrock` 门控需同步扩展（实现层面会导致 bug）
+**建议**：在 idc 刷新细节中标注"以 kiro.rs 源码为准；如果上游返回 415 Unsupported Media Type 则切换为 `application/x-www-form-urlencoded`"。
 
-文档提到 Kiro 账号复用 `extra` 中的配额限制、池模式等通用能力，但代码中这些功能的门控条件是 `IsAPIKeyOrBedrock()`（`account.go:835-836`）。如果不把 `kiro` 加入，Kiro 账号将无法使用：
+### 2. 响应转换缺具体 event 映射
 
-- 配额限制（`shouldUpdateAccountQuota`）
-- 池模式（`IsPoolMode`）
-- 调度时的配额检查（`isAccountSchedulableForQuota`）
+第 6 节响应转换部分正确指出"Kiro 流式响应不是标准 Anthropic SSE"，需要独立适配层。但没有列出 Kiro 的 event 类型（如 kiro.rs 中的 `assistantResponseEvent`、`codeEvent` 等），以及如何映射到 Anthropic 的 `message_start` / `content_block_delta` / `message_stop` 事件。
 
-**建议**：将 `IsAPIKeyOrBedrock()` 扩展为 `IsAPIKeyOrBedrockOrKiro()`，或重构为更通用的 `SupportsQuota()` 方法。
+**建议**：在响应转换小节补充一句"具体 Kiro event 到 Anthropic SSE 的映射表在实现阶段参照 kiro.rs 的 `converter.rs` 补充"，明确这部分设计将在实现阶段细化而非遗漏。
 
-#### 2. `oneof` 校验标签遗漏（实现层面会导致 bug）
+### 3. 二次评审结论
 
-`account_handler.go:101` 的 `CreateAccountRequest.Type` 和 `:120` 的 `UpdateAccountRequest.Type` 都有 `binding:"oneof=oauth setup-token apikey upstream bedrock"` 硬编码校验。文档虽然提到了影响范围包含这两个 struct，但没有显式指出需要修改 **`oneof` binding tag**。这个细节容易在实现时遗漏。
+设计方案已具备进入实现的条件。上述两项为实现阶段注意事项，不阻塞开工。
 
-**建议**：在"影响范围"中显式列出：`account_handler.go` 中 `CreateAccountRequest.Type` 和 `UpdateAccountRequest.Type` 的 `oneof` binding tag 需添加 `kiro`。
+---
 
-#### 3. `domain_constants.go` 需两处同步
+## 实现评审（2026-04-11）
 
-`service/domain_constants.go` 是对 `domain/constants.go` 的 re-export，需要两处都加 `AccountTypeKiro`。文档已列出但没强调是两处同步修改，建议在实现 checklist 中标注。
+Codex 按 spec 分 9 个 commit 完成开发（`feat/anthropic-kiro-account` 分支）。本次针对代码实现的评审。
 
-#### 4. Kiro 账号与默认分组策略
+### 一、总体评价
 
-现有创建逻辑会自动绑定到平台默认分组（如 `anthropic-default`）。Kiro 作为 Anthropic 子类型，是否应该和普通 Claude OAuth 账号混在同一个默认分组中？
+代码结构与现有模式高度一致：
 
-**建议**：明确 Kiro 账号的默认分组策略。如果混排没问题则无需改动；如果需要隔离，应考虑建立 `anthropic-kiro-default` 分组。
+- 类型常量、`oneof` binding tag、前端 `AccountType` 联合类型、`domain_constants.go` re-export 全部同步修改
+- 能力门控按 spec 要求抽成 `SupportsQuotaLimit()` / `SupportsPoolMode()` / `SupportsCustomErrorCodes()` 语义方法，hot path 调用点全部切换（`account.go:843`、`mappers.go:277`、`gateway_service.go:2252/7341`）
+- 刷新、provider、converter、stream adapter、测试连接、网关转发全部按 spec 的 URL / header / 字段要求实现，DI 完整接入 `OAuthRefreshAPI` + `TokenRefreshService`
+- 单元测试覆盖 credentials、machine_id 规范化、刷新协议、token provider、stream adapter、converter、quota gating，共约 1200 行新增测试
 
-### 三、设计需要加强的地方
+### 二、验证结果
 
-#### 5. Kiro 请求协议转换细节缺失（缺失会阻塞实现）
+| 项目 | 结果 |
+|------|------|
+| `go build ./...` | 通过 |
+| `go test -tags=unit ./...` | 通过 |
+| `go test -tags=integration ./...` | 通过 |
+| `golangci-lint run --new-from-rev=main ./...` | 0 issues |
+| `pnpm test:run`（前端） | 308/308 通过 |
 
-文档第 4 节"网关实际请求转发"只说"将 Anthropic `/v1/messages` 请求转换为 Kiro 请求"，但没有描述：
+### 三、Must Fix（会造成运行时 bug）
 
-- Kiro 上游的 endpoint URL 格式是什么？
-- 请求头有哪些差异（`x-amz-*`？`x-kiro-*`？Bearer token？）
-- 请求体是否与 Anthropic Messages API 完全一致，还是有字段差异？
-- 响应格式（尤其是 SSE event 名称）是否与标准 Anthropic 一致？
+#### 1. `usage_billing_repo.go:135` 漏改导致 Kiro 账号配额写入被静默吞掉
 
-参考 kiro.rs，Kiro 上游的请求/响应格式与标准 Anthropic Messages API 基本一致但 header 不同。建议至少补充请求 URL 模板和关键 header 说明。
+`backend/internal/repository/usage_billing_repo.go:135` 仍然硬编码：
 
-#### 6. 刷新协议的具体细节不够（缺失会阻塞实现）
+```go
+if cmd.AccountQuotaCost > 0 && (strings.EqualFold(cmd.AccountType, service.AccountTypeAPIKey) || strings.EqualFold(cmd.AccountType, service.AccountTypeBedrock)) {
+    if err := incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost); err != nil {
+```
 
-文档给出了两个刷新 endpoint，但缺少：
+这与 `gateway_service.go:7341` 的 `shouldUpdateAccountQuota()` 新语义不一致。完整链路：
 
-- 请求方法（POST？）
-- 请求体格式（JSON？form-urlencoded？）
-- 请求头要求（Content-Type？`x-machine-id`？）
-- 响应体字段映射
+1. 网关计算完本次用量，`shouldUpdateAccountQuota()` 因 `SupportsQuotaLimit()` 返回 true，把 `cmd.AccountQuotaCost` 填好，`AccountType` 设为 `"kiro"`
+2. 进入 `repo.Apply → applyUsageBillingEffects`
+3. 这里的硬编码 type 检查把 Kiro 排除，**数据库里 Kiro 账号的 `quota_used` 永远不会递增**
 
-建议补充简明的请求/响应示例，或明确标注"参照 kiro.rs 源码中的 `auth.rs` 实现"。
+后果：Kiro 账号的配额限制完全失效，但前端还是会显示可配置配额，调度侧 `isAccountSchedulableForQuota` 也确实在读这个值，一旦运营团队依赖 Kiro 账号配额控制就会翻车。
 
-#### 7. `machine_id` 生成策略不明确
+`gateway_service.go:7387` 的 `postUsageBilling` fallback 路径在 Kiro 能正确写入，但生产走的是 `applyUsageBilling → repo.Apply`，不会走 fallback。
 
-文档说"缺失时按 Kiro 规则由后端生成"，但没有描述生成规则。kiro.rs 中 `machine_id` 是 UUID v4 格式。建议明确：
+**修复**：
 
-- 首次创建时是否自动生成并回写到 `credentials`？
-- 后续编辑时是否允许修改？
-- 是否做格式校验？
+```go
+if cmd.AccountQuotaCost > 0 &&
+    (strings.EqualFold(cmd.AccountType, service.AccountTypeAPIKey) ||
+     strings.EqualFold(cmd.AccountType, service.AccountTypeBedrock) ||
+     strings.EqualFold(cmd.AccountType, service.AccountTypeKiro)) {
+```
 
-#### 8. 默认 region 值未定义
+或者更根本的修复：把这个 type 判断抽成 `service.AccountTypeSupportsQuota(cmd.AccountType)` 辅助函数，和 Account 方法的 `SupportsQuotaLimit()` 共用一份枚举。
 
-文档说 `auth_region` 缺失时回退到 `api_region`，再回退到"默认区域"，但没有定义默认区域是什么。参考 kiro.rs，默认应为 `us-east-1`。建议显式写出默认值。
+同时建议在 `usage_billing_repo_integration_test.go` 加一个 Kiro 用例，防止回归。
 
-### 四、风险补充
+### 四、Should Fix（spec 要求未完全满足）
 
-#### 9. Kiro 上游服务的稳定性和生命周期
+#### 2. 刷新错误分类不完整
 
-kiro.rs 是社区项目，`kiro.dev` 域名背后的服务不是 AWS/Anthropic 的官方公开 API：
+spec 第 8 节"错误处理"要求区分 `invalid_grant` / `401/403` / `429` / `5xx`，但 `kiro_auth_service.go:153-158` 只在 `400 + invalid_grant` 子字符串命中时做特殊处理，其余错误一律 `"kiro refresh failed: ..."` 折叠：
 
-- 端点格式可能随时变化
-- 没有官方 SLA 保证
-- token 有效期、刷新机制可能调整
+```go
+if resp.StatusCode >= http.StatusBadRequest {
+    if resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(bodyText), "invalid_grant") {
+        return nil, fmt.Errorf("invalid_grant: %s", bodyText)
+    }
+    return nil, fmt.Errorf("kiro refresh failed: %s", bodyText)
+}
+```
 
-**建议**：在"风险与缓解"中补充此条。缓解措施：将 Kiro endpoint 模板抽为可配置项（`base_url` 字段预留已做了一步，但刷新 URL 也建议支持覆盖）。
+配合 `refresh_policy.go:48` 的 `KiroProviderRefreshPolicy` 全部走 `ProviderRefreshErrorUseExistingToken`，结果是 429 / 5xx / 403 都会被当成"临时失败继续用旧 token"。这在 refresh token 已被 IdC 撤销 (403) 或 Kiro 主站 5xx 持续宕机时没有大问题，但不能联动临时不可调度策略——也就是 spec 明确要求的"429 视为限流，可走临时不可调度"。
 
-#### 10. 前端 TypeScript 类型安全
+**建议**：
 
-`frontend/src/types/index.ts` 中 `AccountType` 是联合类型字面量。新增 `'kiro'` 后，所有对 `AccountType` 做 exhaustive switch/if 的地方都需要覆盖。文档前端部分只提到表单和筛选，没有提到类型定义的影响面分析。
+- 在 `parseKiroRefreshResponse` 返回 typed error（`ErrKiroInvalidGrant` / `ErrKiroRateLimited` / `ErrKiroUpstream`），或者至少把 status code 放到错误字符串里
+- `kiro_token_refresher.go` 或 `kiro_token_provider.go` 对 429 响应调用现有的 temp unschedulable 机制
 
-### 五、实施顺序微调建议
+#### 3. IdC 刷新 Content-Type 的二次评审建议未落地
 
-将原步骤 3（Kiro 刷新服务与 token provider）拆为两阶段：
+二次评审第 1 条写了："以 kiro.rs 源码为准，如果上游返回 415 则切换为 `application/x-www-form-urlencoded`"。
 
-- **3a**：实现 `KiroAuthService`（纯 HTTP 刷新逻辑）+ 单元测试
-- **3b**：实现 `KiroTokenRefresher` + `KiroTokenProvider` 并接入 `TokenRefreshService`
+`kiro_auth_service.go:119` 硬编码 `application/json`：
 
-原因：3a 可独立验证刷新协议是否正确（mock HTTP），3b 涉及与现有刷新基础设施的集成，分开后出问题更容易定位。
+```go
+req.Header.Set("content-type", "application/json")
+```
+
+没有 415 自动降级，也没有注释标注这是已知兼容风险。如果未来 AWS OIDC endpoint 要求回归到标准的 form-urlencoded，IdC 模式会整条挂掉。
+
+**建议**：至少加一行注释 `// NOTE: 若上游返回 415 Unsupported Media Type，需切换为 application/x-www-form-urlencoded（参考 kiro.rs auth.rs）`，便于运维定位。如果愿意做得更稳，可以在 401/415 时重试一次 form 格式。
+
+#### 4. Kiro 模型支持检查调用了 `claude.NormalizeModelID`
+
+`gateway_service.go:3437`：
+
+```go
+if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
+    requestedModel = claude.NormalizeModelID(requestedModel)
+}
+return account.IsModelSupported(requestedModel)
+```
+
+这个分支现在也会命中 Kiro 账号。虽然 `IsModelSupported` 内部本身已经会做一次 normalize（`account.go:567`），所以重复 normalize 不会破坏功能，但意图不清晰。参考 Bedrock 的做法——它有自己的 `IsBedrock()` 早退分支。
+
+**建议**：加一段 `if account.IsKiro() { return account.IsModelSupported(requestedModel) }`，或者直接让 `Platform==Anthropic && Type==Kiro` 跳过 `claude.NormalizeModelID`。这不是 bug，但容易在未来增加短 ID → Kiro 长 ID 映射时埋坑。
+
+### 五、Nice to Have（可延后）
+
+#### 5. 测试连接直接 `sendErrorAndEnd(err.Error())` 泄露内部信息
+
+`account_test_service_kiro.go:17-19` 等位置把底层错误直接回显到 SSE：
+
+```go
+if err != nil {
+    return s.sendErrorAndEnd(c, err.Error())
+}
+```
+
+包含完整的 `url.Parse` 错误栈或 HTTP 错误细节。参照 `testClaudeAccountConnection` 的常见处理，建议对外提示脱敏，内部用 slog 记录完整错误。
+
+#### 6. 错误状态码 `kiro upstream error: %d` 缺少上下文
+
+`gateway_service_kiro.go:84` 直接把 body 拼进错误，没有上下文分类，不便于后续错误分类器匹配。建议和第 2 点一起做成 typed error。
+
+#### 7. Converter 文件过大
+
+`kiro_converter.go` 单文件 804 行，包含结构体定义、请求体构建、工具名处理、system 提取、图片转换、tool pairing 修复、历史 placeholder、stream utils 等多层职责。建议后续拆成 `kiro_types.go` / `kiro_request_builder.go` / `kiro_tool_utils.go`，便于后续维护。**非本次必须**。
+
+#### 8. `kiro_converter_test.go` 只有 87 行，覆盖不足
+
+相对 804 行实现，测试明显偏薄。工具名 SHA256 截断、thinking prefix、image base64 decode、tool pairing validation 这些分支都没有显式用例。若日后 kiro.rs 更新协议，回归风险较高。
+
+#### 9. Spec 文档 vs 实现
+
+spec 第 4 节"兼容边界"里"首版保守处理 / 图片多模态 / 复杂工具调用"被实现覆盖了一遍——这个超出 spec 是加分，但需要同步更新 spec 或至少在 commit message 里标注，让运营团队知道首版实际支持这些能力。
 
 ### 六、评审结论
 
-| 维度 | 评价 |
-|------|------|
-| 方案选型 | 正确，无异议 |
-| 架构一致性 | 与现有代码模式高度一致 |
-| 覆盖面 | 前后端 + 刷新 + 转发 + 测试全链路覆盖 |
-| 主要缺陷 | `IsAPIKeyOrBedrock` 门控遗漏；Kiro 协议转换细节不足 |
-| 风险评估 | 基本充分，缺上游服务稳定性风险 |
-| 可执行性 | 高，按文档步骤可直接开工 |
+这版实现可以进入下一阶段（真实 Kiro 账号联调），但有一个必须在合并前修掉的 bug：
 
-**结论**：设计方案可以通过。进入实现前需补充第 1-2 项（不修会导致 bug）和第 5-6 项（缺失会阻塞实现）。其余项为建议性改进。
+- **Must Fix**：`usage_billing_repo.go:135` 的硬编码 type 检查漏掉了 Kiro，会导致 Kiro 账号的配额扣减在生产链路上被静默吞掉。建议一并补一条集成测试。
+
+- **Should Fix（强烈建议合并前修）**：
+  - 刷新错误分类没有 typed error，429 / 5xx / 403 无法联动临时不可调度
+  - IdC 刷新 Content-Type 的兼容风险未在代码中留痕
+
+- **Nice to Have**：测试连接错误脱敏、`claude.NormalizeModelID` 分支收敛、converter 拆分、converter 测试补强。
+
+整体是一次高质量的实现，修完上面第 1 项之后可以开始真实 Kiro 账号的端到端联调。
