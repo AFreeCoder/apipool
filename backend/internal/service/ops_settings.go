@@ -372,6 +372,7 @@ func defaultOpsAdvancedSettings() *OpsAdvancedSettings {
 		IgnoreContextCanceled:           true,  // Default to true - client disconnects are not errors
 		IgnoreNoAvailableAccounts:       false, // Default to false - this is a real routing issue
 		IgnoreInsufficientBalanceErrors: false, // 默认不忽略，余额不足可能需要关注
+		IgnoredErrorCodes:               []string{},
 		DisplayOpenAITokenStats:         false,
 		DisplayAlertEvents:              true,
 		AutoRefreshEnabled:              false,
@@ -400,6 +401,31 @@ func normalizeOpsAdvancedSettings(cfg *OpsAdvancedSettings) {
 	if cfg.AutoRefreshIntervalSec <= 0 {
 		cfg.AutoRefreshIntervalSec = 30
 	}
+	cfg.IgnoredErrorCodes = normalizeIgnoredErrorCodes(cfg.IgnoredErrorCodes)
+}
+
+func normalizeIgnoredErrorCodes(codes []string) []string {
+	if len(codes) == 0 {
+		return []string{}
+	}
+
+	normalized := make([]string, 0, len(codes))
+	seen := make(map[string]struct{}, len(codes))
+	for _, code := range codes {
+		code = strings.ToUpper(strings.TrimSpace(code))
+		if code == "" {
+			continue
+		}
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		normalized = append(normalized, code)
+	}
+	if len(normalized) == 0 {
+		return []string{}
+	}
+	return normalized
 }
 
 func validateOpsAdvancedSettings(cfg *OpsAdvancedSettings) error {

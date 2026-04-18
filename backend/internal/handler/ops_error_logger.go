@@ -740,7 +740,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 
 		// Skip logging if the error should be filtered based on settings
-		if shouldSkipOpsErrorLog(c.Request.Context(), ops, parsed.Message, string(body), c.Request.URL.Path) {
+		if shouldSkipOpsErrorLog(c.Request.Context(), ops, parsed.Code, parsed.Message, string(body), c.Request.URL.Path) {
 			return
 		}
 
@@ -1252,7 +1252,7 @@ func strconvItoa(v int) string {
 
 // shouldSkipOpsErrorLog determines if an error should be skipped from logging based on settings.
 // Returns true for errors that should be filtered according to OpsAdvancedSettings.
-func shouldSkipOpsErrorLog(ctx context.Context, ops *service.OpsService, message, body, requestPath string) bool {
+func shouldSkipOpsErrorLog(ctx context.Context, ops *service.OpsService, code, message, body, requestPath string) bool {
 	if ops == nil {
 		return false
 	}
@@ -1266,10 +1266,20 @@ func shouldSkipOpsErrorLog(ctx context.Context, ops *service.OpsService, message
 
 	msgLower := strings.ToLower(message)
 	bodyLower := strings.ToLower(body)
+	normalizedCode := strings.ToUpper(strings.TrimSpace(code))
 
 	// Check if count_tokens errors should be ignored
 	if settings.IgnoreCountTokensErrors && strings.Contains(requestPath, "/count_tokens") {
 		return true
+	}
+
+	// Check if exact error codes should be ignored.
+	if normalizedCode != "" {
+		for _, ignoredCode := range settings.IgnoredErrorCodes {
+			if normalizedCode == ignoredCode {
+				return true
+			}
+		}
 	}
 
 	// Check if context canceled errors should be ignored (client disconnects)

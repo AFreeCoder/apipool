@@ -20,6 +20,9 @@ func TestGetOpsAdvancedSettings_DefaultHidesOpenAITokenStats(t *testing.T) {
 	if !cfg.DisplayAlertEvents {
 		t.Fatalf("DisplayAlertEvents = false, want true by default")
 	}
+	if len(cfg.IgnoredErrorCodes) != 0 {
+		t.Fatalf("IgnoredErrorCodes = %v, want empty by default", cfg.IgnoredErrorCodes)
+	}
 	if repo.setCalls != 1 {
 		t.Fatalf("expected defaults to be persisted once, got %d", repo.setCalls)
 	}
@@ -32,6 +35,7 @@ func TestUpdateOpsAdvancedSettings_PersistsOpenAITokenStatsVisibility(t *testing
 	cfg := defaultOpsAdvancedSettings()
 	cfg.DisplayOpenAITokenStats = true
 	cfg.DisplayAlertEvents = false
+	cfg.IgnoredErrorCodes = []string{"API_KEY_QUOTA_EXHAUSTED", "INVALID_API_KEY"}
 
 	updated, err := svc.UpdateOpsAdvancedSettings(context.Background(), cfg)
 	if err != nil {
@@ -43,6 +47,9 @@ func TestUpdateOpsAdvancedSettings_PersistsOpenAITokenStatsVisibility(t *testing
 	if updated.DisplayAlertEvents {
 		t.Fatalf("DisplayAlertEvents = true, want false")
 	}
+	if len(updated.IgnoredErrorCodes) != 2 {
+		t.Fatalf("IgnoredErrorCodes len = %d, want 2", len(updated.IgnoredErrorCodes))
+	}
 
 	reloaded, err := svc.GetOpsAdvancedSettings(context.Background())
 	if err != nil {
@@ -53,6 +60,12 @@ func TestUpdateOpsAdvancedSettings_PersistsOpenAITokenStatsVisibility(t *testing
 	}
 	if reloaded.DisplayAlertEvents {
 		t.Fatalf("reloaded DisplayAlertEvents = true, want false")
+	}
+	if len(reloaded.IgnoredErrorCodes) != 2 {
+		t.Fatalf("reloaded IgnoredErrorCodes len = %d, want 2", len(reloaded.IgnoredErrorCodes))
+	}
+	if reloaded.IgnoredErrorCodes[0] != "API_KEY_QUOTA_EXHAUSTED" || reloaded.IgnoredErrorCodes[1] != "INVALID_API_KEY" {
+		t.Fatalf("reloaded IgnoredErrorCodes = %v, want persisted values", reloaded.IgnoredErrorCodes)
 	}
 }
 
@@ -93,5 +106,8 @@ func TestGetOpsAdvancedSettings_BackfillsNewDisplayFlagsFromDefaults(t *testing.
 	}
 	if !cfg.DisplayAlertEvents {
 		t.Fatalf("DisplayAlertEvents = false, want true default backfill")
+	}
+	if len(cfg.IgnoredErrorCodes) != 0 {
+		t.Fatalf("IgnoredErrorCodes = %v, want empty default backfill", cfg.IgnoredErrorCodes)
 	}
 }

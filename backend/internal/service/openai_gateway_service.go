@@ -1515,7 +1515,8 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	if len(candidates) == 0 {
-		return nil, ErrNoAvailableAccounts
+		stats := collectOpenAISelectionFailureStats(accounts, requestedModel, excludedIDs)
+		return nil, buildOpenAISelectionFailureError(requestedModel, stats)
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))

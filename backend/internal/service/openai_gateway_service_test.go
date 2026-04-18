@@ -793,6 +793,46 @@ func TestOpenAISelectAccountWithLoadAwareness_NoCandidates(t *testing.T) {
 	}
 }
 
+func TestOpenAISelectAccountWithLoadAwareness_NoCandidatesUnsupportedModel(t *testing.T) {
+	groupID := int64(1)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{
+				ID:          1,
+				Platform:    PlatformOpenAI,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    1,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"gpt-3.5-turbo": "gpt-3.5-turbo",
+					},
+				},
+			},
+		},
+	}
+	cache := &stubGatewayCache{}
+	concurrencyCache := stubConcurrencyCache{}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              cache,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gpt-4", nil)
+	if err == nil {
+		t.Fatalf("expected error for unsupported model")
+	}
+	if selection != nil {
+		t.Fatalf("expected nil selection")
+	}
+	if !strings.Contains(err.Error(), "supporting model: gpt-4") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_AllFullWaitPlan(t *testing.T) {
 	groupID := int64(1)
 	repo := stubOpenAIAccountRepo{

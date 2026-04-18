@@ -2041,6 +2041,45 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		require.Equal(t, int64(1), result.Account.ID, "应选择优先级最高的账号")
 	})
 
+	t.Run("模型不支持-负载感知返回 supporting model", func(t *testing.T) {
+		repo := &mockAccountRepoForPlatform{
+			accounts: []Account{
+				{
+					ID:          1,
+					Platform:    PlatformAnthropic,
+					Priority:    1,
+					Status:      StatusActive,
+					Schedulable: true,
+					Concurrency: 5,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"claude-sonnet-4-5-20250929": "claude-sonnet-4-5-20250929",
+						},
+					},
+				},
+			},
+			accountsByID: map[int64]*Account{},
+		}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+
+		svc := &GatewayService{
+			accountRepo:        repo,
+			cache:              &mockGatewayCacheForPlatform{},
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(&mockConcurrencyCache{}),
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-opus-4-8", nil, "", int64(0))
+		require.Error(t, err)
+		require.Nil(t, result)
+		require.Contains(t, err.Error(), "supporting model: claude-opus-4-8")
+	})
+
 	t.Run("模型路由-无ConcurrencyService也生效", func(t *testing.T) {
 		groupID := int64(1)
 		sessionHash := "sticky"

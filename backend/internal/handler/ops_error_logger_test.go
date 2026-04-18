@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -11,6 +13,65 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type opsErrorLoggerSettingRepoStub struct {
+	values map[string]string
+}
+
+func newOpsErrorLoggerSettingRepoStub() *opsErrorLoggerSettingRepoStub {
+	return &opsErrorLoggerSettingRepoStub{values: map[string]string{}}
+}
+
+func (s *opsErrorLoggerSettingRepoStub) Get(ctx context.Context, key string) (*service.Setting, error) {
+	value, err := s.GetValue(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return &service.Setting{Key: key, Value: value}, nil
+}
+
+func (s *opsErrorLoggerSettingRepoStub) GetValue(_ context.Context, key string) (string, error) {
+	value, ok := s.values[key]
+	if !ok {
+		return "", service.ErrSettingNotFound
+	}
+	return value, nil
+}
+
+func (s *opsErrorLoggerSettingRepoStub) Set(_ context.Context, key, value string) error {
+	s.values[key] = value
+	return nil
+}
+
+func (s *opsErrorLoggerSettingRepoStub) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, ok := s.values[key]; ok {
+			out[key] = value
+		}
+	}
+	return out, nil
+}
+
+func (s *opsErrorLoggerSettingRepoStub) SetMultiple(_ context.Context, settings map[string]string) error {
+	for key, value := range settings {
+		s.values[key] = value
+	}
+	return nil
+}
+
+func (s *opsErrorLoggerSettingRepoStub) GetAll(_ context.Context) (map[string]string, error) {
+	out := make(map[string]string, len(s.values))
+	for key, value := range s.values {
+		out[key] = value
+	}
+	return out, nil
+}
+
+func (s *opsErrorLoggerSettingRepoStub) Delete(_ context.Context, key string) error {
+	delete(s.values, key)
+	return nil
+}
 
 func resetOpsErrorLoggerStateForTest(t *testing.T) {
 	t.Helper()
@@ -273,6 +334,46 @@ func TestNormalizeOpsErrorType(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestShouldSkipOpsErrorLog_IgnoresConfiguredErrorCodes(t *testing.T) {
+	repo := newOpsErrorLoggerSettingRepoStub()
+	cfg := map[string]any{
+		"data_retention": map[string]any{
+			"cleanup_enabled":               false,
+			"cleanup_schedule":              "0 2 * * *",
+			"error_log_retention_days":      30,
+			"minute_metrics_retention_days": 30,
+			"hourly_metrics_retention_days": 30,
+		},
+		"aggregation": map[string]any{
+			"aggregation_enabled": false,
+		},
+		"ignore_count_tokens_errors":         true,
+		"ignore_context_canceled":            true,
+		"ignore_no_available_accounts":       false,
+		"ignore_invalid_api_key_errors":      false,
+		"ignore_insufficient_balance_errors": false,
+		"ignored_error_codes":                []string{"API_KEY_QUOTA_EXHAUSTED"},
+		"display_openai_token_stats":         false,
+		"display_alert_events":               true,
+		"auto_refresh_enabled":               false,
+		"auto_refresh_interval_seconds":      30,
+	}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	repo.values[service.SettingKeyOpsAdvancedSettings] = string(raw)
+
+	ops := service.NewOpsService(nil, repo, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	require.True(t, shouldSkipOpsErrorLog(
+		context.Background(),
+		ops,
+		"API_KEY_QUOTA_EXHAUSTED",
+		"API key 额度已用完",
+		`{"code":"API_KEY_QUOTA_EXHAUSTED","message":"API key 额度已用完"}`,
+		"/v1/messages",
+	))
 }
 
 func TestSetOpsEndpointContext_SetsContextKeys(t *testing.T) {

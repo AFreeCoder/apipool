@@ -37,6 +37,23 @@ const metricThresholds = ref<OpsMetricThresholds>({
   upstream_error_rate_percent_max: 5
 })
 
+function normalizeIgnoredErrorCodes(value: string): string[] {
+  return Array.from(new Set(
+    value
+      .split(/[\n,;]+/)
+      .map(code => code.trim().toUpperCase())
+      .filter(Boolean)
+  ))
+}
+
+const ignoredErrorCodesText = computed({
+  get: () => (advancedSettings.value?.ignored_error_codes || []).join('\n'),
+  set: (value: string) => {
+    if (!advancedSettings.value) return
+    advancedSettings.value.ignored_error_codes = normalizeIgnoredErrorCodes(value)
+  }
+})
+
 // 加载所有配置
 async function loadAllSettings() {
   loading.value = true
@@ -49,7 +66,10 @@ async function loadAllSettings() {
     ])
     runtimeSettings.value = runtime
     emailConfig.value = email
-    advancedSettings.value = advanced
+    advancedSettings.value = {
+      ...advanced,
+      ignored_error_codes: advanced.ignored_error_codes || []
+    }
     // 如果后端返回了阈值，使用后端的值；否则保持默认值
     if (thresholds && Object.keys(thresholds).length > 0) {
         metricThresholds.value = {
@@ -525,6 +545,19 @@ async function saveAllSettings() {
                 </p>
               </div>
               <Toggle v-model="advancedSettings.ignore_insufficient_balance_errors" />
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('admin.ops.settings.ignoredErrorCodes') }}</label>
+              <textarea
+                v-model="ignoredErrorCodesText"
+                rows="4"
+                class="input min-h-[112px]"
+                :placeholder="t('admin.ops.settings.ignoredErrorCodesPlaceholder')"
+              />
+              <p class="mt-1 text-xs text-gray-500">
+                {{ t('admin.ops.settings.ignoredErrorCodesHint') }}
+              </p>
             </div>
           </div>
 

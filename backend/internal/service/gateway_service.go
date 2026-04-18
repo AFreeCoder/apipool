@@ -1684,7 +1684,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	if len(candidates) == 0 {
-		return nil, ErrNoAvailableAccounts
+		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, useMixed)
+		return nil, buildSelectionFailureError(requestedModel, stats)
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
@@ -3383,6 +3384,31 @@ func appendSelectionFailureRateSample(samples []string, accountID int64, remaini
 		return samples
 	}
 	return append(samples, fmt.Sprintf("%d(%s)", accountID, remaining))
+}
+
+func (s selectionFailureStats) modelUnsupportedOnly() bool {
+	if s.Total == 0 {
+		return false
+	}
+	considered := s.Total - s.Excluded
+	if considered <= 0 || s.ModelUnsupported == 0 {
+		return false
+	}
+	return s.ModelUnsupported == considered &&
+		s.Eligible == 0 &&
+		s.Unschedulable == 0 &&
+		s.PlatformFiltered == 0 &&
+		s.ModelRateLimited == 0
+}
+
+func buildSelectionFailureError(requestedModel string, stats selectionFailureStats) error {
+	if strings.TrimSpace(requestedModel) != "" && stats.modelUnsupportedOnly() {
+		return fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
+	}
+	if stats.Total == 0 {
+		return ErrNoAvailableAccounts
+	}
+	return fmt.Errorf("%w (%s)", ErrNoAvailableAccounts, summarizeSelectionFailureStats(stats))
 }
 
 func summarizeSelectionFailureStats(stats selectionFailureStats) string {

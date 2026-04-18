@@ -416,6 +416,33 @@ func buildOpenAISelectionFailureError(requestedModel string, stats openAISelecti
 	return fmt.Errorf("%w (%s)", ErrNoAvailableAccounts, stats.summary())
 }
 
+func collectOpenAISelectionFailureStats(accounts []Account, requestedModel string, excludedIDs map[int64]struct{}) openAISelectionFailureStats {
+	stats := openAISelectionFailureStats{Total: len(accounts)}
+	for i := range accounts {
+		acc := &accounts[i]
+		if acc == nil {
+			stats.Unschedulable++
+			continue
+		}
+		if excludedIDs != nil {
+			if _, excluded := excludedIDs[acc.ID]; excluded {
+				stats.Excluded++
+				continue
+			}
+		}
+		if !acc.IsSchedulable() {
+			stats.Unschedulable++
+			continue
+		}
+		if strings.TrimSpace(requestedModel) != "" && !acc.IsModelSupported(requestedModel) {
+			stats.ModelUnsupported++
+			continue
+		}
+		stats.Eligible++
+	}
+	return stats
+}
+
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
 
 func (h openAIAccountCandidateHeap) Len() int {
