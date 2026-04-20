@@ -1597,7 +1597,11 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 				c.Request.Header.Set("originator", tt.originator)
 			}
 
-			svc := &OpenAIGatewayService{}
+			svc := &OpenAIGatewayService{cfg: &config.Config{
+				Security: config.SecurityConfig{
+					URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+				},
+			}}
 			account := &Account{
 				Type:        AccountTypeOAuth,
 				Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
@@ -1609,6 +1613,73 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 			require.Equal(t, tt.wantOriginator, req.Header.Get("originator"))
 		})
 	}
+}
+
+func TestOpenAIBuildUpstreamRequestNormalizesLeadingSlashUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name      string
+		userAgent string
+		wantUA    string
+	}{
+		{
+			name:      "leading slash is stripped",
+			userAgent: "/eusoft_eudic_en_mac/26.2.2/86:AB:55:1F:56:1F/",
+			wantUA:    "eusoft_eudic_en_mac/26.2.2/86:AB:55:1F:56:1F/",
+		},
+		{
+			name:      "normal ua preserved",
+			userAgent: "custom-client/1.0",
+			wantUA:    "custom-client/1.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"gpt-5"}`)))
+			c.Request.Header.Set("User-Agent", tt.userAgent)
+
+			svc := &OpenAIGatewayService{cfg: &config.Config{
+				Security: config.SecurityConfig{
+					URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+				},
+			}}
+			account := &Account{
+				Type:     AccountTypeAPIKey,
+				Platform: PlatformOpenAI,
+			}
+
+			req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token", false, "", false)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantUA, req.Header.Get("User-Agent"))
+		})
+	}
+}
+
+func TestOpenAIBuildUpstreamRequestOpenAIPassthroughNormalizesLeadingSlashUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"gpt-5"}`)))
+	c.Request.Header.Set("User-Agent", "/eusoft_eudic_en_mac/26.2.2")
+
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+	account := &Account{
+		Type:     AccountTypeAPIKey,
+		Platform: PlatformOpenAI,
+	}
+
+	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token")
+	require.NoError(t, err)
+	require.Equal(t, "eusoft_eudic_en_mac/26.2.2", req.Header.Get("User-Agent"))
 }
 
 // ==================== P1-08 修复：model 替换性能优化测试 ====================

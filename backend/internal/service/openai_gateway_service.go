@@ -102,6 +102,29 @@ var codexCLIOnlyDebugHeaderWhitelist = []string{
 	"X-Real-IP",
 }
 
+func normalizeOpenAIUpstreamUserAgent(raw string) string {
+	ua := strings.TrimSpace(raw)
+	if ua == "" {
+		return ""
+	}
+	if strings.HasPrefix(ua, "/") {
+		ua = strings.TrimLeft(ua, "/")
+	}
+	return ua
+}
+
+func normalizeOpenAIUpstreamUserAgentHeader(headers http.Header) {
+	if headers == nil {
+		return
+	}
+	ua := normalizeOpenAIUpstreamUserAgent(headers.Get("user-agent"))
+	if ua == "" {
+		headers.Del("user-agent")
+		return
+	}
+	headers.Set("user-agent", ua)
+}
+
 // OpenAICodexUsageSnapshot represents Codex API usage limits from response headers
 type OpenAICodexUsageSnapshot struct {
 	PrimaryUsedPercent          *float64 `json:"primary_used_percent,omitempty"`
@@ -2745,6 +2768,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 		req.Header.Set("user-agent", codexCLIUserAgent)
 	}
+	normalizeOpenAIUpstreamUserAgentHeader(req.Header)
 	// OAuth 安全透传：对非 Codex UA 统一兜底，降低被上游风控拦截概率。
 	if account.Type == AccountTypeOAuth && !openai.IsCodexCLIRequest(req.Header.Get("user-agent")) {
 		req.Header.Set("user-agent", codexCLIUserAgent)
@@ -3237,6 +3261,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 		req.Header.Set("user-agent", codexCLIUserAgent)
 	}
+	normalizeOpenAIUpstreamUserAgentHeader(req.Header)
 
 	// Ensure required headers exist
 	if req.Header.Get("content-type") == "" {

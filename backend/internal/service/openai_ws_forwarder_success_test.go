@@ -541,6 +541,73 @@ func TestOpenAIGatewayService_Forward_WSv2_OAuthOriginatorCompatibility(t *testi
 	}
 }
 
+func TestOpenAIGatewayService_BuildOpenAIWSHeadersNormalizesLeadingSlashUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		requestUA   string
+		accountUA   string
+		wantUA      string
+		accountType string
+	}{
+		{
+			name:        "request user agent strips leading slash",
+			requestUA:   "/eusoft_eudic_en_mac/26.2.2/86:AB:55:1F:56:1F/",
+			wantUA:      "eusoft_eudic_en_mac/26.2.2/86:AB:55:1F:56:1F/",
+			accountType: AccountTypeAPIKey,
+		},
+		{
+			name:        "account custom user agent also strips leading slash",
+			requestUA:   "ignored-client/1.0",
+			accountUA:   "/custom-client/1.0",
+			wantUA:      "custom-client/1.0",
+			accountType: AccountTypeAPIKey,
+		},
+		{
+			name:        "normal user agent stays unchanged",
+			requestUA:   "custom-client/1.0",
+			wantUA:      "custom-client/1.0",
+			accountType: AccountTypeAPIKey,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+			if tt.requestUA != "" {
+				c.Request.Header.Set("User-Agent", tt.requestUA)
+			}
+
+			svc := &OpenAIGatewayService{}
+			account := &Account{
+				Type:     tt.accountType,
+				Platform: PlatformOpenAI,
+			}
+			if strings.TrimSpace(tt.accountUA) != "" {
+				account.Credentials = map[string]any{
+					"user_agent": tt.accountUA,
+				}
+			}
+
+			headers, _ := svc.buildOpenAIWSHeaders(
+				c,
+				account,
+				"token",
+				OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2},
+				false,
+				"",
+				"",
+				"",
+			)
+
+			require.Equal(t, tt.wantUA, headers.Get("User-Agent"))
+		})
+	}
+}
+
 func TestOpenAIGatewayService_Forward_WSv2_HeaderSessionFallbackFromPromptCacheKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
