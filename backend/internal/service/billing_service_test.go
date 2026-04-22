@@ -90,7 +90,7 @@ func TestCalculateCost_ZeroMultiplierAllowed(t *testing.T) {
 	require.Equal(t, 0.0, costZero.ActualCost)
 }
 
-func TestCalculateCost_NegativeMultiplierDefaultsToOne(t *testing.T) {
+func TestCalculateCost_NegativeMultiplierFallsBackToZero(t *testing.T) {
 	svc := newTestBillingService()
 
 	tokens := UsageTokens{InputTokens: 1000}
@@ -98,10 +98,11 @@ func TestCalculateCost_NegativeMultiplierDefaultsToOne(t *testing.T) {
 	costNeg, err := svc.CalculateCost("claude-sonnet-4", tokens, -1.0)
 	require.NoError(t, err)
 
-	costOne, err := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
+	costZero, err := svc.CalculateCost("claude-sonnet-4", tokens, 0)
 	require.NoError(t, err)
 
-	require.InDelta(t, costOne.ActualCost, costNeg.ActualCost, 1e-10)
+	require.InDelta(t, costZero.TotalCost, costNeg.TotalCost, 1e-10)
+	require.InDelta(t, costZero.ActualCost, costNeg.ActualCost, 1e-10)
 }
 
 func TestGetModelPricing_FallbackMatchesByFamily(t *testing.T) {
@@ -156,15 +157,6 @@ func TestGetModelPricing_UnknownOpenAIModelReturnsError(t *testing.T) {
 	require.Contains(t, err.Error(), "pricing not found")
 }
 
-func TestGetModelPricing_OpenAIGPT51Fallback(t *testing.T) {
-	svc := newTestBillingService()
-
-	pricing, err := svc.GetModelPricing("gpt-5.1")
-	require.NoError(t, err)
-	require.NotNil(t, pricing)
-	require.InDelta(t, 1.25e-6, pricing.InputPricePerToken, 1e-12)
-}
-
 func TestGetModelPricing_OpenAIGPT54Fallback(t *testing.T) {
 	svc := newTestBillingService()
 
@@ -188,18 +180,6 @@ func TestGetModelPricing_OpenAIGPT54MiniFallback(t *testing.T) {
 	require.InDelta(t, 7.5e-7, pricing.InputPricePerToken, 1e-12)
 	require.InDelta(t, 4.5e-6, pricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 7.5e-8, pricing.CacheReadPricePerToken, 1e-12)
-	require.Zero(t, pricing.LongContextInputThreshold)
-}
-
-func TestGetModelPricing_OpenAIGPT54NanoFallback(t *testing.T) {
-	svc := newTestBillingService()
-
-	pricing, err := svc.GetModelPricing("gpt-5.4-nano")
-	require.NoError(t, err)
-	require.NotNil(t, pricing)
-	require.InDelta(t, 2e-7, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 1.25e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 2e-8, pricing.CacheReadPricePerToken, 1e-12)
 	require.Zero(t, pricing.LongContextInputThreshold)
 }
 
@@ -237,13 +217,13 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "claude generic model fallback sonnet", model: "claude-foo-bar", expectedInput: 3e-6},
 		{name: "gemini explicit fallback", model: "gemini-3-1-pro", expectedInput: 2e-6},
 		{name: "gemini unknown no fallback", model: "gemini-2.0-pro", expectNilPricing: true},
-		{name: "openai gpt5.1", model: "gpt-5.1", expectedInput: 1.25e-6},
 		{name: "openai gpt5.4", model: "gpt-5.4", expectedInput: 2.5e-6},
 		{name: "openai gpt5.4 mini", model: "gpt-5.4-mini", expectedInput: 7.5e-7},
-		{name: "openai gpt5.4 nano", model: "gpt-5.4-nano", expectedInput: 2e-7},
 		{name: "openai gpt5.3 codex", model: "gpt-5.3-codex", expectedInput: 1.5e-6},
-		{name: "openai gpt5.1 codex max alias", model: "gpt-5.1-codex-max", expectedInput: 1.5e-6},
-		{name: "openai codex mini latest alias", model: "codex-mini-latest", expectedInput: 1.5e-6},
+		{name: "openai gpt5.3 codex spark", model: "gpt-5.3-codex-spark", expectedInput: 1.5e-6},
+		{name: "openai legacy gpt5.1 falls back to gpt5.4", model: "gpt-5.1", expectedInput: 2.5e-6},
+		{name: "openai legacy gpt5.1 codex falls back to gpt5.3 codex", model: "gpt-5.1-codex", expectedInput: 1.5e-6},
+		{name: "openai legacy codex mini latest falls back to gpt5.3 codex", model: "codex-mini-latest", expectedInput: 1.5e-6},
 		{name: "openai unknown no fallback", model: "gpt-unknown-model", expectNilPricing: true},
 		{name: "non supported family", model: "qwen-max", expectNilPricing: true},
 	}

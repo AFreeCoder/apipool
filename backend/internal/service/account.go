@@ -121,6 +121,9 @@ func (a *Account) IsSchedulable() bool {
 	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {
 		return false
 	}
+	if a.IsAPIKeyOrBedrock() && a.IsQuotaExceeded() {
+		return false
+	}
 	return true
 }
 
@@ -940,6 +943,34 @@ func (a *Account) GetChatGPTAccountID() string {
 		return ""
 	}
 	return a.GetCredential("chatgpt_account_id")
+}
+
+func (a *Account) GetOpenAIDeviceID() string {
+	if !a.IsOpenAIOAuth() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetExtraString("openai_device_id"))
+}
+
+func (a *Account) GetOpenAISessionID() string {
+	if !a.IsOpenAIOAuth() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetExtraString("openai_session_id"))
+}
+
+func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapability) bool {
+	if !a.IsOpenAI() {
+		return false
+	}
+	switch capability {
+	case OpenAIImagesCapabilityBasic:
+		return a.Type == AccountTypeOAuth || a.Type == AccountTypeAPIKey
+	case OpenAIImagesCapabilityNative:
+		return a.Type == AccountTypeAPIKey
+	default:
+		return true
+	}
 }
 
 func (a *Account) GetChatGPTUserID() string {

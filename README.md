@@ -203,4 +203,6 @@ apipool/
 
 ## 许可证
 
-MIT License
+本项目遵循 [GNU Lesser General Public License v3.0](LICENSE)（或更高版本）。
+
+Copyright (c) 2026 Wesley Liddick

@@ -60,9 +60,22 @@ cat > "$OUT" <<EOF
 
 ## 测试记录
 
-- 待补：后端 unit / integration / lint
-- 待补：前端 lint / typecheck / test
-- 待补：版本链路与部署校验
+- 待补：\`cd backend && go test -tags=unit ./...\`
+- 待补：\`cd backend && make test-unit\`
+- 待补：\`cd backend && go test -tags=integration ./...\`
+- 待补：\`cd backend && make test-integration\`
+- 待补：\`cd backend && golangci-lint run ./...\`
+- 待补：\`pnpm --dir frontend run lint:check\`
+- 待补：\`pnpm --dir frontend run typecheck\`
+- 待补：\`pnpm --dir frontend run test:run\`
+- 待补：\`git tag --merged upstream/main --sort=-version:refname | head -1\`
+- 待补：\`cat backend/cmd/server/VERSION\`
+- 待补：\`make build\`
+- 待补：\`docker compose -f deploy/docker-compose.deploy.yml config -q\`
+- 待补：\`docker compose -f deploy/docker-compose.local.yml config -q\`
+- 待补：\`bash deploy/version_resolver.sh resolve .\`
+- 待补：\`bash scripts/collect_upstream_sync_context.sh --no-fetch\`
+- 待补：部署后版本输出 / 页面版本人工核对
 
 ## 剩余风险与观察点
 

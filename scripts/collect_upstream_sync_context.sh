@@ -34,14 +34,17 @@ LATEST_TAG="$(git tag --merged upstream/main --sort=-version:refname | head -1)"
 
 LOCAL_ONLY_COUNT="$(git rev-list --count "$MERGE_BASE..$LOCAL_BASELINE")"
 UPSTREAM_ONLY_COUNT="$(git rev-list --count "$MERGE_BASE..$UPSTREAM_PARENT")"
+LOCAL_CHANGED_FILES="$(git diff --name-only "$MERGE_BASE..$LOCAL_BASELINE" | sort || true)"
+UPSTREAM_CHANGED_FILES="$(git diff --name-only "$MERGE_BASE..$UPSTREAM_PARENT" | sort || true)"
 
 OVERLAP_FILES="$(
   comm -12 \
-    <(git diff --name-only "$MERGE_BASE..$LOCAL_BASELINE" | sort) \
-    <(git diff --name-only "$MERGE_BASE..$UPSTREAM_PARENT" | sort) || true
+    <(printf '%s\n' "$LOCAL_CHANGED_FILES") \
+    <(printf '%s\n' "$UPSTREAM_CHANGED_FILES") || true
 )"
 
-HIGH_RISK_PATTERN='(^README|^deploy/|AppHeader|SettingsView|ratelimit_service|openai_oauth|openai_gateway|codex|oauth|VERSION|release|workflow|logo)'
+HIGH_RISK_PATTERN='(^README|^deploy/|AppHeader|AppSidebar|SettingsView|PurchaseSubscriptionView|ratelimit_service|openai_oauth|openai_gateway|codex|oauth|VERSION|release|workflow|logo)'
+HIGH_RISK_UPSTREAM="$(printf '%s\n' "$UPSTREAM_CHANGED_FILES" | rg "$HIGH_RISK_PATTERN" || true)"
 HIGH_RISK_OVERLAP="$(printf '%s\n' "$OVERLAP_FILES" | rg "$HIGH_RISK_PATTERN" || true)"
 
 cat <<EOF
@@ -69,6 +72,9 @@ $(git log --oneline --no-merges "$MERGE_BASE..$LOCAL_BASELINE" || true)
 
 == File Overlap ==
 ${OVERLAP_FILES:-<none>}
+
+== High-risk Upstream Changes ==
+${HIGH_RISK_UPSTREAM:-<none>}
 
 == High-risk Overlap ==
 ${HIGH_RISK_OVERLAP:-<none>}

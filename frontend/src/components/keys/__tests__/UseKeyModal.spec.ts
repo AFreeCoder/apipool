@@ -103,7 +103,7 @@ describe('UseKeyModal', () => {
     expect(generatedConfig).toContain('"primary": "apipool-anthropic/claude-opus-4-6"')
   })
 
-  it('OpenCode 配置会展示更新后的 GPT-5.4 Mini/Nano 名称', async () => {
+  it('OpenCode 配置会展示 GPT-5.4 Mini，且不再展示 Nano', async () => {
     const wrapper = mountUseKeyModal('openai', 'https://example.com/v1')
 
     const opencodeTab = findButtonByText(wrapper, 'keys.useKeyModal.cliTabs.opencode')
@@ -115,6 +115,6 @@ describe('UseKeyModal', () => {
     const codeBlock = wrapper.find('pre code')
     expect(codeBlock.exists()).toBe(true)
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
-    expect(codeBlock.text()).toContain('"name": "GPT-5.4 Nano"')
+    expect(codeBlock.text()).not.toContain('"name": "GPT-5.4 Nano"')
   })
 })

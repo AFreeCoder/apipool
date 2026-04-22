@@ -138,6 +138,7 @@ docs/plans/*
 frontend/src/docs/media/
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
+!docs/ADMIN_PAYMENT_INTEGRATION_API.md
 .serena/
 .codex/
 frontend/coverage/
