@@ -13,6 +13,7 @@ IMAGE_REPO="${IMAGE_REPO:-deploy-sub2api}"
 APP_SERVICE="${APP_SERVICE:-sub2api}"
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-sub2api-postgres}"
 REDIS_CONTAINER="${REDIS_CONTAINER:-sub2api-redis}"
+PREDEPLOY_BACKUP_RETENTION_HOURS="${PREDEPLOY_BACKUP_RETENTION_HOURS:-168}"
 
 log() {
   printf '[rollback] %s\n' "$*"
@@ -118,6 +119,7 @@ backup_db() {
 
   docker exec "$POSTGRES_CONTAINER" pg_dump -U "$db_user" -d "$db_name" --clean --if-exists | gzip > "$backup_file"
   gzip -t "$backup_file"
+  find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pre-deploy-*.sql.gz' -mmin "+$((PREDEPLOY_BACKUP_RETENTION_HOURS * 60))" -delete
 
   log "数据库备份完成: $backup_file"
 }
