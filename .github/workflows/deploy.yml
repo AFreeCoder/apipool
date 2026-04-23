@@ -239,7 +239,8 @@ jobs:
                   rm -f "$BIZ_BACKUP_FILE"
                 fi
               fi
-              docker compose -f "$BIZ_COMPOSE" --env-file "$BIZ_ENV" up -d --remove-orphans
+              # BIZ compose 仅声明 sub2api-biz，若带 --remove-orphans 会误删同 project 下的主站容器。
+              docker compose -f "$BIZ_COMPOSE" --env-file "$BIZ_ENV" up -d
               wait_for_health sub2api-biz 180
               echo "企业版实例更新完成"
             else
