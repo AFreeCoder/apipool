@@ -240,6 +240,10 @@ jobs:
                 fi
               fi
               # BIZ compose 仅声明 sub2api-biz，若带 --remove-orphans 会误删同 project 下的主站容器。
+              # 旧的 sub2api-biz 不是总能被当前 compose 项目接管，先显式删除可避免同名冲突。
+              if docker ps -a --filter "name=^sub2api-biz$" --format '{{.Names}}' | grep -q .; then
+                docker rm -f sub2api-biz >/dev/null 2>&1 || true
+              fi
               docker compose -f "$BIZ_COMPOSE" --env-file "$BIZ_ENV" up -d
               wait_for_health sub2api-biz 180
               echo "企业版实例更新完成"
