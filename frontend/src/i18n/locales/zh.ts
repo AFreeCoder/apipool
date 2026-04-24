@@ -245,6 +245,7 @@ export default {
   // Common
   common: {
     loading: '加载中...',
+    submitting: '提交中...',
     justNow: '刚刚',
     save: '保存',
     saved: '保存成功',
@@ -272,6 +273,7 @@ export default {
     no: '否',
     all: '全部',
     none: '无',
+    selectAll: '全选',
     noData: '暂无数据',
     expand: '展开',
     collapse: '收起',
@@ -306,6 +308,12 @@ export default {
     saving: '保存中...',
     selectedCount: '（已选 {count} 个）',
     refresh: '刷新',
+    autoRefresh: {
+      title: '自动刷新',
+      enable: '启用自动刷新',
+      countdown: '自动刷新: {seconds}s',
+      seconds: '{n} 秒',
+    },
     view: '查看',
     settings: '设置',
     chooseFile: '选择文件',
@@ -342,6 +350,7 @@ export default {
     users: '用户管理',
     groups: '分组管理',
     channels: '渠道管理',
+    availableChannels: '可用渠道',
     subscriptions: '订阅管理',
     accounts: '账号管理',
     proxies: 'IP管理',
@@ -363,7 +372,11 @@ export default {
     orderManagement: '订单管理',
     paymentDashboard: '支付概览',
     paymentConfig: '支付配置',
-    paymentPlans: '订阅套餐'
+    paymentPlans: '订阅套餐',
+    channelManagement: '渠道管理',
+    channelPricing: '渠道定价',
+    channelMonitor: '渠道监控',
+    channelStatus: '渠道状态',
   },
 
   // Auth
@@ -865,6 +878,119 @@ export default {
     userAgent: 'User-Agent'
   },
 
+  // Shared keys for channel monitor (admin + user views)
+  monitorCommon: {
+    status: {
+      operational: '正常',
+      degraded: '降级',
+      failed: '失败',
+      error: '错误',
+      unknown: '-'
+    },
+    providers: {
+      openai: 'OpenAI',
+      anthropic: 'Anthropic',
+      gemini: 'Gemini'
+    },
+    extraModelsHeader: '附加模型',
+    extraModelsEmpty: '无附加模型',
+    latencyEmpty: '-',
+    availabilityPrefix: '可用性',
+    dialogLatency: '对话延迟',
+    endpointPing: '端点 PING',
+    history60pts: '近 {n} 次记录',
+    nextUpdateIn: '{n}s 后刷新',
+    past: 'PAST',
+    now: 'NOW',
+    maintenancePaused: '维护中 · 已暂停时间线采集',
+    extraModelsCount: '+ {n} 模型',
+    pollEvery: '{n}s 轮询',
+    updatedAt: '更新于 {time}',
+    relativeSecondsAgo: '{n} 秒前',
+    relativeMinutesAgo: '{n} 分钟前',
+    relativeHoursAgo: '{n} 小时前',
+    relativeDaysAgo: '{n} 天前'
+  },
+
+  // Channel Status (user-facing read-only view)
+  channelStatus: {
+    title: '渠道状态',
+    description: '查看渠道可用性、延迟和近期状态',
+    searchPlaceholder: '搜索渠道...',
+    allProviders: '全部供应商',
+    loadError: '加载渠道状态失败',
+    detailLoadError: '加载渠道详情失败',
+    detailTitle: '渠道详情',
+    closeDetail: '关闭',
+    windowTab: {
+      '7d': '7 天',
+      '15d': '15 天',
+      '30d': '30 天'
+    },
+    overall: {
+      operational: 'OPERATIONAL',
+      degraded: 'DEGRADED',
+      unavailable: 'UNAVAILABLE'
+    },
+    columns: {
+      name: '名称',
+      provider: '供应商',
+      groupName: '分组',
+      primaryModel: '主模型',
+      availability7d: '7 天可用率',
+      latency: '延迟 (ms)'
+    },
+    detailColumns: {
+      model: '模型',
+      latestStatus: '最新状态',
+      latestLatency: '最新延迟 (ms)',
+      availability7d: '7 天可用率',
+      availability15d: '15 天可用率',
+      availability30d: '30 天可用率',
+      avgLatency7d: '7 天平均延迟 (ms)'
+    },
+    empty: {
+      title: '暂无可显示的渠道',
+      description: '管理员尚未配置可监控的渠道。'
+    }
+  },
+
+  // Available Channels (user-facing)
+  availableChannels: {
+    title: '可用渠道',
+    description: '查看您可访问的渠道与其支持的模型、定价',
+    searchPlaceholder: '搜索渠道或模型...',
+    empty: '暂无可用渠道',
+    noModels: '未配置模型',
+    noPricing: '未配置定价',
+    exclusive: '专属',
+    public: '公开',
+    exclusiveTooltip: '管理员授权给你的专属分组',
+    publicTooltip: '对所有用户公开的分组',
+    columns: {
+      name: '渠道名',
+      description: '描述',
+      platform: '平台',
+      groups: '我可访问的分组',
+      supportedModels: '支持模型'
+    },
+    pricing: {
+      billingMode: '计费模式',
+      billingModeToken: '按 Token',
+      billingModePerRequest: '按次',
+      billingModeImage: '按图片',
+      inputPrice: '输入',
+      outputPrice: '输出',
+      cacheWritePrice: '缓存写入',
+      cacheReadPrice: '缓存读取',
+      imageOutputPrice: '图片输出',
+      perRequestPrice: '每次请求',
+      intervals: '阶梯定价',
+      unitPerMillion: '/ 1M token',
+      unitPerRequest: '/ 次'
+    }
+  },
+
   // Redeem
   redeem: {
     title: '兑换码',
@@ -913,6 +1039,8 @@ export default {
     description: '管理您的账户信息和设置',
     accountBalance: '账户余额',
     concurrencyLimit: '并发限制',
+    rpmLimit: 'RPM 限制',
+    rpmUnlimited: '不限制',
     memberSince: '注册时间',
     overviewTitle: '账户总览',
     overviewDescription: '快速查看账号状态、资料来源与常用设置。',
@@ -1604,7 +1732,10 @@ export default {
         balanceLabel: '余额',
         concurrencyLabel: '并发数',
         statusLabel: '状态',
-        selectStatus: '选择状态'
+        selectStatus: '选择状态',
+        rpmLimit: '每分钟请求数 (RPM)',
+        rpmLimitPlaceholder: '0 表示不限制',
+        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效'
       },
       adjustBalance: '调整余额',
       adjustConcurrency: '调整并发数',
@@ -1769,6 +1900,10 @@ export default {
         name: '名称',
         platform: '平台',
         rateMultiplier: '费率倍数',
+        rpmOverride: 'RPM 覆盖',
+        rpmOverrideHint: '该用户在此分组的 RPM 上限；留空 = 使用分组默认；0 = 不限制',
+        rateDefault: '默认',
+        rpmDefault: '默认',
         exclusive: '独占',
         type: '类型',
         priority: '优先级',
@@ -1803,6 +1938,9 @@ export default {
         descriptionPlaceholder: '请输入描述（可选）',
         rateMultiplierLabel: '费率倍数',
         rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+        rpmLimit: '每分钟请求数 (RPM)',
+        rpmLimitPlaceholder: '0 表示不限制',
+        rpmLimitHint: '每用户在本分组每分钟最大请求数，0 = 不限制；一旦设置即接管该用户的限流（覆盖用户级 rpm_limit）',
         exclusiveLabel: '专属分组',
         exclusiveHint: '专属分组，可以手动指定给用户',
         platformLabel: '平台限制',
@@ -1872,6 +2010,12 @@ export default {
       rateMultipliers: '专属倍率',
       rateMultipliersTitle: '分组专属倍率管理',
       addUserRate: '添加用户专属倍率',
+      rpmOverrides: '专属 RPM',
+      rpmOverridesTitle: '分组专属 RPM 管理',
+      addUserRpm: '添加用户专属 RPM',
+      noRpmOverrides: '暂无用户设置了专属 RPM',
+      rpmSaved: '专属 RPM 已保存',
+      groupRpmDefault: '分组默认 RPM',
       searchUserPlaceholder: '搜索用户邮箱...',
       noRateMultipliers: '暂无用户设置了专属倍率',
       rateUpdated: '专属倍率已更新',
@@ -1989,6 +2133,46 @@ export default {
       }
     },
 
+    // Available Channels (aggregated read-only view)
+    availableChannels: {
+      title: '可用渠道',
+      description: '按渠道聚合查看关联分组与支持模型（已展开通配符）',
+      searchPlaceholder: '搜索渠道或模型...',
+      columns: {
+        name: '渠道名',
+        status: '状态',
+        billingSource: '计费模型来源',
+        groups: '关联分组',
+        supportedModels: '支持模型'
+      },
+      empty: '暂无数据',
+      noGroups: '未关联分组',
+      noModels: '未配置模型映射',
+      noPricing: '未配置定价',
+      statusActive: '启用',
+      statusDisabled: '停用',
+      billingSource: {
+        requested: '请求模型',
+        upstream: '上游模型',
+        channel_mapped: '映射后模型'
+      },
+      pricing: {
+        billingMode: '计费模式',
+        billingModeToken: '按 Token',
+        billingModePerRequest: '按次',
+        billingModeImage: '按图片',
+        inputPrice: '输入',
+        outputPrice: '输出',
+        cacheWritePrice: '缓存写入',
+        cacheReadPrice: '缓存读取',
+        imageOutputPrice: '图片输出',
+        perRequestPrice: '每次请求',
+        intervals: '阶梯定价',
+        unitPerMillion: '/ 1M token',
+        unitPerRequest: '/ 次'
+      }
+    },
+
     // Channel Management
     channels: {
       title: '渠道管理',
@@ -2103,6 +2287,130 @@ export default {
         ruleModelPricing: '模型定价',
         noGroupsInChannel: '上方平台标签页中未选择分组',
         unnamed: '未命名'
+      }
+    },
+
+    // Channel Monitor
+    channelMonitor: {
+      title: '渠道监控',
+      description: '监测各渠道的可用性、延迟和状态',
+      searchPlaceholder: '搜索监控名称...',
+      allProviders: '全部供应商',
+      allStatus: '全部状态',
+      enabledFilter: '启用状态',
+      onlyEnabled: '仅启用',
+      onlyDisabled: '仅禁用',
+      createButton: '新增监控',
+      createTitle: '新增渠道监控',
+      editTitle: '编辑渠道监控',
+      runNow: '立即检测',
+      runSuccess: '检测完成',
+      runFailed: '检测失败',
+      apiKeyDecryptFailed: 'API Key 解密失败，请重新编辑该监控并填入新的 Key',
+      createSuccess: '监控创建成功',
+      updateSuccess: '监控更新成功',
+      deleteSuccess: '监控删除成功',
+      loadError: '加载监控列表失败',
+      deleteConfirm: '确定要删除监控「{name}」吗？此操作不可撤销。',
+      nameRequired: '请输入监控名称',
+      primaryModelRequired: '请输入主模型',
+      columns: {
+        name: '名称',
+        provider: '供应商',
+        primaryModel: '主模型',
+        availability7d: '7 天可用率',
+        latency: '延迟 (ms)',
+        enabled: '启用',
+        actions: '操作'
+      },
+      form: {
+        name: '名称',
+        namePlaceholder: '输入监控名称',
+        provider: '平台',
+        endpoint: '上游地址',
+        endpointPlaceholder: 'https://api.example.com',
+        useCurrentDomain: '使用当前服务',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: '请输入 API Key',
+        apiKeyEditPlaceholder: '留空表示不修改',
+        useMyKey: '使用我的 Key',
+        selectKeyTitle: '选择我的 API Key',
+        selectKeyHint: '仅显示当前账号下处于「启用」状态且未过期的 Key。',
+        noActiveKey: '没有可用的启用状态 Key',
+        primaryModel: '主模型',
+        primaryModelPlaceholder: 'gpt-4o-mini',
+        extraModels: '附加模型',
+        extraModelsPlaceholder: '回车添加附加模型',
+        groupName: '分组名称',
+        groupNamePlaceholder: '可选，用于在用户视图中聚合显示',
+        intervalSeconds: '检测间隔 (秒)',
+        intervalSecondsHint: '范围：15 - 3600 秒',
+        enabled: '启用监控',
+        kindRequired: '请选择供应商'
+      },
+      runResultTitle: '检测结果',
+      noMonitorsYet: '暂无监控',
+      createFirstMonitor: '创建第一个监控来跟踪渠道可用性',
+      advanced: {
+        section: '高级（可选）',
+        sectionHint: '自定义请求头和请求体，用于突破上游的客户端识别限制（如仅允许 Claude Code 客户端）。',
+        headers: '自定义请求头',
+        headersPlaceholder: 'User-Agent: claude-cli/1.0.83 (external, cli)\nx-app: cli\nanthropic-beta: claude-code-20250219',
+        headerNamePlaceholder: 'Header 名',
+        headerValuePlaceholder: 'Value',
+        headerAddRow: '添加 Header',
+        headerNameInvalid: 'Header 名不能包含空格或冒号：{name}',
+        headersHint: '与默认请求头合并，用户值优先。hop-by-hop 类 header（Host/Content-Length/...）会被忽略。',
+        headersParseError: '无法解析这一行：{line}',
+        bodyMode: '请求体处理',
+        bodyModeOff: '默认',
+        bodyModeMerge: '合并',
+        bodyModeReplace: '覆盖',
+        bodyModeHintOff: '使用 adapter 默认请求体（带 challenge 数学题校验）。',
+        bodyModeHintMerge: '与默认请求体浅合并，用户字段优先；但 model / messages / contents 会被保护不允许覆盖（动这些字段请用「覆盖」模式）。',
+        bodyModeHintReplace: '完全用下方 JSON 作为请求体。注意：此模式下跳过 challenge 校验，改为 HTTP 2xx + 响应文本非空即视为可用。',
+        bodyJson: 'Body JSON',
+        bodyJsonFormat: '格式化',
+        bodyJsonHint: '失焦时自动解析校验。留空等价于没有覆盖。',
+        bodyJsonError: 'JSON 解析失败',
+        bodyJsonObjectError: '请求体必须是一个 JSON 对象（不能是数组或基本类型）'
+      },
+      templateField: {
+        label: '请求模板',
+        none: '不使用模板',
+        placeholder: '选择一个模板（按当前平台过滤）',
+        applyHint: '选中模板后，会把模板的请求头和请求体拷贝到此监控（快照）。后续模板变动不自动同步。'
+      },
+      template: {
+        manageButton: '模板管理',
+        managerTitle: '请求模板管理',
+        createButton: '新建模板',
+        emptyState: '当前平台下还没有请求模板',
+        missingName: '请输入模板名称',
+        createSuccess: '模板创建成功',
+        updateSuccess: '模板更新成功',
+        deleteSuccess: '模板删除成功',
+        applyButton: '应用到关联监控',
+        applyTooltip: '把当前模板配置覆盖到所有关联的监控上',
+        applyTitle: '应用模板',
+        applyConfirm: '确认应用',
+        applyConfirmMessage: '将把模板「{name}」的当前配置覆盖到 {n} 个关联监控。监控本地已编辑的自定义修改会被丢弃，是否继续？',
+        applySuccess: '已应用到 {n} 个监控',
+        applyPickerTitle: '应用模板「{name}」',
+        applyPickerHint: '勾选要覆盖请求头/请求体的监控（默认全选）。监控本地已编辑的自定义修改会被丢弃。',
+        applyPickerEmpty: '当前模板没有关联监控',
+        applyPickerConfirm: '应用到 {n} 个监控',
+        selectNone: '全不选',
+        selectedCount: '已选 {n} / {total}',
+        deleteConfirm: '确定要删除模板「{name}」吗？{n} 个关联监控会解除关联但保留自己的快照继续工作。',
+        associatedCount: '{n} 个关联监控',
+        headersSummary: '{n} 个自定义请求头',
+        form: {
+          name: '模板名称',
+          namePlaceholder: '例：Claude Code 伪装',
+          description: '说明',
+          descriptionPlaceholder: '可选：说明这个模板的用途和来源（抓包日期等）'
+        }
       }
     },
 
@@ -2939,6 +3247,13 @@ export default {
           authCodePlaceholder:
             '方式1：复制完整的链接\n(http://localhost:xxx/auth/callback?code=...)\n方式2：仅复制 code 参数的值',
           authCodeHint: '您可以直接复制整个链接或仅复制 code 参数值，系统会自动识别',
+          failedToGenerateUrl: '生成 OpenAI 授权链接失败',
+          failedToExchangeCode: 'OpenAI 授权码兑换失败',
+          failedToValidateRT: '验证 Refresh Token 失败',
+          errors: {
+            OPENAI_OAUTH_PROXY_REQUIRED:
+              '未设置代理，当前服务器无法直连 OpenAI，导致 OpenAI OAuth 请求失败。请先选择可访问 OpenAI 的代理后重试；如果授权码已失效，请重新生成授权链接。'
+          },
           // Refresh Token auth
           refreshTokenAuth: '手动输入 RT',
           refreshTokenDesc: '输入您已有的 OpenAI Refresh Token，支持批量输入（每行一个），系统将自动验证并创建账号。',
@@ -4596,12 +4911,31 @@ export default {
       description: '管理注册、邮箱验证、默认值和 SMTP 设置',
       tabs: {
         general: '通用设置',
+        features: '功能开关',
         security: '安全与认证',
         users: '用户默认值',
         gateway: '网关服务',
         email: '邮件设置',
         backup: '数据备份',
         payment: '支付设置',
+      },
+      features: {
+        channelMonitor: {
+          title: '渠道监控',
+          description: '定期对配置的渠道发起健康检查，向用户展示可用性与延迟。关闭后调度器停止扫描，用户端列表为空。',
+          configureLink: '前往 渠道管理 > 渠道监控 配置监控项',
+          enabled: '启用渠道监控',
+          enabledHint: '关闭后后台不再执行定时检测，已有数据保留。',
+          defaultInterval: '默认检测间隔（秒）',
+          defaultIntervalHint: '新建渠道监控时表单的默认值，可被单个渠道覆盖。范围 15 – 3600 秒。',
+        },
+        availableChannels: {
+          title: '可用渠道',
+          description: '向已登录用户展示他们能访问的渠道、模型和定价聚合视图。默认关闭。',
+          configureLink: '前往 渠道管理 > 渠道定价 配置模型价格',
+          enabled: '启用可用渠道',
+          enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
+        },
       },
       emailTabDisabledTitle: '邮箱验证未启用',
       emailTabDisabledHint: '请在「安全与认证」选项卡中启用邮箱验证后，再配置 SMTP 设置。',
@@ -4720,6 +5054,8 @@ export default {
         defaultBalanceHint: '新用户的初始余额',
         defaultConcurrency: '默认并发数',
         defaultConcurrencyHint: '新用户的最大并发请求数',
+        defaultUserRpmLimit: '默认用户 RPM 限制',
+        defaultUserRpmLimitHint: '新用户默认每分钟最大请求数，0 = 不限制；仅作用于新用户创建时初始化',
         defaultSubscriptions: '默认订阅列表',
         defaultSubscriptionsHint: '新用户创建或注册时自动分配这些订阅',
         addDefaultSubscription: '添加默认订阅',
@@ -4951,6 +5287,8 @@ export default {
         field_certSerial: '证书序列号',
         field_h5AppName: 'H5 应用名称',
         field_h5AppUrl: 'H5 应用地址',
+        wxpayConfigHint: '微信支付通常只需要填写 App ID。公众号 App ID、H5 应用名称、H5 应用地址仅在公众号支付或 H5 场景有特殊要求时再填写。',
+        wxpayAdvancedOptions: '微信支付高级可选项',
         field_secretKey: '密钥',
         field_publishableKey: '公开密钥',
         field_webhookSecret: 'Webhook 密钥',
@@ -4981,6 +5319,37 @@ export default {
         providerKey: '服务商类型',
         selectProviderKey: '选择服务商类型',
         providerConfig: '凭证配置',
+        paymentGuideTrigger: '查看支付方式说明',
+        guideOpenLabel: '开通：',
+        guideCallLabel: '调用：',
+        guideFallbackLabel: '降级：',
+        alipayGuideSummary: '桌面优先扫码单，失败再走收银台；移动优先手机网站支付。',
+        alipayGuideFaceToFaceTitle: '当面付 / 扫码支付',
+        alipayGuideFaceToFaceOpen: '需开通当面付或扫码支付能力。',
+        alipayGuideFaceToFaceCall: '桌面端下单时优先调用 alipay.trade.precreate，前台直接渲染二维码。',
+        alipayGuideFaceToFaceFallback: '接口不可用或返回失败时，自动降级到电脑网站支付。',
+        alipayGuidePagePayTitle: '电脑网站支付',
+        alipayGuidePagePayOpen: '需开通电脑网站支付。',
+        alipayGuidePagePayCall: '桌面端当面付不可用时调用 alipay.trade.page.pay，并继续把返回链接渲染成二维码。',
+        alipayGuidePagePayFallback: '同时保留打开收银台入口，用户可手动重新拉起支付页。',
+        alipayGuideWapTitle: '手机网站支付',
+        alipayGuideWapOpen: '需开通手机网站支付。',
+        alipayGuideWapCall: '移动端优先调用 alipay.trade.wap.pay，跳转支付宝收银台。',
+        alipayGuideWapFallback: '未开通或返回异常时，前端自动改走扫码支付并提示未开通移动支付。',
+        wxpayGuideSummary: '桌面优先 Native 扫码，移动端按浏览器环境走 JSAPI 或 H5。',
+        wxpayGuideNote: '当前表单默认共用一个 App ID，适合同主体下统一配置网页、移动和公众号场景。',
+        wxpayGuideNativeTitle: 'Native / 扫码支付',
+        wxpayGuideNativeOpen: '需开通 Native 或扫码支付能力。',
+        wxpayGuideNativeCall: '桌面端默认调用 Native，下发二维码内容给前台渲染。',
+        wxpayGuideNativeFallback: '移动端无法走 JSAPI 或 H5 时，也会自动回退到这里。',
+        wxpayGuideJsapiTitle: 'JSAPI / 公众号支付',
+        wxpayGuideJsapiOpen: '需开通公众号支付，并保证当前浏览器在微信内且能拿到 OpenID。',
+        wxpayGuideJsapiCall: '微信内浏览器完成授权后调用 JSAPI，直接拉起微信支付。',
+        wxpayGuideJsapiFallback: '未配置、Bridge 不可用或拉起失败时，自动改走扫码支付。',
+        wxpayGuideH5Title: 'H5 支付',
+        wxpayGuideH5Open: '需开通 H5 支付。',
+        wxpayGuideH5Call: '移动端非微信浏览器且有客户端 IP 时调用 H5 支付，跳转微信收银台。',
+        wxpayGuideH5Fallback: '未开通 H5 或下单失败时，自动改走扫码支付。',
         noProviders: '暂无服务商实例',
         supportedTypes: '支持的支付方式',
         supportedTypesHint: '逗号分隔，如 alipay,wxpay',
@@ -5769,6 +6138,7 @@ export default {
       wechatOpenInWeChatHint: '请复制当前页面链接到微信内打开，或直接改用电脑端微信扫码支付。',
       wechatScanOnDesktopHint: '电脑端请直接使用微信扫一扫完成支付；移动端请在微信内打开当前页面。',
       wechatSwitchBrowserHint: '请改用电脑端微信扫码，或在外部浏览器重新打开本页后再试。',
+      mobilePaymentFallbackToQr: '当前商户未开通移动支付，已自动切换为扫码支付。',
       alipayDesktopUnavailable: '当前支付宝桌面支付未成功生成二维码。',
       alipayDesktopQrHint: '电脑端支付宝应展示扫码单，请刷新后重试，或确认浏览器未拦截当前支付页。',
       alipayMobileUnavailable: '当前页面未成功跳转到支付宝。',

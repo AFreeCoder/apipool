@@ -43,7 +43,7 @@ OVERLAP_FILES="$(
     <(printf '%s\n' "$UPSTREAM_CHANGED_FILES") || true
 )"
 
-HIGH_RISK_PATTERN='(^README|^deploy/|AppHeader|AppSidebar|SettingsView|PurchaseSubscriptionView|ratelimit_service|openai_oauth|openai_gateway|codex|oauth|VERSION|release|workflow|logo)'
+HIGH_RISK_PATTERN='(^README|^deploy/|AppHeader|AppSidebar|SettingsView|PurchaseSubscriptionView|AvailableChannels|available_channels|ChannelMonitor|channel_monitor|ratelimit_service|openai_oauth|openai_gateway|codex|oauth|kiro|openclaw|VERSION|release|workflow|logo)'
 HIGH_RISK_UPSTREAM="$(printf '%s\n' "$UPSTREAM_CHANGED_FILES" | rg "$HIGH_RISK_PATTERN" || true)"
 HIGH_RISK_OVERLAP="$(printf '%s\n' "$OVERLAP_FILES" | rg "$HIGH_RISK_PATTERN" || true)"
 
