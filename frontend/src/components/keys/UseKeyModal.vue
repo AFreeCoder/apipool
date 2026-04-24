@@ -730,6 +730,7 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
 model = "${OPENAI_DEFAULT_MODEL_ID}"
 review_model = "${OPENAI_DEFAULT_MODEL_ID}"
 model_reasoning_effort = "xhigh"
+model_supports_reasoning_summaries = true
 disable_response_storage = true
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
@@ -767,6 +768,7 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
 model = "${OPENAI_DEFAULT_MODEL_ID}"
 review_model = "${OPENAI_DEFAULT_MODEL_ID}"
 model_reasoning_effort = "xhigh"
+model_supports_reasoning_summaries = true
 disable_response_storage = true
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
