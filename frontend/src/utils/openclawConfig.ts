@@ -1,4 +1,10 @@
 import JSON5 from 'json5'
+import {
+  OPENAI_DEFAULT_MODEL_CONTEXT_WINDOW,
+  OPENAI_DEFAULT_MODEL_ID,
+  OPENAI_DEFAULT_MODEL_MAX_TOKENS,
+  OPENAI_DEFAULT_MODEL_NAME,
+} from '@/constants/openai'
 import type { GroupPlatform } from '@/types'
 
 const DEFAULT_COST = {
@@ -100,15 +106,15 @@ export const buildOpenClawImportSpec = (
 
   switch (platform) {
     case 'openai': {
-      const modelId = 'gpt-5.4'
-      const modelName = 'GPT-5.4'
+      const modelId = OPENAI_DEFAULT_MODEL_ID
+      const modelName = OPENAI_DEFAULT_MODEL_NAME
       const providerId = 'apipool-openai'
       return {
         providerId,
         modelId,
         modelName,
         modelRef: `${providerId}/${modelId}`,
-        alias: 'APIPool GPT-5.4',
+        alias: `APIPool ${modelName}`,
         provider: {
           api: 'openai-responses',
           apiKey,
@@ -118,8 +124,8 @@ export const buildOpenClawImportSpec = (
             buildCatalogModel(modelId, modelName, {
               reasoning: true,
               input: ['text'],
-              contextWindow: 500000,
-              maxTokens: 128000,
+              contextWindow: OPENAI_DEFAULT_MODEL_CONTEXT_WINDOW,
+              maxTokens: OPENAI_DEFAULT_MODEL_MAX_TOKENS,
             }),
           ],
         },

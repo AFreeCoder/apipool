@@ -235,6 +235,7 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
+import { OPENAI_DEFAULT_MODEL_ID } from '@/constants/openai'
 import type { GroupPlatform } from '@/types'
 import {
   OPENCLAW_CONFIG_PATH,
@@ -726,8 +727,8 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
 
   // config.toml content
   const configContent = `model_provider = "apipool"
-model = "gpt-5.4"
-review_model = "gpt-5.4"
+model = "${OPENAI_DEFAULT_MODEL_ID}"
+review_model = "${OPENAI_DEFAULT_MODEL_ID}"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
@@ -763,8 +764,8 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
 
   // config.toml content with WebSocket v2
   const configContent = `model_provider = "OpenAI"
-model = "gpt-5.4"
-review_model = "gpt-5.4"
+model = "${OPENAI_DEFAULT_MODEL_ID}"
+review_model = "${OPENAI_DEFAULT_MODEL_ID}"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"

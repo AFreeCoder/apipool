@@ -51,19 +51,19 @@ describe('openclawConfig utils', () => {
     })
     expect((merged.models as any).providers['apipool-openai'].models).toEqual([
       expect.objectContaining({
-        id: 'gpt-5.4',
-        contextWindow: 500000,
+        id: 'gpt-5.5',
+        contextWindow: 1050000,
         maxTokens: 128000,
       }),
     ])
-    expect(defaults.models['apipool-openai/gpt-5.4']).toEqual({
-      alias: 'APIPool GPT-5.4',
+    expect(defaults.models['apipool-openai/gpt-5.5']).toEqual({
+      alias: 'APIPool GPT-5.5',
       params: {
         thinking: 'high',
       },
     })
     expect(defaults.model).toEqual({
-      primary: 'apipool-openai/gpt-5.4',
+      primary: 'apipool-openai/gpt-5.5',
       fallbacks: ['moonshot/kimi-k1.5'],
     })
     expect(defaults.models['moonshot/kimi-k2.5']).toEqual({ alias: 'Kimi' })
@@ -82,7 +82,7 @@ describe('openclawConfig utils', () => {
               api: 'openai-responses',
               apiKey: 'sk-old',
               baseUrl: 'https://old.apipool.dev/v1',
-              models: [{ id: 'gpt-5.4', name: 'Old GPT-5.4' }],
+              models: [{ id: 'gpt-5.5', name: 'Old GPT-5.5' }],
             },
           },
         },
@@ -90,7 +90,7 @@ describe('openclawConfig utils', () => {
           defaults: {
             model: 'old-provider/old-model',
             models: {
-              'apipool-openai/gpt-5.4': {
+              'apipool-openai/gpt-5.5': {
                 alias: 'My GPT',
                 params: {
                   temperature: 0.2,
@@ -111,7 +111,7 @@ describe('openclawConfig utils', () => {
         'User-Agent': 'OpenClaw/1.0',
       },
     })
-    expect((merged.agents as any).defaults.models['apipool-openai/gpt-5.4']).toEqual({
+    expect((merged.agents as any).defaults.models['apipool-openai/gpt-5.5']).toEqual({
       alias: 'My GPT',
       params: {
         thinking: 'high',
@@ -119,7 +119,7 @@ describe('openclawConfig utils', () => {
       },
     })
     expect((merged.agents as any).defaults.model).toEqual({
-      primary: 'apipool-openai/gpt-5.4',
+      primary: 'apipool-openai/gpt-5.5',
     })
   })
 

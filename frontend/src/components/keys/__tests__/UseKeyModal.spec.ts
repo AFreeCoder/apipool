@@ -117,4 +117,26 @@ describe('UseKeyModal', () => {
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
     expect(codeBlock.text()).not.toContain('"name": "GPT-5.4 Nano"')
   })
+
+  it('OpenAI Codex 默认配置使用 GPT-5.5', () => {
+    const wrapper = mountUseKeyModal('openai', 'https://example.com/v1')
+
+    const codeBlocks = wrapper.findAll('pre code')
+    expect(codeBlocks[0].text()).toContain('model = "gpt-5.5"')
+    expect(codeBlocks[0].text()).toContain('review_model = "gpt-5.5"')
+  })
+
+  it('OpenAI Codex WebSocket 默认配置使用 GPT-5.5', async () => {
+    const wrapper = mountUseKeyModal('openai', 'https://example.com/v1')
+
+    const codexWsTab = findButtonByText(wrapper, 'keys.useKeyModal.cliTabs.codexCliWs')
+    expect(codexWsTab).toBeTruthy()
+
+    await codexWsTab!.trigger('click')
+    await nextTick()
+
+    const codeBlocks = wrapper.findAll('pre code')
+    expect(codeBlocks[0].text()).toContain('model = "gpt-5.5"')
+    expect(codeBlocks[0].text()).toContain('review_model = "gpt-5.5"')
+  })
 })
