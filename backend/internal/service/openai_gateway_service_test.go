@@ -1803,7 +1803,7 @@ func TestOpenAIBuildUpstreamRequestOpenAIPassthroughCompactUsesCurrentFallbackVe
 
 	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, []byte(`{"model":"gpt-5.5"}`), "token")
 	require.NoError(t, err)
-	require.Equal(t, "0.125.0-alpha.3", req.Header.Get("Version"))
+	require.Equal(t, codexCLIVersion, req.Header.Get("Version"))
 }
 
 func TestOpenAIBuildUpstreamRequestCompactForcesJSONAcceptForOAuth(t *testing.T) {
@@ -1840,7 +1840,7 @@ func TestOpenAIBuildUpstreamRequestCompactUsesCurrentFallbackVersion(t *testing.
 
 	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5.5"}`), "token", false, "", true)
 	require.NoError(t, err)
-	require.Equal(t, "0.125.0-alpha.3", req.Header.Get("Version"))
+	require.Equal(t, codexCLIVersion, req.Header.Get("Version"))
 }
 
 func TestOpenAIBuildUpstreamRequestPreservesCompactPathForAPIKeyBaseURL(t *testing.T) {
