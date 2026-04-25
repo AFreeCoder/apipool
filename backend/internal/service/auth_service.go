@@ -72,6 +72,7 @@ type AuthService struct {
 	turnstileService   *TurnstileService
 	emailQueueService  *EmailQueueService
 	promoService       *PromoService
+	affiliateService   *AffiliateService
 	defaultSubAssigner DefaultSubscriptionAssigner
 }
 
@@ -98,6 +99,7 @@ func NewAuthService(
 	emailQueueService *EmailQueueService,
 	promoService *PromoService,
 	defaultSubAssigner DefaultSubscriptionAssigner,
+	affiliateService *AffiliateService,
 ) *AuthService {
 	return &AuthService{
 		entClient:          entClient,
@@ -110,6 +112,7 @@ func NewAuthService(
 		turnstileService:   turnstileService,
 		emailQueueService:  emailQueueService,
 		promoService:       promoService,
+		affiliateService:   affiliateService,
 		defaultSubAssigner: defaultSubAssigner,
 	}
 }
@@ -123,11 +126,11 @@ func (s *AuthService) EntClient() *dbent.Client {
 
 // Register 用户注册，返回token和用户
 func (s *AuthService) Register(ctx context.Context, email, password string) (string, *User, error) {
-	return s.RegisterWithVerification(ctx, email, password, "", "", "")
+	return s.RegisterWithVerification(ctx, email, password, "", "", "", "")
 }
 
-// RegisterWithVerification 用户注册（支持邮件验证、优惠码和邀请码），返回token和用户
-func (s *AuthService) RegisterWithVerification(ctx context.Context, email, password, verifyCode, promoCode, invitationCode string) (string, *User, error) {
+// RegisterWithVerification 用户注册（支持邮件验证、优惠码、邀请码和邀请返利码），返回token和用户。
+func (s *AuthService) RegisterWithVerification(ctx context.Context, email, password, verifyCode, promoCode, invitationCode, affiliateCode string) (string, *User, error) {
 	// 检查是否开放注册（默认关闭：settingService 未配置时不允许注册）
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 		return "", nil, ErrRegDisabled
@@ -223,6 +226,17 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	}
 	s.postAuthUserBootstrap(ctx, user, "email", true)
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
+	if s.affiliateService != nil {
+		if _, err := s.affiliateService.EnsureUserAffiliate(ctx, user.ID); err != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed to initialize affiliate profile for user %d: %v", user.ID, err)
+		}
+		if code := strings.TrimSpace(affiliateCode); code != "" {
+			if err := s.affiliateService.BindInviterByCode(ctx, user.ID, code); err != nil {
+				// 邀请返利码绑定失败不影响注册，只记录日志
+				logger.LegacyPrintf("service.auth", "[Auth] Failed to bind affiliate inviter for user %d: %v", user.ID, err)
+			}
+		}
+	}
 
 	// 标记邀请码为已使用（如果使用了邀请码）
 	if invitationRedeemCode != nil {

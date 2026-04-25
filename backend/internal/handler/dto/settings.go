@@ -108,6 +108,7 @@ type SystemSettings struct {
 
 	DefaultConcurrency   int                          `json:"default_concurrency"`
 	DefaultBalance       float64                      `json:"default_balance"`
+	AffiliateRebateRate  float64                      `json:"affiliate_rebate_rate"`
 	DefaultUserRPMLimit  int                          `json:"default_user_rpm_limit"`
 	DefaultSubscriptions []DefaultSubscriptionSetting `json:"default_subscriptions"`
 
@@ -191,6 +192,9 @@ type SystemSettings struct {
 
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
+	// Affiliate (邀请返利) feature switch
+	AffiliateEnabled bool `json:"affiliate_enabled"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -243,6 +247,8 @@ type PublicSettings struct {
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
+	AffiliateEnabled bool `json:"affiliate_enabled"`
 }
 
 // OverloadCooldownSettings 529过载冷却配置 DTO

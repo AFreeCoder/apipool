@@ -308,6 +308,7 @@ export interface SystemSettings {
   totp_encryption_key_configured: boolean; // TOTP 加密密钥是否已配置
   // Default settings
   default_balance: number;
+  affiliate_rebate_rate: number;
   default_concurrency: number;
   default_user_rpm_limit: number;
   default_subscriptions: DefaultSubscriptionSetting[];
@@ -479,6 +480,9 @@ export interface SystemSettings {
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
+
+  // Affiliate (邀请返利) feature switch
+  affiliate_enabled: boolean;
 }
 
 export interface UpdateSettingsRequest {
@@ -491,6 +495,7 @@ export interface UpdateSettingsRequest {
   invitation_code_enabled?: boolean;
   totp_enabled?: boolean; // TOTP 双因素认证
   default_balance?: number;
+  affiliate_rebate_rate?: number;
   default_concurrency?: number;
   default_user_rpm_limit?: number;
   default_subscriptions?: DefaultSubscriptionSetting[];
@@ -638,6 +643,9 @@ export interface UpdateSettingsRequest {
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
+
+  // Affiliate (邀请返利) feature switch
+  affiliate_enabled?: boolean;
 }
 
 /**
