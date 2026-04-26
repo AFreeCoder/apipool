@@ -152,13 +152,14 @@ build_app_image_from_current_source() {
   )"
 
   (
-    cd "$DEPLOY_DIR"
-    docker compose -f "$COMPOSE_FILE" config -q
-    docker compose -f "$COMPOSE_FILE" build \
+    cd "$APP_DIR"
+    docker build \
+      -t "${IMAGE_REPO}:latest" \
       --build-arg VERSION="$app_version" \
       --build-arg COMMIT="$app_commit" \
       --build-arg DATE="$app_build_date" \
-      "$APP_SERVICE"
+      -f "$APP_DIR/Dockerfile" \
+      "$APP_DIR"
   )
 }
 

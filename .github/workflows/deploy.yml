@@ -5,17 +5,85 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set image metadata
+        id: image
+        run: |
+          APP_COMMIT="${GITHUB_SHA::12}"
+          APP_VERSION="$(tr -d '\r\n' < backend/cmd/server/VERSION)"
+          APP_BUILD_DATE="$(git log -1 --format=%cI HEAD)"
+          IMAGE_REPO="ghcr.io/afreecoder/apipool"
+          IMAGE_TAG="sha-${APP_COMMIT}"
+
+          if [ -z "$APP_VERSION" ]; then
+            echo "backend/cmd/server/VERSION 为空，停止构建" >&2
+            exit 1
+          fi
+
+          {
+            echo "app_commit=${APP_COMMIT}"
+            echo "app_version=${APP_VERSION}"
+            echo "app_build_date=${APP_BUILD_DATE}"
+            echo "image_repo=${IMAGE_REPO}"
+            echo "image_tag=${IMAGE_TAG}"
+            echo "deploy_image=${IMAGE_REPO}:${IMAGE_TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VERSION=${{ steps.image.outputs.app_version }}
+            COMMIT=${{ steps.image.outputs.app_commit }}
+            DATE=${{ steps.image.outputs.app_build_date }}
+          tags: |
+            ${{ steps.image.outputs.deploy_image }}
+            ${{ steps.image.outputs.image_repo }}:main
+            ${{ steps.image.outputs.image_repo }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_IMAGE: ${{ steps.image.outputs.deploy_image }}
+          DEPLOY_COMMIT: ${{ steps.image.outputs.app_commit }}
         with:
           host: ${{ secrets.DO_HOST }}
           username: root
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           command_timeout: 30m
+          envs: DEPLOY_IMAGE,DEPLOY_COMMIT
           script: |
             set -e
 
@@ -25,7 +93,6 @@ jobs:
             REPO_URL="https://github.com/AFreeCoder/apipool.git"
             PREDEPLOY_BACKUP_RETENTION_HOURS="168"
             ROLLBACK_TAGS_TO_KEEP="8"
-            DOCKER_BUILDX_CACHE_MAX_USED_SPACE="6gb"
 
             require_command() {
               command -v "$1" >/dev/null 2>&1 || {
@@ -64,7 +131,6 @@ jobs:
 
               PREDEPLOY_BACKUP_RETENTION_HOURS="${PREDEPLOY_BACKUP_RETENTION_HOURS:-168}"
               ROLLBACK_TAGS_TO_KEEP="${ROLLBACK_TAGS_TO_KEEP:-8}"
-              DOCKER_BUILDX_CACHE_MAX_USED_SPACE="${DOCKER_BUILDX_CACHE_MAX_USED_SPACE:-6gb}"
             }
 
             wait_for_health() {
@@ -107,12 +173,6 @@ jobs:
                     fi
                     docker rmi "$stale_tag" >/dev/null 2>&1 || true
                   done
-            }
-
-            prune_build_cache() {
-              if docker buildx version >/dev/null 2>&1; then
-                docker buildx prune -f --max-used-space "${DOCKER_BUILDX_CACHE_MAX_USED_SPACE:-6gb}" >/dev/null 2>&1 || true
-              fi
             }
 
             require_command git
@@ -170,35 +230,27 @@ jobs:
             CURRENT_DEPLOY_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
             tag_current_image_for_rollback "$CURRENT_DEPLOY_COMMIT"
 
-            # 拉取最新代码
-            git fetch --tags origin main
-            git reset --hard origin/main
+            if [ -z "${DEPLOY_IMAGE:-}" ] || [ -z "${DEPLOY_COMMIT:-}" ]; then
+              echo "缺少 DEPLOY_IMAGE / DEPLOY_COMMIT，停止部署" >&2
+              exit 1
+            fi
 
-            # 构建并重启服务（从源码构建镜像）
+            # 拉取本次镜像对应的部署文件，避免并发推送导致镜像与 compose 不一致
+            git fetch --tags origin main
+            git reset --hard "$DEPLOY_COMMIT"
+
+            # 拉取并重启服务（镜像由 GitHub Actions 构建并推送到 GHCR）
             cd "$DEPLOY_DIR"
             if [ ! -f .env ]; then
               echo "缺少 $DEPLOY_DIR/.env，停止部署" >&2
               exit 1
             fi
-            FILE_VERSION="$(bash "$APP_DIR/deploy/version_resolver.sh" file "$APP_DIR" || true)"
-            TAG_VERSION="$(bash "$APP_DIR/deploy/version_resolver.sh" tag "$APP_DIR" || true)"
-            APP_VERSION="$(bash "$APP_DIR/deploy/version_resolver.sh" resolve "$APP_DIR" || true)"
-            if [ -z "$APP_VERSION" ]; then
-              echo "无法读取版本号文件 $APP_DIR/backend/cmd/server/VERSION，停止部署" >&2
-              exit 1
-            fi
-            if [ -n "$FILE_VERSION" ] && [ -n "$TAG_VERSION" ] && [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
-              echo "VERSION 文件($FILE_VERSION)与最新发布 tag($TAG_VERSION)不一致，部署版本以 VERSION 文件为准"
-            fi
-            APP_COMMIT="$(git rev-parse --short=12 HEAD)"
-            APP_BUILD_DATE="$(git log -1 --format=%cI HEAD)"
-            echo "构建版本: ${APP_VERSION} (${APP_COMMIT})"
+
+            echo "拉取部署镜像: ${DEPLOY_IMAGE}"
+            docker pull "$DEPLOY_IMAGE"
+            docker tag "$DEPLOY_IMAGE" deploy-sub2api:latest
+            echo "已更新本地部署镜像别名: deploy-sub2api:latest (${DEPLOY_COMMIT})"
             docker compose -f docker-compose.deploy.yml config -q
-            docker compose -f docker-compose.deploy.yml build \
-              --build-arg VERSION="$APP_VERSION" \
-              --build-arg COMMIT="$APP_COMMIT" \
-              --build-arg DATE="$APP_BUILD_DATE" \
-              sub2api
 
             # 清理之前部署失败遗留的重命名容器（格式: <hash>_sub2api*）
             # Docker Compose recreate 先 rename 旧容器再创建新容器，如果中途失败，
@@ -252,6 +304,5 @@ jobs:
             fi
 
             prune_old_rollback_tags
-            prune_build_cache
 
             echo "部署完成！"

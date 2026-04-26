@@ -1,15 +1,13 @@
 # =============================================================================
 # Sub2API Docker Compose - 自建部署版本
 # =============================================================================
-# 从源码构建镜像，用于 GitHub Actions 自动部署到自有服务器。
-# 基于 docker-compose.local.yml，将 image 替换为 build。
+# 使用 GitHub Actions 已推送的镜像部署到自有服务器。
+# 部署脚本会先拉取 GHCR 精确 commit 镜像，再标记为 deploy-sub2api:latest。
 # =============================================================================
 
 services:
   sub2api:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ${SUB2API_IMAGE:-deploy-sub2api:latest}
     container_name: sub2api
     restart: unless-stopped
     stop_grace_period: 30s

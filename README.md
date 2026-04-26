@@ -82,7 +82,7 @@ docker compose -f docker-compose.deploy.yml restart      # 重启服务
 - 周期备份脚本 `backup-postgres.sh` 默认只保留最近 `72` 小时 / `18` 份，并排除 `ops_system_logs`、`ops_error_logs`、`ops_system_metrics`、`ops_metrics_*` 等纯运维日志/指标表的数据
 - `ops.cleanup.error_log_retention_days` 建议设为 `7`，它会一并清理 `ops_system_logs` / `ops_error_logs` / `ops_retry_attempts` / `ops_alert_events`
 - `dashboard_aggregation.retention.usage_logs_days` 建议设为 `30`
-- 自动部署会额外收敛旧 `rollback-*` 镜像标签，并将 Docker build cache 控制在 `6gb` 左右
+- 自动部署会额外收敛旧 `rollback-*` 镜像标签；应用镜像由 GitHub Actions 构建并推送到 GHCR，服务器只拉取本次 commit 对应镜像
 
 上游内建支付功能的配置文档见 [docs/PAYMENT.md](docs/PAYMENT.md) 与 [docs/PAYMENT_CN.md](docs/PAYMENT_CN.md)。当前 APIPool 仍保留通过系统设置配置 iframe 充值页的本地方案，两种能力并存，合入上游时不要默认互相替换。
 
