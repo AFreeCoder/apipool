@@ -135,6 +135,8 @@ docs/*
 !docs/plans/
 docs/plans/*
 !docs/plans/2026-03-20-upstream-sync-review.md
+!docs/superpowers/
+!docs/superpowers/**
 frontend/src/docs/media/
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
