@@ -1,4 +1,5 @@
 docs/claude-relay-service/
+.worktrees/
 
 # ===================
 # Go 后端
