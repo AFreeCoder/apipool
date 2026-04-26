@@ -106,12 +106,15 @@ type SystemSettings struct {
 	MarqueeMessages             string // JSON array of marquee messages
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	DefaultConcurrency   int
-	DefaultBalance       float64
-	AffiliateEnabled     bool
-	AffiliateRebateRate  float64
-	DefaultUserRPMLimit  int
-	DefaultSubscriptions []DefaultSubscriptionSetting
+	DefaultConcurrency           int
+	DefaultBalance               float64
+	AffiliateEnabled             bool
+	AffiliateRebateRate          float64
+	AffiliateRebateFreezeHours   int
+	AffiliateRebateDurationDays  int
+	AffiliateRebatePerInviteeCap float64
+	DefaultUserRPMLimit          int
+	DefaultSubscriptions         []DefaultSubscriptionSetting
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
