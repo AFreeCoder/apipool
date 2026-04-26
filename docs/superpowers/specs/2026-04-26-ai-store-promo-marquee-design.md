@@ -117,10 +117,16 @@ MarqueeMessages []MarqueeMessage `json:"marquee_messages"` // 仅下发 enabled=
 
 ### 3.3 校验规则
 
+校验全部发生在 admin handler 层（与 `custom_menu_items` 同款做法，service 层只看 raw JSON）。
+
 - `marquee_messages` 数组长度上限 **20**
 - 每条 `text`：trim 后长度 **1–500**；为空则拒绝
 - `sort_order`：保存时按数组顺序自动重新分配为 `0..N-1`，避免冲突
-- `id`：为空时后端用 `uuid.New()` 补齐
+- `id`：
+  - 为空时后端用项目已有的 `generateMenuItemID()`（或新写一个对称的 `generateMarqueeMessageID()`）生成短随机 hex
+  - 非空时必须匹配 `^[a-zA-Z0-9_-]+$`（复用现有 `menuItemIDPattern`）
+  - 长度上限 **32 字符**（与 `maxMenuItemIDLen` 一致）
+  - 同次保存中所有 ID 必须唯一，重复直接 400
 
 ---
 
@@ -128,15 +134,29 @@ MarqueeMessages []MarqueeMessage `json:"marquee_messages"` // 仅下发 enabled=
 
 无 schema 改动，无 `go generate`。
 
+### 4.1 三层数据形态
+
+跟随 `custom_menu_items` 的现有范式分层：
+
+| 层 | 数据形态 | 职责 |
+|---|---|---|
+| **service**（`SystemSettings` / `PublicSettings` / `PublicSettingsInjectionPayload`） | `MarqueeMessages json.RawMessage`（保留 raw JSON 字符串） | 透传；不做结构化校验 |
+| **admin handler**（PUT） | 接收 `[]dto.MarqueeMessage` | 全部校验（长度、trim、ID 格式/补齐/唯一性、sort_order 归一化）→ marshal 成 JSON 字符串 → 写入 service |
+| **admin handler**（GET）/ **public handler** / **SSR injection** | 输出 `[]dto.MarqueeMessage` | parse raw JSON；公开侧过滤 `enabled=false`，按 `sort_order` 升序 |
+
+### 4.2 文件改动清单
+
 | 文件 | 改动内容 |
 |---|---|
-| `backend/internal/handler/dto/settings.go` | 增 `MarqueeMessage` 结构；`SystemSettings`/`PublicSettings` 各加 2 字段 |
+| `backend/internal/handler/dto/settings.go` | 增 `MarqueeMessage` 结构；`SystemSettings`/`PublicSettings` 各加 2 字段；增 `ParseMarqueeMessages` helper（仿 `ParseCustomMenuItems`） |
 | `backend/internal/service/domain_constants.go` | 增 2 个 setting key 常量 |
-| `backend/internal/service/setting_service.go` | 模仿 `custom_menu_items` 的 get/set/校验逻辑（限长、UUID 补齐、sort_order 归一化） |
-| `backend/internal/service/settings_view.go` | 公开视图：过滤 `enabled=false`，按 `sort_order` 升序输出 |
-| `backend/internal/handler/admin/setting_handler.go` | admin GET/PUT 携带新字段 |
-| `backend/internal/handler/setting_handler.go` | 公开 GET 携带新字段 |
+| `backend/internal/service/setting_service.go` | (a) `SystemSettings` / `PublicSettings` 加 2 字段（`MarqueeMessages` 用 `json.RawMessage` 与 `CustomMenuItems` 同款）；(b) **`PublicSettingsInjectionPayload` 同步加 2 字段**——这是必须项，否则契约测试 `TestPublicSettingsInjectionPayload_SchemaDoesNotDrift` 会 fail；(c) `GetPublicSettingsForInjection` 映射这两个字段；(d) `getDefaultSystemSettings` 默认值加 `SettingMarqueeMessages: "[]"` |
+| `backend/internal/service/settings_view.go` | 公开视图：parse JSON、过滤 `enabled=false`、按 `sort_order` 升序输出 |
+| `backend/internal/handler/admin/setting_handler.go` | (a) admin GET 在 `BuildAdminSettingsResponse` 处把 raw JSON parse 成 `[]MarqueeMessage`；(b) admin PUT 增加完整校验段（参考第 892-967 行 `custom_menu_items` 实现）；(c) 变更日志 diff 比较加 `marquee_messages` |
+| `backend/internal/handler/setting_handler.go` | 公开 GET 输出 parsed + filtered marquee 数组 |
 | `backend/internal/server/api_contract_test.go` | 契约测试加新字段断言 |
+| `backend/internal/service/setting_service_test.go` | 单元测试覆盖默认值、JSON 往返 |
+| `backend/internal/handler/admin/setting_handler_test.go` | 校验单测（长度、trim、ID 格式/补齐/唯一性、sort_order 归一化） |
 
 ---
 
@@ -149,12 +169,12 @@ MarqueeMessages []MarqueeMessage `json:"marquee_messages"` // 仅下发 enabled=
 ```vue
 <template>
   <!--
-    根容器始终渲染并占据 flex-1，保证 AppHeader 中间留白固定，
-    避免"启用 / 禁用"切换时左右两端布局抖动。
-    实际跑马灯内容按条件渲染。
-    `hidden lg:block` 让移动端整槽位都不占空间。
+    桌面端 (>=lg): 根容器渲染并 flex-1 撑满 AppHeader 中间槽位，无字幕内容时仍保留 flex-1
+    避免"启用/禁用"切换时左右两端抖动。
+    移动端 (<lg): display:none，槽位完全消失；AppHeader 外层的 justify-between 继续生效，
+    左右两段被推到两端，视觉与改动前一致。
   -->
-  <div class="marquee-slot hidden lg:block flex-1 min-w-0 mx-4">
+  <div class="marquee-slot hidden min-w-0 mx-4 lg:block lg:flex-1">
     <div
       v-if="text"
       class="marquee-shell"
@@ -221,19 +241,23 @@ const text = computed(() => {
 
 ### 5.2 改动 `AppHeader.vue`
 
-[frontend/src/components/layout/AppHeader.vue](../../../frontend/src/components/layout/AppHeader.vue) 的外层布局当前是 `flex justify-between`（左侧标题 + 右侧工具栏）。
-
-改为显式三段式：
+[frontend/src/components/layout/AppHeader.vue](../../../frontend/src/components/layout/AppHeader.vue) 的外层 `flex justify-between` **保留不动**。直接在左右两个 div 之间插入 `<AppHeaderMarquee />`：
 
 ```html
-<div class="flex h-16 items-center px-4 md:px-6">
-  <div class="flex items-center gap-4">  <!-- 左：菜单按钮 + 标题 --> </div>
-  <AppHeaderMarquee />                   <!-- 中：flex-1，自动撑开 -->
-  <div class="flex items-center gap-3">  <!-- 右：工具栏 --> </div>
+<div class="flex h-16 items-center justify-between px-4 md:px-6">
+  <div class="flex items-center gap-4">  <!-- 左：菜单按钮 + 标题（不动） --> </div>
+  <AppHeaderMarquee />                   <!-- 中：自身 lg:flex-1 撑开 -->
+  <div class="flex items-center gap-3">  <!-- 右：工具栏（不动） --> </div>
 </div>
 ```
 
-`AppHeaderMarquee` 根容器始终带 `flex-1` 占据中间空白槽位（即使无字幕内容），避免"启用/禁用"切换时左右两端布局抖动。仅 `hidden lg:block`：移动端槽位完全消失。
+**关键**：
+
+- 桌面端（≥lg）：`AppHeaderMarquee` 自身带 `lg:flex-1` 把中间撑满，左右两段被推到两端
+- 移动端（<lg）：`AppHeaderMarquee` 设 `display:none`，三段 flex 退化为两段，**`justify-between` 继续把左右两段推到两端**（与改动前的视觉完全一致）
+- 任何情况下都不需要给左右段加 `ml-auto` 之类补丁
+
+这种"中间组件自身负责响应式"的写法把改动局限在新组件内，对 AppHeader 的回归风险最小。
 
 ### 5.3 类型定义
 
@@ -253,7 +277,10 @@ export interface MarqueeMessage {
 
 ### 5.4 store 改动
 
-- [stores/app.ts](../../../frontend/src/stores/app.ts)：`cachedPublicSettings` 已经在使用，加完类型字段就能用，**无功能改动**
+- [stores/app.ts](../../../frontend/src/stores/app.ts)：
+  - 类型层：`PublicSettings` 加 `marquee_enabled: boolean` 和 `marquee_messages: MarqueeMessage[]`
+  - **fallback 默认值**：`fetchPublicSettings` 内部第 320-361 行的兜底对象需要追加 `marquee_enabled: false, marquee_messages: []`，否则 `cachedPublicSettings` 命中默认分支时会缺字段、组件读到 `undefined`
+  - 不需要新加 action / computed
 - [stores/adminSettings.ts](../../../frontend/src/stores/adminSettings.ts)：模仿现有 `customMenuItems` 的 add/update/delete/reorder 行为，新增一组 `marqueeMessages` 操作
 - [api/admin/settings.ts](../../../frontend/src/api/admin/settings.ts)：DTO 同步加新字段
 
@@ -309,11 +336,16 @@ export interface MarqueeMessage {
 
 | 类型 | 文件 | 用例 |
 |---|---|---|
-| 后端单测 | `setting_service_test.go` | marquee_messages 校验：长度上限 20、空文本拒绝、id 自动补齐、sort_order 归一化、JSON 序列化往返 |
-| 后端契约 | `api_contract_test.go` | admin GET/PUT、public GET 都包含 marquee 字段；公开侧仅返回 `enabled=true` |
-| 前端组件 | `AppHeaderMarquee.spec.ts`（新建） | 启用/禁用渲染、空文本不渲染、多条拼接 ` · `、hover 暂停状态、移动端不渲染 |
-| 前端 store | `adminSettings.spec.ts` | add/update/delete/reorder marquee message 行为正确 |
+| 后端单测 | `setting_service_test.go` | `getDefaultSystemSettings` 含 `SettingMarqueeMessages: "[]"`；JSON 序列化往返 |
+| 后端单测 | `setting_handler_test.go`（admin） | 校验：长度上限 20、空文本拒绝、ID 格式 `^[a-zA-Z0-9_-]+$`、ID 自动补齐、ID 唯一性冲突 400、sort_order 归一化、变更日志 diff |
+| 后端契约 | `api_contract_test.go` | admin GET/PUT、public GET 都包含 marquee 字段；公开侧仅返回 `enabled=true` 且按 `sort_order` 升序 |
+| 后端契约 | `public_settings_injection_schema_test.go`（**已存在，自动生效**） | `PublicSettingsInjectionPayload` 加字段后，schema-drift 测试自动通过；漏加则 fail |
+| 前端组件 | `AppHeaderMarquee.spec.ts`（新建） | 启用/禁用、空文本、多条拼接 ` · `、hover 暂停 class 切换、`hidden lg:block` class 存在 |
+| 前端 store | `adminSettings.spec.ts` | add/update/delete/reorder marquee message 行为正确；payload 形态符合 admin handler 期望 |
 | 前端 view | `SettingsView.spec.ts` | 配置面板能正确渲染、新增/删除字幕生效、保存调用正确 API |
+| 视觉/手测 | 手动 | (a) 桌面端 Header 三段布局正确；(b) **移动端 Header 与改动前视觉一致**：右侧工具栏靠右、左侧菜单按钮靠左、不重叠、不抖动；(c) 暗色模式跑马灯文字对比度 OK |
+
+**说明**：组件测中的"移动端不渲染"实际是 CSS `display:none`（DOM 仍存在），单测只能断言 class，**真实布局正确性由手动视觉/截图验证**——这是 Codex 12.6 指出的精确化措辞。
 
 PR 提交前按 [CLAUDE.md](../../../CLAUDE.md) checklist：
 
@@ -328,8 +360,9 @@ PR 提交前按 [CLAUDE.md](../../../CLAUDE.md) checklist：
 
 ### 8.1 安全
 
-- 字幕内容由 admin 输入、admin 自己看到，**不存在 XSS 风险**（前端用 `{{ text }}` 文本插值，不是 `v-html`）
-- 公开接口下发的 marquee 字段不含敏感信息
+- 字幕由管理员配置，**会展示给所有登录后的用户（普通用户 + 管理员）**——但 XSS 风险低，因为前端使用 Vue 文本插值 `{{ text }}` 自动转义，**未使用 `v-html`**
+- 公开接口下发的 marquee 字段不含敏感信息（仅 id / text / enabled / sort_order）
+- 文本长度上限 500 字 + 数组上限 20 条，确保超长文本不会破坏 Header 布局或撑大公开接口体积
 
 ### 8.2 性能
 
@@ -374,3 +407,149 @@ PR 提交前按 [CLAUDE.md](../../../CLAUDE.md) checklist：
 - 字幕本身的多语言（zh / en 分别配置）
 - 内置点击/曝光统计
 - A/B test 后端分流
+
+---
+
+## 12. 设计评审记录（Codex）
+
+### 12.1 评审结论
+
+整体方向可行，但进入实施计划前需要修正几个会导致返工或回归的问题。重点是：移动端 Header 布局、公开设置 SSR 注入、后端分层落点、ID 校验规则，以及测试计划的可验证性。
+
+**处理状态（2026-04-26 更新）**：7 条评审意见全部经源码核对验证为正确，已在本文档对应章节修订：
+
+| 评审项 | 修订位置 |
+|---|---|
+| 12.2 P1 移动端 Header 布局 | §5.2 改为保留 `justify-between`、组件自身用 `lg:flex-1` |
+| 12.3 P1 SSR 注入 + 前端 fallback | §4.2 显式列出 `PublicSettingsInjectionPayload` 改动；§5.4 列出 app.ts fallback 默认值改动；§7 列出契约测试自动覆盖 |
+| 12.4 P2 后端分层 | §4.1 新增三层数据形态表 |
+| 12.5 P2 ID 校验 | §3.3 补 ID 格式 / 长度 / 唯一性 / 复用现有 helper |
+| 12.6 P3 测试措辞 | §7 改为 "CSS hidden + 手动视觉验证" 双重保证 |
+| 12.7 P3 安全措辞 | §8.1 改为 "登录后所有用户可见，XSS 低风险来自 Vue 文本插值" |
+| 12.8 实施 checklist | 直接进入 writing-plans 阶段时纳入实施步骤 |
+
+### 12.2 P1：移动端 Header 布局可能回归
+
+当前设计把 `AppHeader` 外层从现有 `justify-between` 改成普通三段 flex：
+
+```html
+<div class="flex h-16 items-center px-4 md:px-6">
+  <div class="flex items-center gap-4">...</div>
+  <AppHeaderMarquee />
+  <div class="flex items-center gap-3">...</div>
+</div>
+```
+
+但 `AppHeaderMarquee` 在 `<lg` 下 `hidden`，移动端中间槽位消失后，右侧工具栏可能会挤到左侧菜单按钮旁边。现有实现依赖 `justify-between` 把右侧工具栏推到最右侧：
+
+```html
+<div class="flex h-16 items-center justify-between px-4 md:px-6">
+```
+
+**建议修正**：
+
+- 保留移动端 `justify-between` 行为，或给右侧工具栏加 `ml-auto`
+- `AppHeaderMarquee` 只在桌面端参与中间弹性布局
+- 在测试计划中增加移动端 Header 截图或 e2e 校验，确认右侧工具栏仍靠右且不与左侧菜单按钮重叠
+
+### 12.3 P1：遗漏 SSR 注入与前端 fallback 默认值
+
+设计文档目前写到：
+
+> `stores/app.ts`：`cachedPublicSettings` 已经在使用，加完类型字段就能用，**无功能改动**
+
+这个判断不完整。项目当前存在公开设置的 SSR 注入结构 `PublicSettingsInjectionPayload`，注释明确说明：漏加公开字段会导致前端首屏读取到 `undefined`，直到 `/api/v1/settings/public` 异步返回后才恢复，容易出现首屏闪烁或行为不一致。
+
+同时，`frontend/src/stores/app.ts` 的 fallback 默认值也需要同步新增：
+
+```ts
+marquee_enabled: false,
+marquee_messages: [],
+```
+
+**建议修正**：
+
+- `backend/internal/service/setting_service.go`：`PublicSettingsInjectionPayload` 增加 `marquee_enabled` / `marquee_messages`
+- `GetPublicSettingsForInjection` 同步映射这两个字段
+- `frontend/src/stores/app.ts` 的默认 `cachedPublicSettings` 增加对应 fallback
+- 测试计划补充 `public_settings_injection_schema_test.go` 和 app store fallback 覆盖
+
+### 12.4 P2：后端分层描述需要贴合现有实现
+
+设计文档目前写：
+
+- `setting_service.go`：模仿 `custom_menu_items` 的 get/set/校验逻辑
+- `settings_view.go`：公开视图过滤 `enabled=false`，按 `sort_order` 升序输出
+
+但现有 `custom_menu_items` 的实际形态是：
+
+- service 内部 `SystemSettings` / `PublicSettings` 仍使用 JSON string 存储类似字段
+- admin PUT 的校验、补 ID、marshal 主要发生在 `backend/internal/handler/admin/setting_handler.go`
+- public handler / SSR injection 再把 raw JSON parse 成 DTO 结构并做可见性过滤
+
+**建议修正**：
+
+明确三层数据形态：
+
+- service 层：`MarqueeMessages string`，保持 raw JSON，与 `CustomMenuItems` 同范式
+- admin handler：接收 `[]dto.MarqueeMessage`，负责校验、补 ID、排序归一化、marshal
+- public handler / injection：parse raw JSON，过滤 `enabled=false`，按 `sort_order` 升序输出结构化数组
+
+这样能减少实现时在 service/handler 两层重复校验或类型不一致的问题。
+
+### 12.5 P2：`id` 校验规则不完整
+
+当前文档只写了：
+
+> `id`：为空时后端用 `uuid.New()` 补齐
+
+但没有定义非空 ID 的格式、长度和唯一性。由于前端列表渲染、编辑、删除会依赖 `id`，重复或非法 ID 可能导致 UI key 冲突、误删、排序异常。
+
+**建议修正**：
+
+- 非空 `id` 增加格式校验：只允许 `a-zA-Z0-9_-`
+- 增加最大长度限制，可沿用 `custom_menu_items` 的 32 字符限制，或如使用完整 UUID 则明确上限为 36
+- 保存前检查 ID 唯一性，发现重复直接 400
+- 文档中说明后端生成方式使用项目已有依赖 `github.com/google/uuid` 的 `uuid.NewString()`
+
+### 12.6 P3：测试计划里的“移动端不渲染”表述不准确
+
+组件示例使用的是 Tailwind：
+
+```html
+<div class="marquee-slot hidden lg:block flex-1 min-w-0 mx-4">
+```
+
+这意味着 DOM 仍然存在，只是 CSS 隐藏。组件单测通常只能断言 class 或状态，不能证明真实移动端布局不占空间、不重叠。
+
+**建议修正**：
+
+- 将测试描述从“移动端不渲染”改成“移动端不显示且不占用布局空间”
+- 使用浏览器 viewport 截图或 e2e 测试覆盖移动端 Header 布局
+- 若坚持“移动端不渲染”，则组件需要基于 viewport/composable 条件渲染，而不是仅使用 CSS class
+
+### 12.7 P3：安全章节表述需要更准确
+
+当前安全章节写：
+
+> 字幕内容由 admin 输入、admin 自己看到，**不存在 XSS 风险**
+
+这不准确。字幕是登录后内部页面的常驻营销位，普通用户也会看到；同时 `/api/settings/public` 是公开设置接口，不应把安全边界描述成“admin 自己看到”。
+
+**建议修正**：
+
+- 改成“字幕由管理员配置，会展示给登录后的普通用户和管理员”
+- XSS 风险低的核心理由是 Vue 文本插值 `{{ text }}` 会转义，不使用 `v-html`
+- 保留文本长度限制，避免异常长文本影响布局和接口体积
+
+### 12.8 建议更新到实施计划的检查项
+
+进入实施前，建议把以下事项加入实施 checklist：
+
+- `PublicSettingsInjectionPayload` 与 `dto.PublicSettings` 同步
+- `GetPublicSettingsForInjection` 映射 marquee 字段
+- `app.ts` fallback 默认值包含 marquee 字段
+- admin PUT 校验包含：长度上限、trim、ID 补齐、ID 格式、ID 唯一性、排序归一化
+- public GET 和 SSR 注入都过滤 disabled 字幕并排序
+- Header 桌面端和移动端都做布局验证
+- 安全文案修正为“文本插值转义”，不要写成“admin 自己看到”
