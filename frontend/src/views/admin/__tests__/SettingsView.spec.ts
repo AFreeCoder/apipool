@@ -157,6 +157,10 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.openaiExperimentalScheduler.description": "默认关闭。开启后仅影响本网关在 OpenAI 账号间的实验性调度选择逻辑，不代表上游 OpenAI 官方能力。",
     "admin.settings.site.uploadImage": "上传图片",
     "admin.settings.site.remove": "移除",
+    "admin.settings.marquee.title": "顶部跑马灯字幕",
+    "admin.settings.marquee.enabled": "启用字幕",
+    "admin.settings.marquee.add": "新增字幕",
+    "admin.settings.marquee.textRequired": "请填写字幕内容，或删除空白字幕。",
   };
   return {
     ...actual,
@@ -298,6 +302,8 @@ const baseSettingsResponse = {
   backend_mode_enabled: false,
   custom_menu_items: [],
   custom_endpoints: [],
+  marquee_enabled: false,
+  marquee_messages: [],
   frontend_url: "",
   smtp_host: "",
   smtp_port: 587,
@@ -410,6 +416,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        RouterLink: true,
       },
     },
   });
@@ -617,6 +624,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ProxySelector: true,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
+          RouterLink: true,
         },
       },
     });
@@ -658,6 +666,123 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(paymentHelpImageUpload).toBeDefined();
     expect(paymentHelpImageUpload?.attributes("data-upload-label")).toBe("上传图片");
     expect(paymentHelpImageUpload?.attributes("data-remove-label")).toBe("移除");
+  });
+
+  it("renders marquee settings from the backend response", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      marquee_enabled: true,
+      marquee_messages: [
+        { id: "m1", text: "AI membership store is live", enabled: true, sort_order: 0 },
+        { id: "m2", text: "Draft notice", enabled: false, sort_order: 1 },
+      ],
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    expect(
+      (wrapper.get('[data-testid="marquee-enabled"]').element as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (wrapper.get('[data-testid="marquee-message-text-0"]').element as HTMLTextAreaElement)
+        .value,
+    ).toBe("AI membership store is live");
+    expect(
+      (wrapper.get('[data-testid="marquee-message-enabled-1"]').element as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+  });
+
+  it("saves edited marquee settings in the admin payload", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      marquee_enabled: false,
+      marquee_messages: [
+        { id: "m1", text: "Original message", enabled: true, sort_order: 0 },
+      ],
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.get('[data-testid="marquee-enabled"]').setValue(true);
+    await wrapper
+      .get('[data-testid="marquee-message-text-0"]')
+      .setValue("Updated AI store message");
+    await wrapper
+      .get('[data-testid="marquee-message-enabled-0"]')
+      .setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marquee_enabled: true,
+        marquee_messages: [
+          {
+            id: "m1",
+            text: "Updated AI store message",
+            enabled: false,
+            sort_order: 0,
+          },
+        ],
+      }),
+    );
+  });
+
+  it("blocks saving blank marquee messages before calling the admin API", async () => {
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.get('[data-testid="add-marquee-message"]').trigger("click");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(showError).toHaveBeenCalledWith("请填写字幕内容，或删除空白字幕。");
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("keeps marquee sort order stable when adding removing and reordering messages", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      marquee_enabled: true,
+      marquee_messages: [
+        { id: "a", text: "A", enabled: true, sort_order: 0 },
+        { id: "b", text: "B", enabled: true, sort_order: 1 },
+      ],
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.get('[data-testid="move-marquee-down-0"]').trigger("click");
+    expect(
+      (wrapper.get('[data-testid="marquee-message-text-0"]').element as HTMLTextAreaElement)
+        .value,
+    ).toBe("B");
+
+    await wrapper.get('[data-testid="add-marquee-message"]').trigger("click");
+    expect(wrapper.findAll('[data-testid^="marquee-message-text-"]')).toHaveLength(3);
+    await wrapper.get('[data-testid="marquee-message-text-2"]').setValue("C");
+
+    await wrapper.get('[data-testid="remove-marquee-message-1"]').trigger("click");
+    expect(wrapper.findAll('[data-testid^="marquee-message-text-"]')).toHaveLength(2);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marquee_messages: [
+          { id: "b", text: "B", enabled: true, sort_order: 0 },
+          { id: "", text: "C", enabled: true, sort_order: 1 },
+        ],
+      }),
+    );
   });
 });
 

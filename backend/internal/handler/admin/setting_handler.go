@@ -34,6 +34,47 @@ func generateMenuItemID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+func normalizeMarqueeMessages(items []dto.MarqueeMessage) (string, error) {
+	const (
+		maxMarqueeMessages = 20
+		maxMarqueeTextLen  = 500
+		maxMarqueeIDLen    = 32
+	)
+	if len(items) > maxMarqueeMessages {
+		return "", fmt.Errorf("too many marquee messages (max 20)")
+	}
+	seen := make(map[string]struct{}, len(items))
+	for i, item := range items {
+		if strings.TrimSpace(item.Text) == "" {
+			return "", fmt.Errorf("marquee message text is required")
+		}
+		if len(item.Text) > maxMarqueeTextLen {
+			return "", fmt.Errorf("marquee message text is too long (max 500 characters)")
+		}
+		if strings.TrimSpace(item.ID) == "" {
+			id, err := generateMenuItemID()
+			if err != nil {
+				return "", fmt.Errorf("generate marquee message ID: %w", err)
+			}
+			items[i].ID = id
+		} else if len(item.ID) > maxMarqueeIDLen {
+			return "", fmt.Errorf("marquee message ID is too long (max 32 characters)")
+		} else if !menuItemIDPattern.MatchString(item.ID) {
+			return "", fmt.Errorf("marquee message ID contains invalid characters")
+		}
+		items[i].SortOrder = i
+		if _, ok := seen[items[i].ID]; ok {
+			return "", fmt.Errorf("duplicate marquee message ID: %s", items[i].ID)
+		}
+		seen[items[i].ID] = struct{}{}
+	}
+	data, err := json.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("marshal marquee messages: %w", err)
+	}
+	return string(data), nil
+}
+
 func scopesContainOpenID(scopes string) bool {
 	for _, scope := range strings.Fields(strings.ToLower(strings.TrimSpace(scopes))) {
 		if scope == "openid" {
@@ -182,6 +223,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		TableDefaultPageSize:                   settings.TableDefaultPageSize,
 		TablePageSizeOptions:                   settings.TablePageSizeOptions,
 		CustomMenuItems:                        dto.ParseCustomMenuItems(settings.CustomMenuItems),
+		MarqueeEnabled:                         settings.MarqueeEnabled,
+		MarqueeMessages:                        dto.ParseMarqueeMessages(settings.MarqueeMessages),
 		CustomEndpoints:                        dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                     settings.DefaultConcurrency,
 		DefaultBalance:                         settings.DefaultBalance,
@@ -336,6 +379,8 @@ type UpdateSettingsRequest struct {
 	TableDefaultPageSize        int                   `json:"table_default_page_size"`
 	TablePageSizeOptions        []int                 `json:"table_page_size_options"`
 	CustomMenuItems             *[]dto.CustomMenuItem `json:"custom_menu_items"`
+	MarqueeEnabled              *bool                 `json:"marquee_enabled"`
+	MarqueeMessages             *[]dto.MarqueeMessage `json:"marquee_messages"`
 	CustomEndpoints             *[]dto.CustomEndpoint `json:"custom_endpoints"`
 
 	// 默认配置
@@ -967,6 +1012,20 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		customMenuJSON = string(menuBytes)
 	}
 
+	marqueeEnabled := previousSettings.MarqueeEnabled
+	if req.MarqueeEnabled != nil {
+		marqueeEnabled = *req.MarqueeEnabled
+	}
+	marqueeMessagesJSON := previousSettings.MarqueeMessages
+	if req.MarqueeMessages != nil {
+		normalized, err := normalizeMarqueeMessages(*req.MarqueeMessages)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		marqueeMessagesJSON = normalized
+	}
+
 	// 自定义端点验证
 	const (
 		maxCustomEndpoints        = 10
@@ -1133,6 +1192,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		TableDefaultPageSize:             req.TableDefaultPageSize,
 		TablePageSizeOptions:             req.TablePageSizeOptions,
 		CustomMenuItems:                  customMenuJSON,
+		MarqueeEnabled:                   marqueeEnabled,
+		MarqueeMessages:                  marqueeMessagesJSON,
 		CustomEndpoints:                  customEndpointsJSON,
 		DefaultConcurrency:               req.DefaultConcurrency,
 		DefaultBalance:                   req.DefaultBalance,
@@ -1454,6 +1515,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		TableDefaultPageSize:                   updatedSettings.TableDefaultPageSize,
 		TablePageSizeOptions:                   updatedSettings.TablePageSizeOptions,
 		CustomMenuItems:                        dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
+		MarqueeEnabled:                         updatedSettings.MarqueeEnabled,
+		MarqueeMessages:                        dto.ParseMarqueeMessages(updatedSettings.MarqueeMessages),
 		CustomEndpoints:                        dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                     updatedSettings.DefaultConcurrency,
 		DefaultBalance:                         updatedSettings.DefaultBalance,
@@ -1830,6 +1893,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.CustomMenuItems != after.CustomMenuItems {
 		changed = append(changed, "custom_menu_items")
+	}
+	if before.MarqueeEnabled != after.MarqueeEnabled {
+		changed = append(changed, "marquee_enabled")
+	}
+	if before.MarqueeMessages != after.MarqueeMessages {
+		changed = append(changed, "marquee_messages")
 	}
 	if before.CustomEndpoints != after.CustomEndpoints {
 		changed = append(changed, "custom_endpoints")

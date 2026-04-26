@@ -2,6 +2,7 @@ package dto
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -20,6 +21,14 @@ type CustomEndpoint struct {
 	Name        string `json:"name"`
 	Endpoint    string `json:"endpoint"`
 	Description string `json:"description"`
+}
+
+// MarqueeMessage represents a single AppHeader marquee message.
+type MarqueeMessage struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	Enabled   bool   `json:"enabled"`
+	SortOrder int    `json:"sort_order"`
 }
 
 // SystemSettings represents the admin settings API response payload.
@@ -104,6 +113,8 @@ type SystemSettings struct {
 	TableDefaultPageSize        int              `json:"table_default_page_size"`
 	TablePageSizeOptions        []int            `json:"table_page_size_options"`
 	CustomMenuItems             []CustomMenuItem `json:"custom_menu_items"`
+	MarqueeEnabled              bool             `json:"marquee_enabled"`
+	MarqueeMessages             []MarqueeMessage `json:"marquee_messages"`
 	CustomEndpoints             []CustomEndpoint `json:"custom_endpoints"`
 
 	DefaultConcurrency   int                          `json:"default_concurrency"`
@@ -226,6 +237,8 @@ type PublicSettings struct {
 	TableDefaultPageSize             int              `json:"table_default_page_size"`
 	TablePageSizeOptions             []int            `json:"table_page_size_options"`
 	CustomMenuItems                  []CustomMenuItem `json:"custom_menu_items"`
+	MarqueeEnabled                   bool             `json:"marquee_enabled"`
+	MarqueeMessages                  []MarqueeMessage `json:"marquee_messages"`
 	CustomEndpoints                  []CustomEndpoint `json:"custom_endpoints"`
 	LinuxDoOAuthEnabled              bool             `json:"linuxdo_oauth_enabled"`
 	WeChatOAuthEnabled               bool             `json:"wechat_oauth_enabled"`
@@ -314,6 +327,37 @@ func ParseUserVisibleMenuItems(raw string) []CustomMenuItem {
 			filtered = append(filtered, item)
 		}
 	}
+	return filtered
+}
+
+// ParseMarqueeMessages parses a JSON string into a slice of MarqueeMessage.
+// Returns an empty slice on empty/invalid input.
+func ParseMarqueeMessages(raw string) []MarqueeMessage {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return []MarqueeMessage{}
+	}
+	var items []MarqueeMessage
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return []MarqueeMessage{}
+	}
+	return items
+}
+
+// ParsePublicMarqueeMessages returns enabled, non-empty marquee messages sorted
+// by sort_order. This is the only shape exposed to public settings consumers.
+func ParsePublicMarqueeMessages(raw string) []MarqueeMessage {
+	items := ParseMarqueeMessages(raw)
+	filtered := make([]MarqueeMessage, 0, len(items))
+	for _, item := range items {
+		if !item.Enabled || strings.TrimSpace(item.Text) == "" {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return filtered[i].SortOrder < filtered[j].SortOrder
+	})
 	return filtered
 }
 

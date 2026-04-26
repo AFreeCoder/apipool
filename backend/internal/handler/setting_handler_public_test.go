@@ -120,3 +120,45 @@ func TestSettingHandler_GetPublicSettings_ExposesWeChatOAuthModeCapabilities(t *
 	require.True(t, resp.Data.WeChatOAuthOpenEnabled)
 	require.True(t, resp.Data.WeChatOAuthMPEnabled)
 }
+
+func TestSettingHandler_GetPublicSettings_FiltersMarqueeMessages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := NewSettingHandler(service.NewSettingService(&settingHandlerPublicRepoStub{
+		values: map[string]string{
+			service.SettingMarqueeEnabled: "true",
+			service.SettingMarqueeMessages: `[
+				{"id":"draft","text":"draft","enabled":false,"sort_order":0},
+				{"id":"second","text":"Second","enabled":true,"sort_order":2},
+				{"id":"first","text":"First","enabled":true,"sort_order":1},
+				{"id":"blank","text":"   ","enabled":true,"sort_order":3}
+			]`,
+		},
+	}, &config.Config{}), "test-version")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+	h.GetPublicSettings(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			MarqueeEnabled  bool `json:"marquee_enabled"`
+			MarqueeMessages []struct {
+				ID        string `json:"id"`
+				Text      string `json:"text"`
+				Enabled   bool   `json:"enabled"`
+				SortOrder int    `json:"sort_order"`
+			} `json:"marquee_messages"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.True(t, resp.Data.MarqueeEnabled)
+	require.Len(t, resp.Data.MarqueeMessages, 2)
+	require.Equal(t, "first", resp.Data.MarqueeMessages[0].ID)
+	require.Equal(t, "second", resp.Data.MarqueeMessages[1].ID)
+}

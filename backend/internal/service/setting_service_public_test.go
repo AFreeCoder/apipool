@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -151,4 +152,55 @@ func TestSettingService_GetPublicSettings_FallsBackToConfigForWeChatOAuthCapabil
 	require.True(t, settings.WeChatOAuthOpenEnabled)
 	require.False(t, settings.WeChatOAuthMPEnabled)
 	require.False(t, settings.WeChatOAuthMobileEnabled)
+}
+
+func TestSettingService_GetPublicSettings_IncludesMarqueeRawSettings(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingMarqueeEnabled:  "true",
+			SettingMarqueeMessages: `[{"id":"m1","text":"hello","enabled":true,"sort_order":0}]`,
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+
+	require.NoError(t, err)
+	require.True(t, settings.MarqueeEnabled)
+	require.Equal(t, `[{"id":"m1","text":"hello","enabled":true,"sort_order":0}]`, settings.MarqueeMessages)
+}
+
+func TestSettingService_GetPublicSettingsForInjection_FiltersMarqueeMessages(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingMarqueeEnabled: "true",
+			SettingMarqueeMessages: `[
+				{"id":"draft","text":"draft","enabled":false,"sort_order":0},
+				{"id":"second","text":"Second","enabled":true,"sort_order":2},
+				{"id":"first","text":"First","enabled":true,"sort_order":1},
+				{"id":"blank","text":"   ","enabled":true,"sort_order":3}
+			]`,
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	payload, err := svc.GetPublicSettingsForInjection(context.Background())
+
+	require.NoError(t, err)
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	var got struct {
+		MarqueeEnabled  bool `json:"marquee_enabled"`
+		MarqueeMessages []struct {
+			ID        string `json:"id"`
+			Text      string `json:"text"`
+			Enabled   bool   `json:"enabled"`
+			SortOrder int    `json:"sort_order"`
+		} `json:"marquee_messages"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.True(t, got.MarqueeEnabled)
+	require.Len(t, got.MarqueeMessages, 2)
+	require.Equal(t, "first", got.MarqueeMessages[0].ID)
+	require.Equal(t, "second", got.MarqueeMessages[1].ID)
 }

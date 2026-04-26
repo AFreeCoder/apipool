@@ -226,6 +226,63 @@ func TestAPIContracts(t *testing.T) {
 			}`,
 		},
 		{
+			name:       "GET /api/v1/settings/public",
+			method:     http.MethodGet,
+			path:       "/api/v1/settings/public",
+			wantStatus: http.StatusOK,
+			wantJSON: `{
+				"code": 0,
+				"message": "success",
+				"data": {
+					"registration_enabled": false,
+					"email_verify_enabled": false,
+					"force_email_on_third_party_signup": false,
+					"registration_email_suffix_whitelist": [],
+					"promo_code_enabled": true,
+					"password_reset_enabled": false,
+					"invitation_code_enabled": false,
+					"totp_enabled": false,
+					"turnstile_enabled": false,
+					"turnstile_site_key": "",
+					"site_name": "APIPool",
+					"site_logo": "",
+					"site_subtitle": "Subscription to API Conversion Platform",
+					"api_base_url": "",
+					"contact_info": "",
+					"doc_url": "",
+					"home_content": "",
+					"hide_ccs_import_button": false,
+					"purchase_subscription_enabled": false,
+					"purchase_subscription_url": "",
+					"table_default_page_size": 20,
+					"table_page_size_options": [10, 20, 50],
+					"custom_menu_items": [],
+					"marquee_enabled": false,
+					"marquee_messages": [],
+					"custom_endpoints": [],
+					"linuxdo_oauth_enabled": false,
+					"wechat_oauth_enabled": false,
+					"wechat_oauth_open_enabled": false,
+					"wechat_oauth_mp_enabled": false,
+					"wechat_oauth_mobile_enabled": false,
+					"oidc_oauth_enabled": false,
+					"oidc_oauth_provider_name": "OIDC",
+					"sora_client_enabled": false,
+					"backend_mode_enabled": false,
+					"payment_enabled": false,
+					"version": "contract-test-version",
+					"balance_low_notify_enabled": false,
+					"account_quota_notify_enabled": false,
+					"balance_low_notify_threshold": 0,
+					"balance_low_notify_recharge_url": "",
+					"channel_monitor_enabled": true,
+					"channel_monitor_default_interval_seconds": 60,
+					"available_channels_enabled": false,
+					"affiliate_enabled": false
+				}
+			}`,
+		},
+		{
 			name: "GET /api/v1/keys (paginated)",
 			setup: func(t *testing.T, deps *contractDeps) {
 				t.Helper()
@@ -746,6 +803,8 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_wxpay_enabled": false,
 					"openai_advanced_scheduler_enabled": true,
 					"custom_menu_items": [],
+					"marquee_enabled": false,
+					"marquee_messages": [],
 					"custom_endpoints": [],
 					"payment_enabled": false,
 					"payment_min_amount": 0,
@@ -894,6 +953,8 @@ func TestAPIContracts(t *testing.T) {
 					"table_default_page_size": 20,
 					"table_page_size_options": [10, 20, 50],
 					"custom_menu_items": [],
+					"marquee_enabled": false,
+					"marquee_messages": [],
 					"custom_endpoints": [],
 					"default_concurrency": 0,
 					"default_balance": 0,
@@ -1100,6 +1161,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 
 	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil)
+	settingHandler := handler.NewSettingHandler(settingService, "contract-test-version")
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService)
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil)
@@ -1129,6 +1191,8 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Auth := v1.Group("")
 	v1Auth.Use(jwtAuth)
 	v1Auth.GET("/auth/me", authHandler.GetCurrentUser)
+
+	v1.GET("/settings/public", settingHandler.GetPublicSettings)
 
 	v1Keys := v1.Group("")
 	v1Keys.Use(jwtAuth)

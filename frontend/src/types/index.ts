@@ -170,6 +170,13 @@ export interface CustomMenuItem {
   sort_order: number
 }
 
+export interface MarqueeMessage {
+  id: string
+  text: string
+  enabled: boolean
+  sort_order: number
+}
+
 export interface CustomEndpoint {
   name: string
   endpoint: string
@@ -201,6 +208,8 @@ export interface PublicSettings {
   table_page_size_options: number[]
   custom_menu_items: CustomMenuItem[]
   custom_endpoints: CustomEndpoint[]
+  marquee_enabled: boolean
+  marquee_messages: MarqueeMessage[]
   linuxdo_oauth_enabled: boolean
   wechat_oauth_enabled: boolean
   wechat_oauth_open_enabled?: boolean

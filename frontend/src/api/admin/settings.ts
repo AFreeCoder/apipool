@@ -4,7 +4,12 @@
  */
 
 import { apiClient } from "../client";
-import type { CustomMenuItem, CustomEndpoint, NotifyEmailEntry } from "@/types";
+import type {
+  CustomMenuItem,
+  CustomEndpoint,
+  NotifyEmailEntry,
+  MarqueeMessage,
+} from "@/types";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -347,6 +352,8 @@ export interface SystemSettings {
   backend_mode_enabled: boolean;
   custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
+  marquee_enabled?: boolean;
+  marquee_messages?: MarqueeMessage[];
   purchase_subscription_enabled: boolean;
   purchase_subscription_url: string;
   // SMTP settings
@@ -533,6 +540,8 @@ export interface UpdateSettingsRequest {
   backend_mode_enabled?: boolean;
   custom_menu_items?: CustomMenuItem[];
   custom_endpoints?: CustomEndpoint[];
+  marquee_enabled?: boolean;
+  marquee_messages?: MarqueeMessage[];
   smtp_host?: string;
   smtp_port?: number;
   smtp_username?: string;

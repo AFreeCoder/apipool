@@ -21,6 +21,8 @@
         </div>
       </div>
 
+      <AppHeaderMarquee />
+
       <!-- Right: Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
       <div class="flex items-center gap-3">
         <!-- Announcement Bell -->
@@ -222,6 +224,7 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMini.vue'
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
+import AppHeaderMarquee from '@/components/layout/AppHeaderMarquee.vue'
 
 const router = useRouter()
 const route = useRoute()

@@ -3841,6 +3841,113 @@
               </button>
             </div>
           </div>
+
+          <!-- Header Marquee -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.marquee.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.marquee.description") }}
+              </p>
+            </div>
+            <div class="space-y-4 p-6">
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <label class="font-medium text-gray-900 dark:text-white">
+                    {{ t("admin.settings.marquee.enabled") }}
+                  </label>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.marquee.tipMultipleSeparator") }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.marquee_enabled"
+                  data-testid="marquee-enabled"
+                />
+              </div>
+
+              <div
+                v-for="(message, index) in form.marquee_messages"
+                :key="message.id || index"
+                class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+              >
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <label
+                    class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
+                  >
+                    <input
+                      v-model="message.enabled"
+                      type="checkbox"
+                      class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      :data-testid="`marquee-message-enabled-${index}`"
+                    />
+                    {{ t("admin.settings.marquee.enabled") }}
+                    <span
+                      v-if="!message.enabled"
+                      class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.marquee.draftBadge") }}
+                    </span>
+                  </label>
+
+                  <div class="flex items-center gap-2">
+                    <button
+                      v-if="index > 0"
+                      type="button"
+                      class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700"
+                      :title="t('admin.settings.marquee.moveUp')"
+                      :data-testid="`move-marquee-up-${index}`"
+                      @click="moveMarqueeMessage(index, -1)"
+                    >
+                      <span aria-hidden="true">↑</span>
+                    </button>
+                    <button
+                      v-if="index < form.marquee_messages.length - 1"
+                      type="button"
+                      class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700"
+                      :title="t('admin.settings.marquee.moveDown')"
+                      :data-testid="`move-marquee-down-${index}`"
+                      @click="moveMarqueeMessage(index, 1)"
+                    >
+                      <span aria-hidden="true">↓</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                      :title="t('admin.settings.marquee.remove')"
+                      :data-testid="`remove-marquee-message-${index}`"
+                      @click="removeMarqueeMessage(index)"
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </div>
+                </div>
+
+                <textarea
+                  v-model="message.text"
+                  rows="2"
+                  maxlength="500"
+                  class="input text-sm"
+                  :placeholder="t('admin.settings.marquee.textPlaceholder')"
+                  :data-testid="`marquee-message-text-${index}`"
+                ></textarea>
+              </div>
+
+              <button
+                type="button"
+                class="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 py-3 text-sm text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
+                data-testid="add-marquee-message"
+                @click="addMarqueeMessage"
+              >
+                <span aria-hidden="true">+</span>
+                {{ t("admin.settings.marquee.add") }}
+              </button>
+            </div>
+          </div>
         </div>
         <!-- /Tab: General -->
 
@@ -5383,6 +5490,8 @@ type SettingsForm = Omit<
   | "wechat_connect_open_enabled"
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
+  | "marquee_enabled"
+  | "marquee_messages"
 > & {
   smtp_password: string;
   turnstile_secret_key: string;
@@ -5399,6 +5508,13 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_enabled: boolean;
   purchase_subscription_enabled: boolean;
   purchase_subscription_url: string;
+  marquee_enabled: boolean;
+  marquee_messages: Array<{
+    id: string;
+    text: string;
+    enabled: boolean;
+    sort_order: number;
+  }>;
 };
 
 const form = reactive<SettingsForm>({
@@ -5455,6 +5571,13 @@ const form = reactive<SettingsForm>({
     icon_svg: string;
     url: string;
     visibility: "user" | "admin";
+    sort_order: number;
+  }>,
+  marquee_enabled: false,
+  marquee_messages: [] as Array<{
+    id: string;
+    text: string;
+    enabled: boolean;
     sort_order: number;
   }>,
   custom_endpoints: [] as Array<{
@@ -6015,6 +6138,42 @@ function moveMenuItem(index: number, direction: -1 | 1) {
   });
 }
 
+// Marquee message management
+function addMarqueeMessage() {
+  form.marquee_messages.push({
+    id: "",
+    text: "",
+    enabled: true,
+    sort_order: form.marquee_messages.length,
+  });
+}
+
+function removeMarqueeMessage(index: number) {
+  form.marquee_messages.splice(index, 1);
+  form.marquee_messages.forEach((item, i) => {
+    item.sort_order = i;
+  });
+}
+
+function moveMarqueeMessage(index: number, direction: -1 | 1) {
+  const targetIndex = index + direction;
+  if (targetIndex < 0 || targetIndex >= form.marquee_messages.length) return;
+  const items = form.marquee_messages;
+  const current = items[index];
+  items[index] = items[targetIndex];
+  items[targetIndex] = current;
+  items.forEach((item, i) => {
+    item.sort_order = i;
+  });
+}
+
+function buildMarqueeMessagesForSave() {
+  return form.marquee_messages.map((message, index) => ({
+    ...message,
+    sort_order: index,
+  }));
+}
+
 // Custom endpoint management
 function addEndpoint() {
   form.custom_endpoints.push({ name: "", endpoint: "", description: "" });
@@ -6082,6 +6241,14 @@ async function loadSettings() {
         ? settings.table_page_size_options
         : [10, 20, 50, 100],
     );
+    form.marquee_messages = Array.isArray(settings.marquee_messages)
+      ? settings.marquee_messages.map((message, index) => ({
+          id: message.id || "",
+          text: message.text || "",
+          enabled: message.enabled === true,
+          sort_order: index,
+        }))
+      : [];
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
@@ -6319,6 +6486,11 @@ async function saveSettings() {
     if (!isValidHttpUrl(form.frontend_url)) form.frontend_url = "";
     if (!isValidHttpUrl(form.doc_url)) form.doc_url = "";
     syncWeChatConnectMode();
+    const marqueeMessagesForSave = buildMarqueeMessagesForSave();
+    if (marqueeMessagesForSave.some((message) => message.text.trim() === "")) {
+      appStore.showError(t("admin.settings.marquee.textRequired"));
+      return;
+    }
     const wechatStoredMode = deriveWeChatConnectStoredMode(
       form.wechat_connect_open_enabled,
       form.wechat_connect_mp_enabled,
@@ -6360,6 +6532,8 @@ async function saveSettings() {
       table_default_page_size: form.table_default_page_size,
       table_page_size_options: form.table_page_size_options,
       custom_menu_items: form.custom_menu_items,
+      marquee_enabled: form.marquee_enabled,
+      marquee_messages: marqueeMessagesForSave,
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
       smtp_host: form.smtp_host,
@@ -6505,6 +6679,14 @@ async function saveSettings() {
         ? updated.table_page_size_options
         : [10, 20, 50, 100],
     );
+    form.marquee_messages = Array.isArray(updated.marquee_messages)
+      ? updated.marquee_messages.map((message, index) => ({
+          id: message.id || "",
+          text: message.text || "",
+          enabled: message.enabled === true,
+          sort_order: index,
+        }))
+      : [];
     registrationEmailSuffixWhitelistDraft.value = "";
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;

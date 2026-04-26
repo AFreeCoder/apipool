@@ -271,6 +271,10 @@ describe('useAppStore', () => {
       expect(store.siteLogo).toBe('/logo.png')
       expect(store.siteVersion).toBe('1.0.0')
       expect(store.publicSettingsLoaded).toBe(true)
+      expect(store.cachedPublicSettings?.marquee_enabled).toBe(false)
+      expect(store.cachedPublicSettings?.marquee_messages).toEqual([])
+      expect(windowAny.__APP_CONFIG__.marquee_enabled).toBe(false)
+      expect(windowAny.__APP_CONFIG__.marquee_messages).toEqual([])
     })
 
     it('无注入配置时返回 false', () => {
@@ -279,6 +283,17 @@ describe('useAppStore', () => {
 
       expect(result).toBe(false)
       expect(store.publicSettingsLoaded).toBe(false)
+    })
+
+    it('公开设置缓存 fallback 包含跑马灯默认值', async () => {
+      const store = useAppStore()
+      store.publicSettingsLoaded = true
+      store.cachedPublicSettings = null
+
+      const settings = await store.fetchPublicSettings()
+
+      expect(settings?.marquee_enabled).toBe(false)
+      expect(settings?.marquee_messages).toEqual([])
     })
 
     it('clearPublicSettingsCache 清除缓存', () => {

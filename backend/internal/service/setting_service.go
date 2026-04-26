@@ -425,6 +425,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyTableDefaultPageSize,
 		SettingKeyTablePageSizeOptions,
 		SettingKeyCustomMenuItems,
+		SettingMarqueeEnabled,
+		SettingMarqueeMessages,
 		SettingKeyCustomEndpoints,
 		SettingKeyLinuxDoConnectEnabled,
 		SettingKeyWeChatConnectEnabled,
@@ -523,6 +525,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		TableDefaultPageSize:             tableDefaultPageSize,
 		TablePageSizeOptions:             tablePageSizeOptions,
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
+		MarqueeEnabled:                   settings[SettingMarqueeEnabled] == "true",
+		MarqueeMessages:                  settings[SettingMarqueeMessages],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		LinuxDoOAuthEnabled:              linuxDoEnabled,
 		WeChatOAuthEnabled:               weChatEnabled,
@@ -668,6 +672,8 @@ type PublicSettingsInjectionPayload struct {
 	TableDefaultPageSize             int             `json:"table_default_page_size"`
 	TablePageSizeOptions             []int           `json:"table_page_size_options"`
 	CustomMenuItems                  json.RawMessage `json:"custom_menu_items"`
+	MarqueeEnabled                   bool            `json:"marquee_enabled"`
+	MarqueeMessages                  json.RawMessage `json:"marquee_messages"`
 	CustomEndpoints                  json.RawMessage `json:"custom_endpoints"`
 	LinuxDoOAuthEnabled              bool            `json:"linuxdo_oauth_enabled"`
 	WeChatOAuthEnabled               bool            `json:"wechat_oauth_enabled"`
@@ -724,6 +730,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		TableDefaultPageSize:             settings.TableDefaultPageSize,
 		TablePageSizeOptions:             settings.TablePageSizeOptions,
 		CustomMenuItems:                  filterUserVisibleMenuItems(settings.CustomMenuItems),
+		MarqueeEnabled:                   settings.MarqueeEnabled,
+		MarqueeMessages:                  publicMarqueeMessagesRaw(settings.MarqueeMessages),
 		CustomEndpoints:                  safeRawJSONArray(settings.CustomEndpoints),
 		LinuxDoOAuthEnabled:              settings.LinuxDoOAuthEnabled,
 		WeChatOAuthEnabled:               settings.WeChatOAuthEnabled,
@@ -831,6 +839,42 @@ func filterUserVisibleMenuItems(raw string) json.RawMessage {
 			filtered = append(filtered, fullItems[i])
 		}
 	}
+	if len(filtered) == 0 {
+		return json.RawMessage("[]")
+	}
+	result, err := json.Marshal(filtered)
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+	return result
+}
+
+type publicMarqueeMessage struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	Enabled   bool   `json:"enabled"`
+	SortOrder int    `json:"sort_order"`
+}
+
+func publicMarqueeMessagesRaw(raw string) json.RawMessage {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return json.RawMessage("[]")
+	}
+	var items []publicMarqueeMessage
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return json.RawMessage("[]")
+	}
+	filtered := make([]publicMarqueeMessage, 0, len(items))
+	for _, item := range items {
+		if !item.Enabled || strings.TrimSpace(item.Text) == "" {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return filtered[i].SortOrder < filtered[j].SortOrder
+	})
 	if len(filtered) == 0 {
 		return json.RawMessage("[]")
 	}
@@ -1168,6 +1212,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyTablePageSizeOptions] = string(tablePageSizeOptionsJSON)
 	updates[SettingKeyCustomMenuItems] = settings.CustomMenuItems
+	updates[SettingMarqueeEnabled] = strconv.FormatBool(settings.MarqueeEnabled)
+	updates[SettingMarqueeMessages] = settings.MarqueeMessages
 	updates[SettingKeyCustomEndpoints] = settings.CustomEndpoints
 
 	// 默认配置
@@ -1713,6 +1759,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyTableDefaultPageSize:                     "20",
 		SettingKeyTablePageSizeOptions:                     "[10,20,50,100]",
 		SettingKeyCustomMenuItems:                          "[]",
+		SettingMarqueeEnabled:                              "false",
+		SettingMarqueeMessages:                             "[]",
 		SettingKeyCustomEndpoints:                          "[]",
 		SettingKeyWeChatConnectEnabled:                     "false",
 		SettingKeyWeChatConnectAppID:                       "",
@@ -1854,6 +1902,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		PurchaseSubscriptionEnabled:      settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
 		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
+		MarqueeEnabled:                   settings[SettingMarqueeEnabled] == "true",
+		MarqueeMessages:                  settings[SettingMarqueeMessages],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
