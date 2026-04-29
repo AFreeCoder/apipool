@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -247,6 +249,44 @@ func TestApplyCodexOAuthTransform_PreservesKnownToolChoice(t *testing.T) {
 	choice, ok := reqBody["tool_choice"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "custom", choice["type"])
+}
+
+func TestApplyCodexOAuthTransform_NormalizesLegacyFunctionToolChoice(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"tools": []any{
+			map[string]any{"type": "function", "name": "shell"},
+		},
+		"tool_choice": map[string]any{
+			"type":     "function",
+			"function": map[string]any{"name": "shell"},
+		},
+	}
+
+	applyCodexOAuthTransform(reqBody, true, false)
+
+	choice, ok := reqBody["tool_choice"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "function", choice["type"])
+	require.Equal(t, "shell", choice["name"])
+	require.NotContains(t, choice, "function")
+}
+
+func TestApplyCodexOAuthTransform_DowngradesMissingFunctionToolChoice(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"tools": []any{
+			map[string]any{"type": "function", "name": "shell"},
+		},
+		"tool_choice": map[string]any{
+			"type":     "function",
+			"function": map[string]any{"name": "missing"},
+		},
+	}
+
+	applyCodexOAuthTransform(reqBody, true, false)
+
+	require.Equal(t, "auto", reqBody["tool_choice"])
 }
 
 func TestApplyCodexOAuthTransform_AddsFallbackNameForFunctionCallInput(t *testing.T) {
@@ -1168,6 +1208,27 @@ func TestApplyCodexOAuthTransform_StripsPromptCacheRetention(t *testing.T) {
 		"prompt_cache_retention must be stripped before forwarding to Codex upstream")
 }
 
+func TestApplyCodexOAuthTransform_StripsChatGPTInternalUnsupportedFields(t *testing.T) {
+	reqBody := map[string]any{
+		"model":                  "gpt-5.4",
+		"user":                   "user_123",
+		"metadata":               map[string]any{"trace_id": "abc"},
+		"prompt_cache_retention": "24h",
+		"safety_identifier":      "sid",
+		"stream_options":         map[string]any{"include_usage": true},
+		"input": []any{
+			map[string]any{"role": "user", "content": "hi"},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, true, false)
+
+	require.True(t, result.Modified)
+	for _, field := range openAIChatGPTInternalUnsupportedFields {
+		require.NotContains(t, reqBody, field)
+	}
+}
+
 func TestApplyCodexOAuthTransform_ExtractsSystemMessages(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "gpt-5.1",
@@ -1215,175 +1276,6 @@ func TestIsInstructionsEmpty(t *testing.T) {
 	}
 }
 
-func TestApplyCodexOAuthTransform_MixedInputWithReasoningPreservesTopLevel(t *testing.T) {
-	// 模拟 Codex 客户端多轮对话：input 数组中混合了 message 和 top-level reasoning item。
-	// reasoning item 必须保留为顶层，不能被塞进 message 的 content 数组。
-
-	reqBody := map[string]any{
-		"model": "gpt-5.4",
-		"input": []any{
-			map[string]any{
-				"role":    "user",
-				"content": "say hi",
-			},
-			map[string]any{
-				"type": "reasoning",
-				"id":   "rs_abc123",
-				"summary": []any{
-					map[string]any{"type": "summary_text", "text": "The user greeted me"},
-				},
-				"encrypted_content": "encrypted_data_here",
-			},
-			map[string]any{
-				"role": "assistant",
-				"content": []any{
-					map[string]any{"type": "output_text", "text": "Hello!"},
-				},
-			},
-			map[string]any{
-				"role":    "user",
-				"content": "thanks",
-			},
-		},
-	}
-
-	result := applyCodexOAuthTransform(reqBody, false, false)
-	require.True(t, result.Modified)
-
-	input, ok := reqBody["input"].([]any)
-	require.True(t, ok)
-	require.Len(t, input, 4, "input 应保持 4 个顶层 item")
-
-	// input[0]: user message，content 应被 normalize 为 input_text
-	msg0, ok := input[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "user", msg0["role"])
-	content0, ok := msg0["content"].([]any)
-	require.True(t, ok)
-	require.Len(t, content0, 1)
-	ct0, ok := content0[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "input_text", ct0["type"])
-
-	// input[1]: reasoning item，必须原样保留为顶层，id 和 encrypted_content 不能丢
-	reasoning, ok := input[1].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "reasoning", reasoning["type"])
-	require.Equal(t, "rs_abc123", reasoning["id"])
-	require.Equal(t, "encrypted_data_here", reasoning["encrypted_content"])
-	summary, ok := reasoning["summary"].([]any)
-	require.True(t, ok)
-	require.Len(t, summary, 1)
-
-	// input[2]: assistant message
-	msg2, ok := input[2].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "assistant", msg2["role"])
-
-	// input[3]: user message
-	msg3, ok := input[3].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "user", msg3["role"])
-}
-
-func TestApplyCodexOAuthTransform_ReasoningWithToolContinuation(t *testing.T) {
-	// 续链场景：reasoning + function_call_output 混合，reasoning 的 id 必须保留。
-
-	reqBody := map[string]any{
-		"model": "gpt-5.4",
-		"input": []any{
-			map[string]any{
-				"type": "reasoning",
-				"id":   "rs_xyz",
-				"summary": []any{
-					map[string]any{"type": "summary_text", "text": "thinking"},
-				},
-			},
-			map[string]any{
-				"type":    "function_call_output",
-				"call_id": "call_1",
-				"output":  "result",
-				"id":      "fco_1",
-			},
-		},
-		"tool_choice": "auto",
-	}
-
-	applyCodexOAuthTransform(reqBody, false, false)
-
-	input, ok := reqBody["input"].([]any)
-	require.True(t, ok)
-	require.Len(t, input, 2)
-
-	// reasoning item 保留，id 不被删除
-	reasoning, ok := input[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "reasoning", reasoning["type"])
-	require.Equal(t, "rs_xyz", reasoning["id"])
-}
-
-func TestApplyCodexOAuthTransform_MixedContentItemsAndReasoningPreservesOrder(t *testing.T) {
-	// 混合场景：裸 content item 与 top-level reasoning 混排时，
-	// content item 需要按顺序重新聚合为 user message，reasoning 保持顶层。
-
-	reqBody := map[string]any{
-		"model": "gpt-5.4",
-		"input": []any{
-			map[string]any{"type": "text", "text": "hi", "id": "text_1"},
-			map[string]any{"type": "input_image", "image_url": "https://example.com/a.png"},
-			map[string]any{
-				"type":              "reasoning",
-				"id":                "rs_mix",
-				"encrypted_content": "enc_mix",
-				"summary": []any{
-					map[string]any{"type": "summary_text", "text": "thoughts"},
-				},
-			},
-			map[string]any{"type": "text", "text": "thanks"},
-		},
-	}
-
-	result := applyCodexOAuthTransform(reqBody, false, false)
-	require.True(t, result.Modified)
-
-	input, ok := reqBody["input"].([]any)
-	require.True(t, ok)
-	require.Len(t, input, 3, "裸 content item 应在 reasoning 两侧分别聚合为 user message")
-
-	firstMsg, ok := input[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "user", firstMsg["role"])
-	firstContent, ok := firstMsg["content"].([]any)
-	require.True(t, ok)
-	require.Len(t, firstContent, 2)
-	firstText, ok := firstContent[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "input_text", firstText["type"])
-	require.Equal(t, "hi", firstText["text"])
-	_, hasID := firstText["id"]
-	require.False(t, hasID)
-	firstImage, ok := firstContent[1].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "input_image", firstImage["type"])
-
-	reasoning, ok := input[1].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "reasoning", reasoning["type"])
-	require.Equal(t, "rs_mix", reasoning["id"])
-	require.Equal(t, "enc_mix", reasoning["encrypted_content"])
-
-	lastMsg, ok := input[2].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "user", lastMsg["role"])
-	lastContent, ok := lastMsg["content"].([]any)
-	require.True(t, ok)
-	require.Len(t, lastContent, 1)
-	lastText, ok := lastContent[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "input_text", lastText["type"])
-	require.Equal(t, "thanks", lastText["text"])
-}
-
 func TestApplyCodexOAuthTransform_UnknownTopLevelItemPreserved(t *testing.T) {
 	// 黑名单策略：未知 type 不应被塞进 message content，而应保留为 top-level item。
 
@@ -1424,34 +1316,55 @@ func TestApplyCodexOAuthTransform_UnknownTopLevelItemPreserved(t *testing.T) {
 	require.Equal(t, "user", lastMsg["role"])
 }
 
-func TestFilterCodexInput_PreservesReasoningItem(t *testing.T) {
-	// filterCodexInput 不应删除 reasoning item 的任何字段。
+func TestFilterCodexInput_DropsReasoningItemsRegardlessOfPreserveReferences(t *testing.T) {
+	// Reasoning items in input[] reference rs_* IDs that were emitted by
+	// chatgpt.com under store=false (forced by applyCodexOAuthTransform).
+	// They are never persisted upstream, so forwarding them produces a
+	// guaranteed 404 ("Item with id 'rs_...' not found"). Drop them
+	// regardless of preserveReferences. See: Wei-Shaw/sub2api issue #1957.
 
-	input := []any{
-		map[string]any{
-			"type":              "reasoning",
-			"id":                "rs_abc",
-			"encrypted_content": "encrypted_payload",
-			"summary": []any{
-				map[string]any{"type": "summary_text", "text": "thought process"},
+	build := func() []any {
+		return []any{
+			map[string]any{"type": "message", "id": "msg_0", "role": "user", "content": "hi"},
+			map[string]any{
+				"type":    "reasoning",
+				"id":      "rs_0672f12450da0b9c0169f07220a6c08198b68c2455ced99344",
+				"summary": []any{},
 			},
-		},
-		map[string]any{"type": "output_text", "text": "hello", "id": "out1"},
+			map[string]any{"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "tool"},
+			map[string]any{"type": "function_call_output", "call_id": "call_1", "output": "{}"},
+		}
 	}
 
-	filtered := filterCodexInput(input, false)
-	require.Len(t, filtered, 2)
+	for _, preserve := range []bool{true, false} {
+		preserve := preserve
+		t.Run(fmt.Sprintf("preserveReferences=%v", preserve), func(t *testing.T) {
+			filtered := filterCodexInput(build(), preserve)
 
-	// reasoning item 所有字段原样保留
-	reasoning, ok := filtered[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "reasoning", reasoning["type"])
-	require.Equal(t, "rs_abc", reasoning["id"])
-	require.Equal(t, "encrypted_payload", reasoning["encrypted_content"])
+			for _, raw := range filtered {
+				item, ok := raw.(map[string]any)
+				require.True(t, ok)
+				require.NotEqual(t, "reasoning", item["type"],
+					"reasoning items must be dropped from input on the OAuth path")
+				if id, ok := item["id"].(string); ok {
+					require.False(t, strings.HasPrefix(id, "rs_"),
+						"no item carrying an rs_* id should survive the filter")
+				}
+			}
 
-	// 普通 item 的 id 仍会被删除（preserveReferences=false）
-	output, ok := filtered[1].(map[string]any)
-	require.True(t, ok)
-	_, hasID := output["id"]
-	require.False(t, hasID)
+			// Sanity check: the non-reasoning items should still be present.
+			gotTypes := make(map[string]int)
+			for _, raw := range filtered {
+				item, ok := raw.(map[string]any)
+				require.True(t, ok)
+				typ, ok := item["type"].(string)
+				require.True(t, ok)
+				gotTypes[typ]++
+			}
+			require.Equal(t, 1, gotTypes["message"])
+			require.Equal(t, 1, gotTypes["function_call"])
+			require.Equal(t, 1, gotTypes["function_call_output"])
+			require.Equal(t, 0, gotTypes["reasoning"])
+		})
+	}
 }
