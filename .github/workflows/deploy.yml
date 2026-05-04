@@ -86,6 +86,7 @@ jobs:
           envs: DEPLOY_IMAGE,DEPLOY_COMMIT
           script: |
             set -e
+            set -o pipefail
 
             APP_DIR="/opt/sub2api"
             DEPLOY_DIR="$APP_DIR/deploy"
@@ -215,6 +216,52 @@ jobs:
               echo "首次部署，跳过数据库备份"
             fi
 
+            # ============================================================
+            # 企业版数据库预备份（必须在主站 compose --remove-orphans 之前执行）
+            # 主站 compose 会把不在 docker-compose.deploy.yml 中的 sub2api-biz 当作 orphan 移除。
+            # 因此只要企业版容器正在运行，就必须先完成 biz DB 备份再继续部署。
+            # ============================================================
+            BIZ_COMPOSE="$DEPLOY_DIR/docker-compose.biz.yml"
+            BIZ_ENV="$DEPLOY_DIR/.env.biz"
+            if [ -f "$BIZ_ENV" ]; then
+              if docker ps --filter "name=^sub2api-biz$" --format '{{.Names}}' | grep -q .; then
+                if ! docker ps --filter "name=^sub2api-postgres$" --format '{{.Names}}' | grep -q .; then
+                  echo "检测到企业版容器但 postgres 未运行，无法备份企业版数据库，停止部署" >&2
+                  exit 1
+                fi
+
+                BIZ_DB_USER="$(docker exec sub2api-postgres printenv POSTGRES_USER)"
+                BIZ_DB_NAME="$(grep '^BIZ_POSTGRES_DB=' "$BIZ_ENV" | cut -d= -f2- || true)"
+                BIZ_DB_NAME="${BIZ_DB_NAME:-sub2api_biz}"
+                if [ -z "$BIZ_DB_USER" ] || [ -z "$BIZ_DB_NAME" ]; then
+                  echo "无法读取企业版数据库用户或库名，停止部署" >&2
+                  exit 1
+                fi
+
+                BIZ_BACKUP_FILE="${BACKUP_DIR}/pre-deploy-biz-$(date +%Y%m%d_%H%M%S).sql.gz"
+                echo "开始企业版部署前备份: $BIZ_DB_NAME"
+                if docker exec sub2api-postgres pg_dump -U "$BIZ_DB_USER" -d "$BIZ_DB_NAME" --clean --if-exists \
+                  | gzip > "$BIZ_BACKUP_FILE"; then
+                  if [ -s "$BIZ_BACKUP_FILE" ] && gzip -t "$BIZ_BACKUP_FILE"; then
+                    echo "企业版备份成功: $BIZ_BACKUP_FILE ($(du -h "$BIZ_BACKUP_FILE" | cut -f1))"
+                    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pre-deploy-biz-*.sql.gz' -mmin "+$((PREDEPLOY_BACKUP_RETENTION_HOURS * 60))" -delete
+                  else
+                    echo "企业版备份文件校验失败，中止部署！" >&2
+                    rm -f "$BIZ_BACKUP_FILE"
+                    exit 1
+                  fi
+                else
+                  echo "企业版备份失败，中止部署！" >&2
+                  rm -f "$BIZ_BACKUP_FILE"
+                  exit 1
+                fi
+              else
+                echo "未检测到运行中的企业版容器，跳过企业版数据库预备份"
+              fi
+            else
+              echo "未检测到 $BIZ_ENV，跳过企业版数据库预备份"
+            fi
+
             # 首次部署：克隆仓库
             if [ ! -d "$APP_DIR/.git" ]; then
               git clone "$REPO_URL" "$APP_DIR"
@@ -271,26 +318,9 @@ jobs:
             # ============================================================
             # 企业版实例：如果已部署则同步更新（使用新镜像重启）
             # ============================================================
-            BIZ_COMPOSE="$DEPLOY_DIR/docker-compose.biz.yml"
-            BIZ_ENV="$DEPLOY_DIR/.env.biz"
             if [ -f "$BIZ_COMPOSE" ] && [ -f "$BIZ_ENV" ]; then
               echo "检测到企业版实例配置，同步更新..."
-              # 企业版数据库备份（如果容器在运行）
-              BIZ_DB_NAME=$(grep '^BIZ_POSTGRES_DB=' "$BIZ_ENV" | cut -d= -f2)
-              BIZ_DB_NAME="${BIZ_DB_NAME:-sub2api_biz}"
-              if docker ps --filter "name=^sub2api-biz$" --format '{{.Names}}' | grep -q .; then
-                BIZ_BACKUP_FILE="${BACKUP_DIR}/pre-deploy-biz-$(date +%Y%m%d_%H%M%S).sql.gz"
-                echo "备份企业版数据库: $BIZ_DB_NAME"
-                docker exec sub2api-postgres pg_dump -U "$DB_USER" -d "$BIZ_DB_NAME" --clean --if-exists \
-                  | gzip > "$BIZ_BACKUP_FILE"
-                if [ -s "$BIZ_BACKUP_FILE" ] && gzip -t "$BIZ_BACKUP_FILE"; then
-                  echo "企业版备份成功: $BIZ_BACKUP_FILE ($(du -h "$BIZ_BACKUP_FILE" | cut -f1))"
-                  find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pre-deploy-biz-*.sql.gz' -mmin "+$((PREDEPLOY_BACKUP_RETENTION_HOURS * 60))" -delete
-                else
-                  echo "企业版备份失败，跳过（不阻塞部署）" >&2
-                  rm -f "$BIZ_BACKUP_FILE"
-                fi
-              fi
+              echo "企业版数据库预备份已在主站 compose 前完成"
               # BIZ compose 仅声明 sub2api-biz，若带 --remove-orphans 会误删同 project 下的主站容器。
               # 旧的 sub2api-biz 不是总能被当前 compose 项目接管，先显式删除可避免同名冲突。
               if docker ps -a --filter "name=^sub2api-biz$" --format '{{.Names}}' | grep -q .; then
