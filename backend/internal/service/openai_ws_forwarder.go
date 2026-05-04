@@ -266,8 +266,11 @@ func (e *OpenAIWSClientCloseError) Reason() string {
 
 // OpenAIWSIngressHooks 定义入站 WS 每个 turn 的生命周期回调。
 type OpenAIWSIngressHooks struct {
-	BeforeTurn func(turn int) error
-	AfterTurn  func(turn int, result *OpenAIForwardResult, turnErr error)
+	// InitialRequestModel 是首帧渠道映射前的请求模型，只用于 usage metadata
+	// 的 reasoning effort 后缀推导，禁止用于上游请求或计费模型。
+	InitialRequestModel string
+	BeforeTurn          func(turn int) error
+	AfterTurn           func(turn int, result *OpenAIForwardResult, turnErr error)
 }
 
 func normalizeOpenAIWSLogValue(value string) string {
@@ -1427,10 +1430,12 @@ func shouldInferIngressFunctionCallOutputPreviousResponseID(
 	if signals.HasFunctionCallOutputMissingCallID {
 		return false
 	}
-	// If the client already sent tool-call context or item_reference anchors,
-	// treat this as a full replay / self-contained continuation payload rather
-	// than downgrading it into an inferred delta continuation.
-	if signals.HasToolCallContext || signals.HasItemReferenceForAllCallIDs {
+	// If the client already sent the actual tool-call context, treat this as
+	// a full replay / self-contained continuation payload rather than
+	// downgrading it into an inferred delta continuation. item_reference alone
+	// is not enough on the store=false WS path: it still needs a valid prior
+	// response anchor so upstream can resolve the referenced function_call.
+	if signals.HasToolCallContext {
 		return false
 	}
 	return strings.TrimSpace(expectedPreviousResponseID) != ""
