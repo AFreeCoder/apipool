@@ -1,13 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+  cat <<'EOF'
+Usage:
+  scaffold_sync_review_doc.sh [--output PATH] [--force]
+
+Create an upstream sync review document scaffold.
+
+By default the script refuses to overwrite an existing document. Use --force only
+after you have confirmed the existing review can be replaced.
+EOF
+}
+
+FORCE=0
+OUT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output)
+      OUT="${2:?missing value for --output}"
+      shift 2
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
 git rev-parse --show-toplevel >/dev/null 2>&1
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
 DATE_STR="$(date +%F)"
-OUT="docs/plans/${DATE_STR}-upstream-sync-review.md"
-mkdir -p docs/plans
+if [[ -z "$OUT" ]]; then
+  OUT="docs/plans/${DATE_STR}-upstream-sync-review.md"
+fi
+mkdir -p "$(dirname "$OUT")"
 
 HEAD_SHA="$(git rev-parse HEAD)"
 BRANCH="$(git branch --show-current)"
@@ -23,6 +62,12 @@ else
   LOCAL_BASELINE="$HEAD_SHA"
   UPSTREAM_SHA="$(git rev-parse upstream/main)"
   MERGE_BASE="$(git merge-base HEAD upstream/main)"
+fi
+
+if [[ -e "$OUT" && "$FORCE" -ne 1 ]]; then
+  echo "error: output already exists: $OUT" >&2
+  echo "hint: pass --force to overwrite it, or use --output for a new path" >&2
+  exit 1
 fi
 
 cat > "$OUT" <<EOF
