@@ -12,6 +12,8 @@
 - upstream 最新 release tag：`v0.1.126`
 - upstream/main 版本文件：`0.1.126`
 - 本地最终 VERSION：`0.1.126`
+- 合入提交：`26dc29d844096eb026a1e78d0cc3cc8d37249ab8`
+- 评审文档提交：`515ecbf3149d1ca7b6017b97310c8785e5962989`（初版 review 文档；本文末二次评审为该提交后的增补）
 
 ## 上游更新摘要
 
@@ -19,6 +21,7 @@
 - 新增 Airwallex 支付与多币种金额处理：后端新增 Airwallex provider、币种/费率/订单快照逻辑，前端新增 Airwallex 支付页、支付方式配置、图标和相关测试。
 - 新增可配置 Antigravity User-Agent 版本：后端 settings runtime 读取并缓存 `antigravity_user_agent_version`，前端设置页新增配置项，同时保留环境变量兜底。
 - 吸收 OpenAI/Codex 相关修复：messages continuation 保留多工具上下文、工具名改写测试补强、unpriced model 零成本 usage、OpenAI 429 `plan_type` 回写、replay tool output continuation。
+- 接受 upstream `rewrite_message_cache_control` 默认关闭行为：`defaultRewriteMessageCacheControl()` 当前返回 `false`。若生产此前依赖默认开启，需要单独评估对 cache 命中率与下游账单的影响。
 - 吸收支付结果金额 NaN 修复、Gemini Vertex token exchange 代理修复、ccswitch import deeplink 的 Codex model 参数。
 - 命中的高风险模块包括：`backend/internal/service/openai_gateway_service.go`、`backend/internal/service/ratelimit_service.go`、`backend/internal/service/setting_service.go`、`frontend/src/views/admin/SettingsView.vue`、`frontend/src/views/user/KeysView.vue`、`deploy/*.yml`、`backend/cmd/server/VERSION`。
 
@@ -29,7 +32,8 @@
 - 部署/回滚/版本链路：DigitalOcean/Compose 相关本地部署文件保留；`deploy/version_resolver.sh resolve .` 输出 `0.1.126`；`docker-compose.deploy.yml` 与 `docker-compose.local.yml` 在提供必填 `POSTGRES_PASSWORD` 后配置校验通过。
 - OpenAI OAuth / Codex 兼容：OpenAI gateway、messages continuation、tool rewrite、usage record、429 plan type sync 均保留本地 Codex/OAuth 兼容路径；本地 `MergeCredentials` test stub 与 upstream `BulkUpdate` test stub 已合并。
 - Kiro / OpenClaw：`KiroAuthService`、`KiroTokenProvider`、admin `/kiro/oauth/*` 路由、前端 Kiro 表单、`useKiroOAuth`、`openclawConfig` 均仍存在；upstream 支付和 settings 变更未删除 Kiro 扩展。
-- 默认配置：表格分页、购买订阅、跑马灯、风险控制、支付显示方式、Antigravity UA、cache_control rewrite 等默认值均保留当前项目语义；`rewrite_message_cache_control` 默认仍由后端配置函数控制。
+- 默认配置：表格分页、购买订阅、跑马灯、风险控制、支付显示方式、Antigravity UA 等默认值均保留当前项目语义；`rewrite_message_cache_control` 本轮跟随 upstream 接受默认关闭。
+- README 品牌债务：本轮 upstream diff 未触及 `README_CN.md` / `README_JA.md` / `README.md`，因此没有新的文档品牌取舍；既有 `README_CN.md` / `README_JA.md` 品牌债务仍保持原状。
 
 ## 冲突与取舍
 
@@ -37,6 +41,7 @@
 - `backend/internal/service/account_test_service_openai_test.go`：合并测试 repo stub。本地 `MergeCredentials` 与错误记录字段保留，upstream 新增 `BulkUpdate` 捕获用于 OpenAI 429 plan type sync 测试。
 - `frontend/src/api/admin/settings.ts`：合并 settings 请求字段。本地 `purchase_subscription_enabled` / `purchase_subscription_url` 保留，upstream `rewrite_message_cache_control` / `antigravity_user_agent_version` 吸收。
 - `frontend/src/views/user/KeysView.vue`：保留 `APIPool` provider name 兜底，采用 upstream `buildCcSwitchImportDeeplink`，从而同时保留品牌与新 Codex model deeplink 行为。
+- merge commit 内顺带修复了若干 test-only `staticcheck` SA5011：在 `t.Fatal` 后补 `return`，避免 lint 误判后续 nil pointer dereference；未拆独立 fix commit。
 - 无 Git 冲突但已复核的热点：`frontend/src/router/index.ts`、`frontend/src/views/admin/SettingsView.vue`、`backend/internal/service/setting_service.go`、`backend/internal/service/ratelimit_service.go`、`backend/internal/pkg/antigravity/oauth.go`、`backend/internal/server/routes/payment.go`、`deploy/docker-compose*.yml`。
 
 ## 测试记录
@@ -62,6 +67,8 @@
 ## 剩余风险与观察点
 
 - Airwallex 支付链路为 upstream 新增功能，本轮覆盖了单测、前端测试、构建和路由/CSP 复核，但未做真实 Airwallex sandbox 端到端支付回调。
+- Airwallex webhook 需要上线前单独验证：`/payment/webhook/airwallex` 签名验签、时间戳容忍窗口、未知订单 ACK、重复 webhook 幂等回放和成功后履约只执行一次。
+- Airwallex SDK 是部署前置依赖：本轮新增 `@airwallex/components-sdk` 和 lockfile 变更，CI/部署环境必须执行 `pnpm install --frozen-lockfile`，否则前端 typecheck/test/build 会因缺包失败。
 - 内部 payment 页面和 APIPool `/purchase` iframe 购买入口继续并存；上线后建议观察侧边栏入口、`/purchase`、`/payment/airwallex`、`/payment/result` 的跳转是否符合生产配置。
 - Docker daemon 启动前 integration 会失败；本轮已启动 Docker 后复跑通过，不归因于代码。
 - 本轮未执行生产部署；如后续发布，需要用 `apipool-push-deploy` 补生产镜像、容器健康、运行时版本和回滚元数据验证。
@@ -69,3 +76,45 @@
 ## 结论
 
 - 建议保留当前 upstream sync 结果。上游 `v0.1.126` 已合入，版本链路一致；APIPool 品牌、`/purchase` 订阅购买、Kiro/OpenClaw、OpenAI/Codex 兼容、部署配置均已复核并保留。当前剩余风险主要集中在 Airwallex 真实支付链路上线前验证。
+
+---
+
+## 评审结论（2026-05-12 二次评审）
+
+整体质量：**通过**。基线、保护点、冲突处理、测试声明均能在仓库当前状态中复核到。后端 `go test -tags=unit ./internal/service/` 重跑通过（89.8s）；upstream tag `v0.1.126` / `backend/cmd/server/VERSION` / `git tag --merged upstream/main` 三者一致。
+
+### 已核实的关键事实
+
+| 项 | 记录值 | 核验结果 |
+|---|---|---|
+| upstream SHA | `62ccd0ff…` | 与 `git rev-parse upstream/main` 一致 |
+| merge-base | `dbc8ae65…` | 一致 |
+| 合入后 HEAD | `26dc29d8…` | 是 merge commit；当前 `main` HEAD `515ecbf3` 为本评审文档自身提交 |
+| VERSION | `0.1.126` | 随 upstream merge 进入，未拆独立 `chore(version)` 提交，符合记录 |
+| `site_name` 默认 | `APIPool` | `backend/internal/service/setting_service.go:713/2194/2375/2552` 一致 |
+| `/purchase` 路由 | `PurchaseSubscriptionView.vue` | `frontend/src/router/index.ts:274-276` 保留 |
+| ccswitch APIPool 兜底 + 新 deeplink | 合并保留 | `frontend/src/views/user/KeysView.vue:1727-1732` |
+| Kiro OAuth 路由 | 保留 | `backend/internal/server/routes/admin.go:373-376` |
+| CSP 合并 | `frame-src https:` + Airwallex | `backend/internal/config/config.go:31` |
+| 测试 stub | `MergeCredentials` + `BulkUpdate` 共存 | merge diff 已含 |
+| SA5011 `t.Fatal; return` | 已补 | 修复融入 merge commit `26dc29d8`，未单独拆 commit |
+| Airwallex 路由/回调 | 新增并入 | `backend/internal/server/routes/payment.go:65`，router 311/335/686 |
+| `BackupView` | 未被上游重新暴露 | router/sidebar 中仍未注册 |
+| 表格分页默认 | `table_default_page_size` 仍生效 | 未引入 `localStorage` 全局覆盖 |
+
+### 建议补强的文档空白
+
+下列不是质量问题，但是评审记录可追溯性可以再加强：
+
+1. **`rewrite_message_cache_control` 默认行为变化未明示。** 上游 commit `9377c967` 将默认从 true 改为 false（见 `setting_service.go:1790-1792` 的 `defaultRewriteMessageCacheControl`）。记录中"默认仍由后端配置函数控制"过于模糊。建议明写：本轮跟随 upstream 接受默认关闭；若生产此前依赖默认开启，需评估对 cache 命中率与下游账单的影响。
+2. **`README_CN.md` / `README_JA.md` 品牌债务未复核。** 按 `references/local-customizations.md` 第 29 行，每次同步都要判断这两个文件是否被上游动到。本记录未给结论。建议补一行"本轮上游未触及"或"上游有改动、已选择跟随/暂不跟随"。
+3. **Airwallex Webhook 风险未单独列出。** `剩余风险` 中已写未跑 sandbox 端到端，但 `/webhook/airwallex` 的签名验签与幂等性回放也是上线前要单独验证的点，可以并入观察项。
+4. **SA5011 修复融入 merge commit 未在文档中说明。** 实际查 git 看不到独立 fix commit；建议在「冲突与取舍」补一句：merge commit 顺带吸收了若干 SA5011-test `return` 语句。
+5. **CI/部署副作用未提示 Airwallex 依赖。** 本轮新增 `@airwallex/components-sdk` 是 lockfile 级变更；CI 与部署机器若未跑 `pnpm install --frozen-lockfile`（CLAUDE.md 已有约束）会失败。建议在 `剩余风险` 中把它升为部署前置条件，而不只是测试段一行说明。
+6. **评审文档自身 commit 未写入基线。** 当前 `main` HEAD `515ecbf3 docs(sync): record upstream v0.1.126 review` 是本文档自身。可在「基线」段尾补一行"评审文档提交：515ecbf3"，让基线—合入—文档三者形成完整链路。
+
+### 上线前还需要做的事（如发布）
+
+- 走 `apipool-push-deploy` 完整流程：DigitalOcean 镜像备份 / 容器健康 / 运行时版本 / 回滚元数据。
+- Airwallex sandbox 端到端 + webhook 签名/幂等验证。
+- 部署后核对左上角版本展示为 `0.1.126`。
