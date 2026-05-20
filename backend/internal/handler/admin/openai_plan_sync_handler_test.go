@@ -144,9 +144,11 @@ func TestAccountHandler_Refresh_OpenAISyncsPlanTypeIntoResponse(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	data := payload["data"].(map[string]any)
 	credentials := data["credentials"].(map[string]any)
-	require.Equal(t, "new-access-token", credentials["access_token"])
+	require.NotContains(t, credentials, "access_token")
 	require.Equal(t, "existing", credentials["keep"])
 	require.Equal(t, "plus", credentials["plan_type"])
+	credentialsStatus := data["credentials_status"].(map[string]any)
+	require.Equal(t, true, credentialsStatus["has_access_token"])
 }
 
 func TestOpenAIOAuthHandler_CreateAccountFromOAuth_SyncsPlanType(t *testing.T) {
