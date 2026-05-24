@@ -81,9 +81,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
-	// 解析渠道级模型映射
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-
 	// Claude Code only restriction:
 	// /v1/responses is never a Claude Code endpoint.
 	// When claude_code_only is enabled, this endpoint is rejected.
@@ -91,10 +88,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	// to fallback groups when the Forward path calls SelectAccountForModelWithExclusions.
 	// Here we just reject at handler level since /v1/responses clients can't be Claude Code.
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		h.responsesErrorResponse(c, http.StatusForbidden, "permission_error",
+		h.responsesErrorResponse(c, http.StatusForbidden, gatewayErrorCodeClaudeCodeClientRequired,
 			"This group is restricted to Claude Code clients (/v1/messages only)")
 		return
 	}
+
+	// 解析渠道级模型映射
+	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && decision.Blocked {
 		h.responsesErrorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
@@ -176,7 +176,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			if len(fs.FailedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				publicErr := publicGatewayAccountSelectionError(err, reqModel)
-				h.responsesErrorResponse(c, publicErr.Status, publicErr.Type, publicErr.Message)
+				h.responsesErrorResponse(c, publicErr.Status, publicErr.Code, publicErr.Message)
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -202,7 +202,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				h.responsesNoAvailableAccountsError(c)
 				return
 			}
 			accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
@@ -300,6 +300,10 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 			"message": message,
 		},
 	})
+}
+
+func (h *GatewayHandler) responsesNoAvailableAccountsError(c *gin.Context) {
+	h.responsesErrorResponse(c, http.StatusServiceUnavailable, gatewayErrorCodeNoAvailableAccounts, "No available accounts")
 }
 
 // handleResponsesFailoverExhausted writes a failover-exhausted error in Responses format.

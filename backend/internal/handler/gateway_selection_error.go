@@ -12,14 +12,23 @@ import (
 type publicGatewayError struct {
 	Status  int
 	Type    string
+	Code    string
 	Message string
 }
+
+const (
+	gatewayErrorCodeServiceUnavailable       = "service_unavailable"
+	gatewayErrorCodeNoAvailableAccounts      = "no_available_accounts"
+	gatewayErrorCodeModelNotSupportedInGroup = "model_not_supported_in_group"
+	gatewayErrorCodeClaudeCodeClientRequired = "claude_code_client_required"
+)
 
 func publicGatewayAccountSelectionError(err error, requestedModel string) publicGatewayError {
 	if isClaudeCodeOnlySelectionError(err) {
 		return publicGatewayError{
 			Status:  http.StatusForbidden,
 			Type:    "permission_error",
+			Code:    gatewayErrorCodeClaudeCodeClientRequired,
 			Message: "This group is restricted to Claude Code clients (/v1/messages only)",
 		}
 	}
@@ -29,6 +38,7 @@ func publicGatewayAccountSelectionError(err error, requestedModel string) public
 		return publicGatewayError{
 			Status:  http.StatusServiceUnavailable,
 			Type:    "api_error",
+			Code:    gatewayErrorCodeModelNotSupportedInGroup,
 			Message: fmt.Sprintf("Model %s is not supported in this group", model),
 		}
 	}
@@ -37,6 +47,7 @@ func publicGatewayAccountSelectionError(err error, requestedModel string) public
 		return publicGatewayError{
 			Status:  http.StatusServiceUnavailable,
 			Type:    "api_error",
+			Code:    gatewayErrorCodeNoAvailableAccounts,
 			Message: "No available accounts",
 		}
 	}
@@ -44,6 +55,7 @@ func publicGatewayAccountSelectionError(err error, requestedModel string) public
 	return publicGatewayError{
 		Status:  http.StatusServiceUnavailable,
 		Type:    "api_error",
+		Code:    gatewayErrorCodeServiceUnavailable,
 		Message: "Service temporarily unavailable",
 	}
 }

@@ -334,7 +334,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Error(err),
 					)
 					publicErr := publicGatewayAccountSelectionError(err, reqModel)
-					h.handleStreamingAwareError(c, publicErr.Status, publicErr.Type, publicErr.Message, streamStarted)
+					h.handleStreamingAwareErrorWithCode(c, publicErr.Status, publicErr.Type, publicErr.Code, publicErr.Message, streamStarted)
 					return
 				}
 				action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -383,7 +383,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("model", reqModel),
 						zap.String("platform", platform),
 					)
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+					h.handleNoAvailableAccountsError(c, streamStarted)
 					return
 				}
 				accountWaitCounted := false
@@ -579,7 +579,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Error(err),
 					)
 					publicErr := publicGatewayAccountSelectionError(err, reqModel)
-					h.handleStreamingAwareError(c, publicErr.Status, publicErr.Type, publicErr.Message, streamStarted)
+					h.handleStreamingAwareErrorWithCode(c, publicErr.Status, publicErr.Type, publicErr.Code, publicErr.Message, streamStarted)
 					return
 				}
 				action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -638,7 +638,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("model", reqModel),
 						zap.String("platform", platform),
 					)
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+					h.handleNoAvailableAccountsError(c, streamStarted)
 					return
 				}
 				accountWaitCounted := false
@@ -1392,12 +1392,24 @@ func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) 
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted)
+}
+
+func (h *GatewayHandler) handleNoAvailableAccountsError(c *gin.Context, streamStarted bool) {
+	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", gatewayErrorCodeNoAvailableAccounts, "No available accounts", streamStarted)
+}
+
+func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, errCode, message string, streamStarted bool) {
 	if streamStarted {
 		// Stream already started, send error as SSE event then close
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
 			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
+			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType)
+			if strings.TrimSpace(errCode) != "" {
+				errorEvent += `,"code":` + strconv.Quote(errCode)
+			}
+			errorEvent += `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
 			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
 				_ = c.Error(err)
 			}
@@ -1407,7 +1419,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 	}
 
 	// Normal case: return JSON response with proper status code
-	h.errorResponse(c, status, errType, message)
+	h.errorResponseWithCode(c, status, errType, errCode, message)
 }
 
 // ensureForwardErrorResponse 在 Forward 返回错误但尚未写响应时补写统一错误响应。
@@ -1465,12 +1477,20 @@ func (h *GatewayHandler) checkClaudeCodeVersion(c *gin.Context) bool {
 
 // errorResponse 返回Claude API格式的错误响应
 func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	h.errorResponseWithCode(c, status, errType, "", message)
+}
+
+func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, errCode, message string) {
+	errPayload := gin.H{
+		"type":    errType,
+		"message": message,
+	}
+	if strings.TrimSpace(errCode) != "" {
+		errPayload["code"] = errCode
+	}
 	c.JSON(status, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"type":  "error",
+		"error": errPayload,
 	})
 }
 
@@ -1564,7 +1584,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 		publicErr := publicGatewayAccountSelectionError(err, parsedReq.Model)
-		h.errorResponse(c, publicErr.Status, publicErr.Type, publicErr.Message)
+		h.errorResponseWithCode(c, publicErr.Status, publicErr.Type, publicErr.Code, publicErr.Message)
 		return
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)

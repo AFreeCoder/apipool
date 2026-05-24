@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -81,15 +82,15 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
-	// 解析渠道级模型映射
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-
 	// Claude Code only restriction
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error",
+		h.chatCompletionsErrorResponseWithCode(c, http.StatusForbidden, "permission_error", gatewayErrorCodeClaudeCodeClientRequired,
 			"This group is restricted to Claude Code clients (/v1/messages only)")
 		return
 	}
+
+	// 解析渠道级模型映射
+	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, body); decision != nil && decision.Blocked {
 		h.chatCompletionsErrorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
@@ -182,7 +183,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			if len(fs.FailedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				publicErr := publicGatewayAccountSelectionError(err, reqModel)
-				h.chatCompletionsErrorResponse(c, publicErr.Status, publicErr.Type, publicErr.Message)
+				h.chatCompletionsErrorResponseWithCode(c, publicErr.Status, publicErr.Type, publicErr.Code, publicErr.Message)
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -208,7 +209,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				h.chatCompletionsErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				h.chatCompletionsNoAvailableAccountsError(c)
 				return
 			}
 			accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
@@ -319,11 +320,23 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.
 func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
+	h.chatCompletionsErrorResponseWithCode(c, status, errType, "", message)
+}
+
+func (h *GatewayHandler) chatCompletionsNoAvailableAccountsError(c *gin.Context) {
+	h.chatCompletionsErrorResponseWithCode(c, http.StatusServiceUnavailable, "api_error", gatewayErrorCodeNoAvailableAccounts, "No available accounts")
+}
+
+func (h *GatewayHandler) chatCompletionsErrorResponseWithCode(c *gin.Context, status int, errType, errCode, message string) {
+	errPayload := gin.H{
+		"type":    errType,
+		"message": message,
+	}
+	if strings.TrimSpace(errCode) != "" {
+		errPayload["code"] = errCode
+	}
 	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"error": errPayload,
 	})
 }
 

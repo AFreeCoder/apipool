@@ -1007,11 +1007,16 @@ func parseOpsErrorResponse(body []byte) parsedOpsError {
 		var code string
 		if v, ok := errObj["code"]; ok {
 			switch n := v.(type) {
+			case string:
+				code = n
 			case float64:
 				code = strconvItoa(int(n))
 			case int:
 				code = strconvItoa(n)
 			}
+		}
+		if code == "" {
+			code = inferOpsErrorCodeFromMessage(msg)
 		}
 		return parsedOpsError{ErrorType: t, Message: msg, Code: code}
 	}
@@ -1020,10 +1025,32 @@ func parseOpsErrorResponse(body []byte) parsedOpsError {
 	code, _ := m["code"].(string)
 	msg, _ := m["message"].(string)
 	if code != "" || msg != "" {
+		if code == "" {
+			code = inferOpsErrorCodeFromMessage(msg)
+		}
 		return parsedOpsError{ErrorType: "api_error", Message: msg, Code: code}
 	}
 
 	return parsedOpsError{Message: truncateString(string(body), 1024)}
+}
+
+func inferOpsErrorCodeFromMessage(message string) string {
+	msg := strings.ToLower(strings.TrimSpace(message))
+	if msg == "" {
+		return ""
+	}
+	switch {
+	case strings.Contains(msg, "this group only allows claude code clients"),
+		strings.Contains(msg, "restricted to claude code clients"):
+		return gatewayErrorCodeClaudeCodeClientRequired
+	case strings.Contains(msg, " is not supported in this group"),
+		strings.Contains(msg, "supporting model:"):
+		return gatewayErrorCodeModelNotSupportedInGroup
+	case strings.Contains(msg, opsErrNoAvailableAccounts):
+		return gatewayErrorCodeNoAvailableAccounts
+	default:
+		return ""
+	}
 }
 
 func resolveOpsPlatform(apiKey *service.APIKey, fallback string) string {

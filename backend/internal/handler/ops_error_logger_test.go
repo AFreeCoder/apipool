@@ -512,6 +512,65 @@ func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
 	require.Equal(t, "upstream_http", errorSource)
 }
 
+func TestParseOpsErrorResponse_ExtractsNestedStringCode(t *testing.T) {
+	parsed := parseOpsErrorResponse([]byte(`{"error":{"type":"api_error","code":"model_not_supported_in_group","message":"Model gpt-5.4 is not supported in this group"}}`))
+
+	require.Equal(t, "api_error", parsed.ErrorType)
+	require.Equal(t, "model_not_supported_in_group", parsed.Code)
+	require.Equal(t, "Model gpt-5.4 is not supported in this group", parsed.Message)
+}
+
+func TestShouldSkipOpsErrorLog_IgnoresConfiguredNestedErrorCode(t *testing.T) {
+	repo := newOpsErrorLoggerSettingRepoStub()
+	cfg := map[string]any{
+		"data_retention": map[string]any{
+			"cleanup_enabled":               false,
+			"cleanup_schedule":              "0 2 * * *",
+			"error_log_retention_days":      30,
+			"minute_metrics_retention_days": 30,
+			"hourly_metrics_retention_days": 30,
+		},
+		"aggregation": map[string]any{
+			"aggregation_enabled": false,
+		},
+		"ignored_error_codes":           []string{"MODEL_NOT_SUPPORTED_IN_GROUP"},
+		"display_alert_events":          true,
+		"auto_refresh_interval_seconds": 30,
+	}
+	body := `{"error":{"type":"api_error","code":"model_not_supported_in_group","message":"Model gpt-5.4 is not supported in this group"}}`
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	repo.values[service.SettingKeyOpsAdvancedSettings] = string(raw)
+
+	ops := service.NewOpsService(nil, repo, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	parsed := parseOpsErrorResponse([]byte(body))
+
+	require.True(t, shouldSkipOpsErrorLog(
+		context.Background(),
+		ops,
+		parsed.Code,
+		parsed.Message,
+		body,
+		"/v1/messages",
+	))
+}
+
+func TestParseOpsErrorResponse_DerivesClaudeCodeOnlyCodeFromLegacyMessage(t *testing.T) {
+	parsed := parseOpsErrorResponse([]byte(`{"error":{"message":"No available accounts: this group only allows Claude Code clients","type":"api_error"},"type":"error"}`))
+
+	require.Equal(t, "api_error", parsed.ErrorType)
+	require.Equal(t, "claude_code_client_required", parsed.Code)
+	require.Equal(t, "No available accounts: this group only allows Claude Code clients", parsed.Message)
+}
+
+func TestParseOpsErrorResponse_DerivesModelUnsupportedFromLegacySupportingModelMessage(t *testing.T) {
+	parsed := parseOpsErrorResponse([]byte(`{"error":{"message":"No available accounts: no available accounts supporting model: made-up-model","type":"api_error"},"type":"error"}`))
+
+	require.Equal(t, "api_error", parsed.ErrorType)
+	require.Equal(t, "model_not_supported_in_group", parsed.Code)
+	require.Equal(t, "No available accounts: no available accounts supporting model: made-up-model", parsed.Message)
+}
+
 func TestSetOpsEndpointContext_SetsContextKeys(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
