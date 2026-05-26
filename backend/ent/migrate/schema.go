@@ -1640,7 +1640,7 @@ var (
 				Symbol:     "user_platform_quotas_users_platform_quotas",
 				Columns:    []*schema.Column{UserPlatformQuotasColumns[14]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.Cascade,
 			},
 		},
 		Indexes: []*schema.Index{

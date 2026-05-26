@@ -100,5 +100,11 @@ ON CONFLICT (user_id, provider_type, grant_reason) DO NOTHING`,
 		}
 	}
 
+	if len(providerDefaults.PlatformQuotas) > 0 {
+		_ = s.snapshotPlatformQuotaDefaults(ctx, userID, &signupGrantPlan{
+			PlatformQuotas: providerDefaults.PlatformQuotas,
+		})
+	}
+
 	return nil
 }

@@ -314,6 +314,62 @@ func TestCheckUserPlatformQuotaEligibility_WindowExpiredRefreshesCache(t *testin
 	}
 }
 
+// TestCheckUserPlatformQuotaEligibility_CacheMissExpiredDBRecordRefreshesWindowStarts 验证:
+// cache MISS 回源 DB 时,若 DB 窗口已过期,回填 Redis 的 entry 也必须写入新窗口起点。
+func TestCheckUserPlatformQuotaEligibility_CacheMissExpiredDBRecordRefreshesWindowStarts(t *testing.T) {
+	daily := 5.0
+	weekly := 10.0
+	monthly := 20.0
+	past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeQuotaRepo{rec: &UserPlatformQuotaRecord{
+		UserID:             1,
+		Platform:           "anthropic",
+		DailyLimitUSD:      &daily,
+		WeeklyLimitUSD:     &weekly,
+		MonthlyLimitUSD:    &monthly,
+		DailyUsageUSD:      4,
+		WeeklyUsageUSD:     9,
+		MonthlyUsageUSD:    19,
+		DailyWindowStart:   &past,
+		WeeklyWindowStart:  &past,
+		MonthlyWindowStart: &past,
+	}}
+	cache := &fakeFullCache{}
+	s := newServiceForPreflight(t, repo, cache)
+
+	err := s.checkUserPlatformQuotaEligibility(context.Background(), 1, "anthropic")
+	if err != nil {
+		t.Fatalf("过期 DB 窗口应归零放行, got %v", err)
+	}
+
+	refreshed := cache.getEntry()
+	if refreshed == nil {
+		t.Fatal("cache MISS 回源后应回填 cache entry")
+	}
+	if refreshed.DailyUsageUSD != 0 || refreshed.WeeklyUsageUSD != 0 || refreshed.MonthlyUsageUSD != 0 {
+		t.Fatalf("过期窗口回填 usage 应全部归零, got daily=%v weekly=%v monthly=%v",
+			refreshed.DailyUsageUSD, refreshed.WeeklyUsageUSD, refreshed.MonthlyUsageUSD)
+	}
+	if refreshed.DailyWindowStart == nil || refreshed.DailyWindowStart.Equal(past) {
+		t.Errorf("DailyWindowStart 应更新到当前窗口, got %v", refreshed.DailyWindowStart)
+	}
+	if refreshed.WeeklyWindowStart == nil || refreshed.WeeklyWindowStart.Equal(past) {
+		t.Errorf("WeeklyWindowStart 应更新到当前窗口, got %v", refreshed.WeeklyWindowStart)
+	}
+	if refreshed.MonthlyWindowStart == nil || refreshed.MonthlyWindowStart.Equal(past) {
+		t.Errorf("MonthlyWindowStart 应更新到当前窗口, got %v", refreshed.MonthlyWindowStart)
+	}
+	if refreshed.DailyLimitUSD == nil || *refreshed.DailyLimitUSD != daily {
+		t.Errorf("DailyLimitUSD 应保留, got %v", refreshed.DailyLimitUSD)
+	}
+	if refreshed.WeeklyLimitUSD == nil || *refreshed.WeeklyLimitUSD != weekly {
+		t.Errorf("WeeklyLimitUSD 应保留, got %v", refreshed.WeeklyLimitUSD)
+	}
+	if refreshed.MonthlyLimitUSD == nil || *refreshed.MonthlyLimitUSD != monthly {
+		t.Errorf("MonthlyLimitUSD 应保留, got %v", refreshed.MonthlyLimitUSD)
+	}
+}
+
 // ── T5 tests: QueueUpdateUserPlatformQuotaUsage ───────────────────────────────
 
 // ── C-NEW-1: monthlyQuotaWindowExpired 30 天滚动测试 ─────────────────────────

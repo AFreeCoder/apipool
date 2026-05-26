@@ -1166,14 +1166,23 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	dailyUsage := rec.DailyUsageUSD
 	weeklyUsage := rec.WeeklyUsageUSD
 	monthlyUsage := rec.MonthlyUsageUSD
+	dailyWindowStart := rec.DailyWindowStart
+	weeklyWindowStart := rec.WeeklyWindowStart
+	monthlyWindowStart := rec.MonthlyWindowStart
 	if quotaWindowExpired(rec.DailyWindowStart, timezone.StartOfDay(now)) {
 		dailyUsage = 0
+		start := timezone.StartOfDay(now)
+		dailyWindowStart = &start
 	}
 	if quotaWindowExpired(rec.WeeklyWindowStart, timezone.StartOfWeek(now)) {
 		weeklyUsage = 0
+		start := timezone.StartOfWeek(now)
+		weeklyWindowStart = &start
 	}
 	if monthlyQuotaWindowExpired(rec.MonthlyWindowStart, now) {
 		monthlyUsage = 0
+		start := now
+		monthlyWindowStart = &start
 	}
 
 	// Redis 故障时 fail-open：不回填，直接用 DB 数据做一次性检查
@@ -1185,7 +1194,7 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 			return withWindowResetsMetadata(ErrUserPlatformWeeklyQuotaExhausted, nextWeeklyReset(now))
 		}
 		if rec.MonthlyLimitUSD != nil && monthlyUsage >= *rec.MonthlyLimitUSD {
-			return withWindowResetsMetadata(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(rec.MonthlyWindowStart, now))
+			return withWindowResetsMetadata(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(monthlyWindowStart, now))
 		}
 		return nil
 	}
@@ -1199,9 +1208,9 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 		DailyLimitUSD:      rec.DailyLimitUSD,
 		WeeklyLimitUSD:     rec.WeeklyLimitUSD,
 		MonthlyLimitUSD:    rec.MonthlyLimitUSD,
-		DailyWindowStart:   rec.DailyWindowStart,
-		WeeklyWindowStart:  rec.WeeklyWindowStart,
-		MonthlyWindowStart: rec.MonthlyWindowStart,
+		DailyWindowStart:   dailyWindowStart,
+		WeeklyWindowStart:  weeklyWindowStart,
+		MonthlyWindowStart: monthlyWindowStart,
 	}
 	if s.cache != nil {
 		ttl := time.Duration(s.cfg.Billing.UserPlatformQuotaCacheTTLSeconds) * time.Second
@@ -1222,7 +1231,7 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 		return withWindowResetsMetadata(ErrUserPlatformWeeklyQuotaExhausted, nextWeeklyReset(now))
 	}
 	if rec.MonthlyLimitUSD != nil && monthlyUsage >= *rec.MonthlyLimitUSD {
-		return withWindowResetsMetadata(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(rec.MonthlyWindowStart, now))
+		return withWindowResetsMetadata(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(monthlyWindowStart, now))
 	}
 	return nil
 }

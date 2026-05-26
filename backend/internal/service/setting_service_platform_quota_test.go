@@ -151,6 +151,41 @@ func TestGetAuthSourcePlatformQuotas_AllNegativeOrEmpty_NoEntry(t *testing.T) {
 	}
 }
 
+func TestResolveAuthSourceGrantSettings_MergesPlatformQuotasForFirstBind(t *testing.T) {
+	svc := newSettingServiceForPlatformQuotaTest(map[string]string{
+		SettingKeyDefaultPlatformQuotas:                  `{"anthropic":{"daily":10,"weekly":50},"openai":{"daily":1}}`,
+		SettingKeyAuthSourcePlatformQuotas("email"):      `{"anthropic":{"daily":5},"gemini":{"monthly":0}}`,
+		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind: "true",
+		SettingKeyAuthSourceDefaultEmailBalance:          "0",
+		SettingKeyAuthSourceDefaultEmailConcurrency:      "5",
+		SettingKeyAuthSourceDefaultEmailSubscriptions:    `[]`,
+		SettingKeyAuthSourceDefaultEmailGrantOnSignup:    "false",
+	})
+
+	got, enabled, err := svc.ResolveAuthSourceGrantSettings(context.Background(), "email", true)
+	if err != nil {
+		t.Fatalf("ResolveAuthSourceGrantSettings: %v", err)
+	}
+	if !enabled {
+		t.Fatal("email first-bind defaults should be enabled")
+	}
+	if got.PlatformQuotas == nil {
+		t.Fatal("PlatformQuotas should be merged into resolved first-bind settings")
+	}
+	if v := got.PlatformQuotas["anthropic"].DailyLimitUSD; v == nil || *v != 5 {
+		t.Fatalf("anthropic daily should be auth-source override 5, got %v", v)
+	}
+	if v := got.PlatformQuotas["anthropic"].WeeklyLimitUSD; v == nil || *v != 50 {
+		t.Fatalf("anthropic weekly should keep global 50, got %v", v)
+	}
+	if v := got.PlatformQuotas["openai"].DailyLimitUSD; v == nil || *v != 1 {
+		t.Fatalf("openai daily should keep global 1, got %v", v)
+	}
+	if v := got.PlatformQuotas["gemini"].MonthlyLimitUSD; v == nil || *v != 0 {
+		t.Fatalf("gemini monthly should be explicit auth-source disable 0, got %v", v)
+	}
+}
+
 // TestSystemPlatformQuotas_WriteReadRoundTrip 验证系统层 platform quota 经 buildSystemSettingsUpdates（写）
 // 再由 GetDefaultPlatformQuotas（读）正确往返——覆盖真实 write→read 路径，锁住 4-key 补齐契约。
 func TestSystemPlatformQuotas_WriteReadRoundTrip(t *testing.T) {

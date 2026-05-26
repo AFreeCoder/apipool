@@ -98,7 +98,8 @@ func (UserPlatformQuota) Edges() []ent.Edge {
 			Ref("platform_quotas").
 			Field("user_id").
 			Unique().
-			Required(),
+			Required().
+			Annotations(entsql.OnDelete(entsql.Cascade)),
 	}
 }
 

@@ -797,17 +797,9 @@ func (s *AuthService) resolveSignupGrantPlan(ctx context.Context, signupSource s
 	plan.Balance = resolved.Balance
 	plan.Concurrency = resolved.Concurrency
 	plan.Subscriptions = resolved.Subscriptions
-
-	// ============ auth source quota merge（仅在 enabled 分支内） ============
-	asQuotas := s.settingService.GetAuthSourcePlatformQuotas(ctx, signupSource)
-	if plan.PlatformQuotas != nil {
-		for platform, patch := range asQuotas {
-			if dst := plan.PlatformQuotas[platform]; dst != nil {
-				mergePlatformQuotaDefaults(dst, patch)
-			}
-		}
+	if resolved.PlatformQuotas != nil {
+		plan.PlatformQuotas = resolved.PlatformQuotas
 	}
-	// ==============================================================================
 
 	return plan
 }

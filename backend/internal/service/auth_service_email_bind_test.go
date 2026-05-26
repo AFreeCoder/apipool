@@ -51,13 +51,44 @@ func (s *flakyEmailBindDefaultSubAssignerStub) AssignOrExtendSubscription(
 	return nil, false, s.err
 }
 
+type emailBindQuotaRepoStub struct {
+	bulkInsertCalls [][]service.UserPlatformQuotaRecord
+}
+
+func (s *emailBindQuotaRepoStub) GetByUserPlatform(context.Context, int64, string) (*service.UserPlatformQuotaRecord, error) {
+	panic("unexpected GetByUserPlatform call")
+}
+
+func (s *emailBindQuotaRepoStub) BulkInsertInitial(_ context.Context, records []service.UserPlatformQuotaRecord) error {
+	cloned := make([]service.UserPlatformQuotaRecord, len(records))
+	copy(cloned, records)
+	s.bulkInsertCalls = append(s.bulkInsertCalls, cloned)
+	return nil
+}
+
+func (s *emailBindQuotaRepoStub) IncrementUsageWithReset(context.Context, int64, string, float64, time.Time) error {
+	panic("unexpected IncrementUsageWithReset call")
+}
+
+func (s *emailBindQuotaRepoStub) ListByUser(context.Context, int64) ([]service.UserPlatformQuotaRecord, error) {
+	panic("unexpected ListByUser call")
+}
+
+func (s *emailBindQuotaRepoStub) UpsertForUser(context.Context, int64, []service.UserPlatformQuotaRecord) error {
+	panic("unexpected UpsertForUser call")
+}
+
+func (s *emailBindQuotaRepoStub) ResetExpiredWindow(context.Context, int64, string, string, time.Time) error {
+	panic("unexpected ResetExpiredWindow call")
+}
+
 func newAuthServiceForEmailBind(
 	t *testing.T,
 	settings map[string]string,
 	emailCache service.EmailCache,
 	defaultSubAssigner service.DefaultSubscriptionAssigner,
 ) (*service.AuthService, service.UserRepository, *dbent.Client) {
-	return newAuthServiceForEmailBindWithRefreshCache(t, settings, emailCache, defaultSubAssigner, nil)
+	return newAuthServiceForEmailBindWithDependencies(t, settings, emailCache, defaultSubAssigner, nil, nil)
 }
 
 func newAuthServiceForEmailBindWithRefreshCache(
@@ -66,6 +97,27 @@ func newAuthServiceForEmailBindWithRefreshCache(
 	emailCache service.EmailCache,
 	defaultSubAssigner service.DefaultSubscriptionAssigner,
 	refreshTokenCache service.RefreshTokenCache,
+) (*service.AuthService, service.UserRepository, *dbent.Client) {
+	return newAuthServiceForEmailBindWithDependencies(t, settings, emailCache, defaultSubAssigner, refreshTokenCache, nil)
+}
+
+func newAuthServiceForEmailBindWithQuotaRepo(
+	t *testing.T,
+	settings map[string]string,
+	emailCache service.EmailCache,
+	defaultSubAssigner service.DefaultSubscriptionAssigner,
+	quotaRepo service.UserPlatformQuotaRepository,
+) (*service.AuthService, service.UserRepository, *dbent.Client) {
+	return newAuthServiceForEmailBindWithDependencies(t, settings, emailCache, defaultSubAssigner, nil, quotaRepo)
+}
+
+func newAuthServiceForEmailBindWithDependencies(
+	t *testing.T,
+	settings map[string]string,
+	emailCache service.EmailCache,
+	defaultSubAssigner service.DefaultSubscriptionAssigner,
+	refreshTokenCache service.RefreshTokenCache,
+	quotaRepo service.UserPlatformQuotaRepository,
 ) (*service.AuthService, service.UserRepository, *dbent.Client) {
 	t.Helper()
 
@@ -110,7 +162,7 @@ CREATE TABLE IF NOT EXISTS user_provider_default_grants (
 		emailSvc = service.NewEmailService(settingRepo, emailCache)
 	}
 
-	svc := service.NewAuthService(client, repo, nil, refreshTokenCache, cfg, settingSvc, emailSvc, nil, nil, nil, defaultSubAssigner, nil, nil)
+	svc := service.NewAuthService(client, repo, nil, refreshTokenCache, cfg, settingSvc, emailSvc, nil, nil, nil, defaultSubAssigner, nil, quotaRepo)
 	return svc, repo, client
 }
 
@@ -170,6 +222,60 @@ func TestAuthServiceBindEmailIdentity_UpdatesEmailAndAppliesFirstBindDefaults(t 
 	require.Equal(t, int64(11), assigner.calls[0].GroupID)
 	require.Equal(t, 30, assigner.calls[0].ValidityDays)
 	require.Equal(t, 1, countProviderGrantRecords(t, client, user.ID, "email", "first_bind"))
+}
+
+func TestAuthServiceBindEmailIdentity_SnapshotsPlatformQuotaDefaultsOnFirstBind(t *testing.T) {
+	cache := &emailBindCacheStub{
+		data: &service.VerificationCodeData{
+			Code:      "123456",
+			CreatedAt: time.Now().UTC(),
+			ExpiresAt: time.Now().UTC().Add(10 * time.Minute),
+		},
+	}
+	quotaRepo := &emailBindQuotaRepoStub{}
+	svc, _, client := newAuthServiceForEmailBindWithQuotaRepo(t, map[string]string{
+		service.SettingKeyDefaultPlatformQuotas:                  `{"anthropic":{"daily":10,"weekly":50},"openai":{"daily":1}}`,
+		service.SettingKeyAuthSourcePlatformQuotas("email"):      `{"anthropic":{"daily":5},"gemini":{"monthly":0}}`,
+		service.SettingKeyAuthSourceDefaultEmailGrantOnFirstBind: "true",
+	}, cache, nil, quotaRepo)
+
+	ctx := context.Background()
+	user, err := client.User.Create().
+		SetEmail("quota-bind" + service.LinuxDoConnectSyntheticEmailDomain).
+		SetUsername("quota-bind").
+		SetPasswordHash("old-hash").
+		SetBalance(1).
+		SetConcurrency(1).
+		SetRole(service.RoleUser).
+		SetStatus(service.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = svc.BindEmailIdentity(ctx, user.ID, "quota-bind@example.com", "123456", "new-password")
+	require.NoError(t, err)
+	require.Len(t, quotaRepo.bulkInsertCalls, 1)
+
+	records := quotaRepo.bulkInsertCalls[0]
+	require.Len(t, records, 4)
+	byPlatform := make(map[string]service.UserPlatformQuotaRecord, len(records))
+	for _, rec := range records {
+		byPlatform[rec.Platform] = rec
+		require.Equal(t, user.ID, rec.UserID)
+	}
+
+	anthropic := byPlatform["anthropic"]
+	require.NotNil(t, anthropic.DailyLimitUSD)
+	require.Equal(t, 5.0, *anthropic.DailyLimitUSD)
+	require.NotNil(t, anthropic.WeeklyLimitUSD)
+	require.Equal(t, 50.0, *anthropic.WeeklyLimitUSD)
+
+	openai := byPlatform["openai"]
+	require.NotNil(t, openai.DailyLimitUSD)
+	require.Equal(t, 1.0, *openai.DailyLimitUSD)
+
+	gemini := byPlatform["gemini"]
+	require.NotNil(t, gemini.MonthlyLimitUSD)
+	require.Equal(t, 0.0, *gemini.MonthlyLimitUSD)
 }
 
 func TestAuthServiceBindEmailIdentity_RejectsExistingEmailOnAnotherUser(t *testing.T) {

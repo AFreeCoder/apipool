@@ -2545,6 +2545,11 @@ func (s *SettingService) ResolveAuthSourceGrantSettings(ctx context.Context, sig
 		Concurrency:   s.GetDefaultConcurrency(ctx),
 		Subscriptions: s.GetDefaultSubscriptions(ctx),
 	}
+	if quotas, err := s.GetDefaultPlatformQuotas(ctx); err == nil {
+		result.PlatformQuotas = quotas
+	} else {
+		slog.Warn("[Setting] load default platform quotas for auth source grant failed", "error", err)
+	}
 
 	defaults, err := s.GetAuthSourceDefaultSettings(ctx)
 	if err != nil {
@@ -3463,6 +3468,7 @@ func mergeProviderDefaultGrantSettings(globalDefaults ProviderDefaultGrantSettin
 		Balance:          globalDefaults.Balance,
 		Concurrency:      globalDefaults.Concurrency,
 		Subscriptions:    append([]DefaultSubscriptionSetting(nil), globalDefaults.Subscriptions...),
+		PlatformQuotas:   clonePlatformQuotaSettings(globalDefaults.PlatformQuotas),
 		GrantOnSignup:    providerDefaults.GrantOnSignup,
 		GrantOnFirstBind: providerDefaults.GrantOnFirstBind,
 	}
@@ -3479,6 +3485,22 @@ func mergeProviderDefaultGrantSettings(globalDefaults ProviderDefaultGrantSettin
 	}
 	if len(providerDefaults.Subscriptions) > 0 {
 		result.Subscriptions = append([]DefaultSubscriptionSetting(nil), providerDefaults.Subscriptions...)
+	}
+	if len(providerDefaults.PlatformQuotas) > 0 {
+		if result.PlatformQuotas == nil {
+			result.PlatformQuotas = map[string]*DefaultPlatformQuotaSetting{}
+		}
+		for platform, patch := range providerDefaults.PlatformQuotas {
+			if patch == nil || !IsAllowedQuotaPlatform(platform) {
+				continue
+			}
+			dst := result.PlatformQuotas[platform]
+			if dst == nil {
+				dst = &DefaultPlatformQuotaSetting{}
+				result.PlatformQuotas[platform] = dst
+			}
+			mergePlatformQuotaDefaults(dst, patch)
+		}
 	}
 
 	return result
@@ -4702,6 +4724,33 @@ func (s *SettingService) GetAuthSourcePlatformQuotas(ctx context.Context, source
 		return map[string]*DefaultPlatformQuotaSetting{}
 	}
 	return out // 仅含已配置平台，保持 override 语义
+}
+
+func clonePlatformQuotaSettings(src map[string]*DefaultPlatformQuotaSetting) map[string]*DefaultPlatformQuotaSetting {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]*DefaultPlatformQuotaSetting, len(src))
+	for platform, quota := range src {
+		if quota == nil {
+			out[platform] = nil
+			continue
+		}
+		out[platform] = &DefaultPlatformQuotaSetting{
+			DailyLimitUSD:   cloneFloat64Ptr(quota.DailyLimitUSD),
+			WeeklyLimitUSD:  cloneFloat64Ptr(quota.WeeklyLimitUSD),
+			MonthlyLimitUSD: cloneFloat64Ptr(quota.MonthlyLimitUSD),
+		}
+	}
+	return out
+}
+
+func cloneFloat64Ptr(src *float64) *float64 {
+	if src == nil {
+		return nil
+	}
+	v := *src
+	return &v
 }
 
 // mergePlatformQuotaDefaults 按字段级 patch：src 中非 nil 字段覆盖 dst。
