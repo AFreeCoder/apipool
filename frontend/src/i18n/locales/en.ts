@@ -5386,7 +5386,7 @@ export default {
         description: 'Choose which client IP is used by API Key allowlists and denylists',
         trustForwardedIp: 'Trust forwarded client IP',
         trustForwardedIpHint:
-          'Disabled by default. Enable only when the origin is reachable only through Cloudflare or Nginx reverse proxy. When enabled, API Key IP allowlists and denylists use CF-Connecting-IP, X-Real-IP, or X-Forwarded-For, matching the request IP shown in usage records.'
+          'Disabled by default. Configure server.trusted_proxies first and make the reverse proxy overwrite X-Forwarded-For / X-Real-IP; API Key allowlists and denylists only trust client IPs parsed through those trusted proxies.'
       },
       linuxdo: {
         title: 'LinuxDo Connect Login',

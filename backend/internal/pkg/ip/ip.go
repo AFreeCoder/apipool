@@ -54,6 +54,18 @@ func GetTrustedClientIP(c *gin.Context) string {
 	return normalizeIP(c.ClientIP())
 }
 
+// GetDirectClientIP returns the direct peer IP from RemoteAddr and ignores
+// forwarded headers. Use it when a feature must opt in before trusting proxies.
+func GetDirectClientIP(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	if ip := normalizeIP(c.Request.RemoteAddr); ip != "" {
+		return ip
+	}
+	return GetTrustedClientIP(c)
+}
+
 // normalizeIP 规范化 IP 地址，去除端口号和空格。
 func normalizeIP(ip string) string {
 	ip = strings.TrimSpace(ip)

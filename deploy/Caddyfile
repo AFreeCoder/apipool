@@ -43,14 +43,12 @@ api.sub2api.com {
 		lb_try_interval 250ms
 		
 		# 传递真实客户端信息
-		# 兼容 Cloudflare 和直连：后端应优先读取 CF-Connecting-IP，其次 X-Real-IP
+		# API Key IP ACL 只信任后端 trusted_proxies 解析出的代理头，不透传客户端可伪造的 CF-Connecting-IP
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
 		header_up X-Forwarded-Host {host}
-		# 保留 Cloudflare 原始头（如果存在）
-		# 后端获取 IP 的优先级建议: CF-Connecting-IP → X-Real-IP → X-Forwarded-For
-		header_up CF-Connecting-IP {http.request.header.CF-Connecting-IP}
+		header_up -CF-Connecting-IP
 		
 		# 连接池优化
 		transport http {

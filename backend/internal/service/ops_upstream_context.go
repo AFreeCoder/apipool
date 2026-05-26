@@ -37,6 +37,8 @@ const (
 	OpsClientBusinessLimitedKey                 = "ops_client_business_limited"
 	OpsClientBusinessLimitedReasonKey           = "ops_client_business_limited_reason"
 	OpsClientBusinessLimitedReasonIPRestriction = "api_key_ip_restriction"
+
+	OpenAIStreamTerminalEventForwardedKey = "openai_stream_terminal_event_forwarded"
 )
 
 func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
@@ -61,6 +63,25 @@ func HasOpsClientBusinessLimited(c *gin.Context) bool {
 		return false
 	}
 	v, ok := c.Get(OpsClientBusinessLimitedKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
+}
+
+func MarkOpenAIStreamTerminalEventForwarded(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(OpenAIStreamTerminalEventForwardedKey, true)
+}
+
+func HasOpenAIStreamTerminalEventForwarded(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpenAIStreamTerminalEventForwardedKey)
 	if !ok {
 		return false
 	}

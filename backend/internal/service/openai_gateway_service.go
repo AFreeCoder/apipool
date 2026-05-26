@@ -3735,6 +3735,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			} else {
 				clientOutputStarted = true
 				flusher.Flush()
+				if forceFlushFailedEvent {
+					MarkOpenAIStreamTerminalEventForwarded(c)
+				}
 			}
 		}
 	}
@@ -4581,7 +4584,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 
 			// 写入客户端（客户端断开后继续 drain 上游）
 			if !clientDisconnected {
-				shouldFlush := queueDrained && (clientOutputStarted || startsClientOutput)
+				shouldFlush := forceFlushFailedEvent || (queueDrained && (clientOutputStarted || startsClientOutput))
 				if firstTokenMs == nil && startsClientOutput {
 					// 保证首个 token 事件尽快出站，避免影响 TTFT。
 					shouldFlush = true
@@ -4599,6 +4602,9 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 					} else {
 						clientOutputStarted = true
 						lastDownstreamWriteAt = time.Now()
+						if forceFlushFailedEvent {
+							MarkOpenAIStreamTerminalEventForwarded(c)
+						}
 					}
 				}
 			}

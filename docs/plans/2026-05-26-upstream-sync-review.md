@@ -3,7 +3,8 @@
 ## 基线
 
 - 当前分支：`main`
-- 当前 HEAD：`36b34824eaffe4a4e3a5635844e6eda687b26994`
+- 代码合入提交：`36b34824eaffe4a4e3a5635844e6eda687b26994`
+- 同步评审文档提交：`b4f86210`
 - 合入前本地基线：`7a7fbddd30a67ea2ed8a4f909923ec5a6c8bec78`
 - 上游引用：`upstream/main`
 - 上游 SHA：`2f70d965bf5b046ad6e9474a77a493bf4fb60801`
@@ -42,6 +43,12 @@
   - `backend/internal/service/setting_service_public_test.go`：保留 APIPool 默认站点名断言，同时接受 upstream `*.edu.cn` 通配白名单解析。
 - 无冲突但复核的热点：`openai_gateway_service.go`、`ratelimit_service.go`、`auth_oidc_oauth.go`、`channel_monitor_checker.go`、`SettingsView.vue`、`deploy/config.example.yaml`、`frontend/pnpm-lock.yaml`。
 
+## 代码评审后追加处理
+
+- API Key IP ACL：采纳安全评审意见，默认只使用直连 `RemoteAddr`；开启“信任反代传递的客户端 IP”后，也只使用 Gin `trusted_proxies` 解析出的 `X-Forwarded-For` / `X-Real-IP`，不再直接信任客户端传入的 `CF-Connecting-IP` / `X-Real-IP` / `X-Forwarded-For`。同时更新 Caddy 示例，默认删除上游传入的 `CF-Connecting-IP`。
+- OpenAI Responses 流式失败：采纳重复终止事件评审意见，服务层在已向客户端转发 upstream `response.failed` 后标记 Gin context，handler 收到后不再追加 fallback `response.failed`；并确保 `response.failed` 事件立即 flush。
+- 文档基线：将“当前 HEAD”改为代码合入提交与同步评审文档提交，避免后续 review follow-up commit 造成歧义。
+
 ## 测试记录
 
 - 通过：`cd backend && go test -tags=unit ./internal/service -run 'TestAccountTestService_OpenAI|TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient|TestSettingService_GetPublicSettings'`
@@ -61,12 +68,24 @@
 - 通过：`POSTGRES_PASSWORD=dummy DATABASE_PASSWORD=dummy REDIS_PASSWORD=dummy JWT_SECRET=dummy docker compose -f deploy/docker-compose.local.yml config -q`
 - 通过：`bash deploy/version_resolver.sh resolve .` -> `0.1.130`
 - 通过：`bash scripts/collect_upstream_sync_context.sh --no-fetch`
+- 通过：`cd backend && go test -tags=unit ./internal/pkg/ip -run 'TestGet(Trusted|Direct)ClientIP'`
+- 通过：`cd backend && go test -tags=unit ./internal/server/middleware -run 'TestAPIKeyAuthIPRestriction'`
+- 通过：`cd backend && go test -tags=unit ./internal/handler -run 'TestOpenAIEnsureForwardErrorResponse'`
+- 通过：`cd backend && go test -tags=unit ./internal/service -run 'TestOpenAIStreamingResponseFailed'`
+- 通过（评审修复后复跑）：`cd backend && go test -tags=unit ./...`
+- 通过（评审修复后复跑）：`cd backend && go test -tags=integration ./...`
+- 通过（评审修复后复跑）：`cd backend && golangci-lint run ./...`
+- 通过（评审修复后复跑）：`pnpm --dir frontend run lint:check`
+- 通过（评审修复后复跑）：`pnpm --dir frontend run typecheck`
+- 通过（评审修复后复跑）：`pnpm --dir frontend run test:run`（110 个 test files / 652 tests）
+- 通过（评审修复后复跑）：`make build`（Vite 仅输出既有 chunk size / dynamic import warning）
 - 待部署后核对：线上容器健康、线上版本输出、公开 health endpoint。
 
 ## 剩余风险与观察点
 
 - 线上风险主要集中在 OpenAI Responses/WebSocket 错误事件收口、账号 runtime block / 冷却调度、内容审计按模型生效、Chat Completions 测试路径和注册邮箱通配白名单。
 - 本轮未触碰生产数据库 schema 的既有本地定义，但合入了 upstream 新 migration `140_extend_user_provider_default_grants_check.sql`、`141_subscription_expiry_notify_enabled.sql`；部署时需关注迁移与启动日志。
+- API Key IP ACL 如需按真实客户端 IP 做白/黑名单，生产配置必须设置 `server.trusted_proxies`，并保证反代覆盖而非透传客户端提供的转发头。
 - 当前本地仍有 4 个未跟踪 `docs/superpowers/...` 草稿文件，未纳入本次 sync 提交。
 - 回滚建议仍以现有部署链路为准：若新容器异常，优先 `cd /opt/sub2api/deploy && ./rollback.sh image`，仅在数据状态明确异常时再考虑 DB restore。
 

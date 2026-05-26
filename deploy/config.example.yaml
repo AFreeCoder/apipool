@@ -24,8 +24,8 @@ server:
   # 用于生成邮件中的外部链接（例如：重置密码链接）的前端基础地址
   # Example: "https://example.com"
   frontend_url: ""
-  # Trusted proxies for X-Forwarded-For parsing (CIDR/IP). Empty disables trusted proxies.
-  # 信任的代理地址（CIDR/IP 格式），用于解析 X-Forwarded-For 头。留空则禁用代理信任。
+  # Trusted proxies for X-Forwarded-For/X-Real-IP parsing (CIDR/IP). Empty disables trusted proxy headers.
+  # 信任的代理地址（CIDR/IP 格式），用于解析 X-Forwarded-For/X-Real-IP。留空则不信任代理头。
   trusted_proxies: []
   # Global max request body size in bytes (default: 256MB)
   # 全局最大请求体大小（字节，默认 256MB）

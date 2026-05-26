@@ -5549,7 +5549,7 @@ export default {
         description: '控制 API Key 白名单和黑名单使用哪个客户端 IP 判断',
         trustForwardedIp: '信任反代传递的客户端 IP',
         trustForwardedIpHint:
-          '默认关闭。仅在源站只允许 Cloudflare 或 Nginx 反代访问时开启；开启后 API Key IP 白/黑名单会使用 CF-Connecting-IP、X-Real-IP 或 X-Forwarded-For，与使用记录中的请求 IP 保持一致。'
+          '默认关闭。开启前需配置 server.trusted_proxies，并确保反代覆盖 X-Forwarded-For / X-Real-IP；API Key IP 白/黑名单只会信任这些可信代理解析出的客户端 IP。'
       },
       linuxdo: {
         title: 'LinuxDo Connect 登录',

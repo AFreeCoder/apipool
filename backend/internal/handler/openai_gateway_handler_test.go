@@ -296,6 +296,24 @@ func TestOpenAIEnsureForwardErrorResponse_ResponsesRouteAfterWrittenEmitsRespons
 	assert.Contains(t, body, "Upstream request failed")
 }
 
+func TestOpenAIEnsureForwardErrorResponse_SkipsWhenTerminalEventAlreadyForwarded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
+	_, _ = c.Writer.WriteString("event: response.failed\n")
+	_, _ = c.Writer.WriteString(`data: {"type":"response.failed","error":{"message":"upstream failed"}}` + "\n\n")
+	service.MarkOpenAIStreamTerminalEventForwarded(c)
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureForwardErrorResponse(c, false)
+
+	require.False(t, wrote)
+	body := w.Body.String()
+	require.Equal(t, 1, strings.Count(body, `"type":"response.failed"`))
+	require.NotContains(t, body, "Upstream request failed")
+}
+
 func TestShouldLogOpenAIForwardFailureAsWarn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
