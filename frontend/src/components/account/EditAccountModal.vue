@@ -1186,6 +1186,19 @@
               class="input"
             />
           </div>
+          <div v-if="poolModeEnabled" class="mt-3">
+            <label class="input-label">{{ t('admin.accounts.poolModeRetryStatusCodes') }}</label>
+            <input
+              id="edit-kiro-pool-mode-retry-status-codes"
+              v-model="poolModeRetryStatusCodesInput"
+              type="text"
+              class="input"
+              :placeholder="DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ')"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.poolModeRetryStatusCodesHint', { default: DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ') }) }}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -3137,6 +3150,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     poolModeRetryCount.value = normalizePoolModeRetryCount(
       Number(kiroCreds.pool_mode_retry_count ?? DEFAULT_POOL_MODE_RETRY_COUNT)
     )
+    poolModeRetryStatusCodesInput.value = formatPoolModeRetryStatusCodes(kiroCreds.pool_mode_retry_status_codes)
     customErrorCodesEnabled.value = false
     selectedErrorCodes.value = []
   } else if (newAccount.type === 'upstream' && newAccount.credentials) {
@@ -3918,9 +3932,16 @@ const handleSubmit = async () => {
       if (poolModeEnabled.value) {
         newCredentials.pool_mode = true
         newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+        const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
+        if (parsedRetryStatusCodes.length > 0) {
+          newCredentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
+        } else {
+          delete newCredentials.pool_mode_retry_status_codes
+        }
       } else {
         delete newCredentials.pool_mode
         delete newCredentials.pool_mode_retry_count
+        delete newCredentials.pool_mode_retry_status_codes
       }
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')

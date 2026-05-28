@@ -294,6 +294,7 @@ describe('EditAccountModal', () => {
     await wrapper.get('[data-testid="rewrite-to-snapshot"]').trigger('click')
 
     await wrapper.get('#edit-kiro-pool-mode-toggle').trigger('click')
+    await wrapper.get('#edit-kiro-pool-mode-retry-status-codes').setValue('502, 503 529')
 
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
@@ -311,7 +312,9 @@ describe('EditAccountModal', () => {
         model_mapping: {
           'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11'
         },
-        pool_mode: true
+        pool_mode: true,
+        pool_mode_retry_count: 3,
+        pool_mode_retry_status_codes: [502, 503, 529]
       },
       extra: {
         quota_limit: 25
