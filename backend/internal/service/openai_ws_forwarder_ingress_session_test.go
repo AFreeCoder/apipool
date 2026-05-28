@@ -1522,16 +1522,16 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClosesSessionOnF
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name       string
-		event      string
-		wantStatus coderws.StatusCode
-		wantReason string
+		name               string
+		event              string
+		wantStatus         coderws.StatusCode
+		wantReason         string
+		wantFailoverStatus int
 	}{
 		{
-			name:       "rate_limited",
-			event:      `{"type":"error","error":{"code":"rate_limit_exceeded","type":"rate_limit_error","message":"rate limited by upstream"}}`,
-			wantStatus: coderws.StatusTryAgainLater,
-			wantReason: "rate limited by upstream",
+			name:               "rate_limited_failover",
+			event:              `{"type":"error","error":{"code":"rate_limit_exceeded","type":"rate_limit_error","message":"rate limited by upstream"}}`,
+			wantFailoverStatus: http.StatusTooManyRequests,
 		},
 		{
 			name:       "auth_failed",
@@ -1682,10 +1682,16 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClosesSessionOnF
 			select {
 			case serverErr := <-serverErrCh:
 				require.Error(t, serverErr)
-				var closeErr *OpenAIWSClientCloseError
-				require.ErrorAs(t, serverErr, &closeErr)
-				require.Equal(t, tt.wantStatus, closeErr.StatusCode())
-				require.Equal(t, tt.wantReason, closeErr.Reason())
+				if tt.wantFailoverStatus != 0 {
+					var failoverErr *UpstreamFailoverError
+					require.ErrorAs(t, serverErr, &failoverErr)
+					require.Equal(t, tt.wantFailoverStatus, failoverErr.StatusCode)
+				} else {
+					var closeErr *OpenAIWSClientCloseError
+					require.ErrorAs(t, serverErr, &closeErr)
+					require.Equal(t, tt.wantStatus, closeErr.StatusCode())
+					require.Equal(t, tt.wantReason, closeErr.Reason())
+				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("等待 fatal error event 关闭 ingress websocket 超时")
 			}
