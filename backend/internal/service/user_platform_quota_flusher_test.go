@@ -23,8 +23,10 @@ type mockQuotaDirtyCache struct {
 	getErr     error
 
 	// readdCalled: 记录 Readd 收到的 keys（累积所有次调用）
-	readdCalled [][]UserPlatformQuotaKey
-	readdErr    error
+	readdCalled         [][]UserPlatformQuotaKey
+	readdCtxErrs        []error
+	readdErr            error
+	failOnCanceledReadd bool
 }
 
 func (m *mockQuotaDirtyCache) PopDirtyUserPlatformQuotaKeys(_ context.Context, _ int) ([]UserPlatformQuotaKey, error) {
@@ -37,8 +39,12 @@ func (m *mockQuotaDirtyCache) PopDirtyUserPlatformQuotaKeys(_ context.Context, _
 	return nil, nil
 }
 
-func (m *mockQuotaDirtyCache) ReaddDirtyUserPlatformQuotaKeys(_ context.Context, keys []UserPlatformQuotaKey) error {
+func (m *mockQuotaDirtyCache) ReaddDirtyUserPlatformQuotaKeys(ctx context.Context, keys []UserPlatformQuotaKey) error {
 	m.readdCalled = append(m.readdCalled, keys)
+	m.readdCtxErrs = append(m.readdCtxErrs, ctx.Err())
+	if m.failOnCanceledReadd && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return m.readdErr
 }
 
@@ -56,10 +62,15 @@ func (m *mockQuotaDirtyCache) BatchGetUserPlatformQuotaCache(_ context.Context, 
 type mockQuotaSnapshotWriter struct {
 	receivedSnaps []UserPlatformQuotaSnapshot
 	returnErr     error
+	waitForCtx    bool
 }
 
-func (m *mockQuotaSnapshotWriter) BatchSnapshotUsage(_ context.Context, snaps []UserPlatformQuotaSnapshot, _ time.Time) error {
+func (m *mockQuotaSnapshotWriter) BatchSnapshotUsage(ctx context.Context, snaps []UserPlatformQuotaSnapshot, _ time.Time) error {
 	m.receivedSnaps = append(m.receivedSnaps, snaps...)
+	if m.waitForCtx {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	return m.returnErr
 }
 
@@ -207,6 +218,39 @@ func TestFlusher_UpsertFailReadds(t *testing.T) {
 	}
 	if f.metrics.FlushSuccessTotal.Load() != 0 {
 		t.Errorf("FlushSuccessTotal = %d, want 0", f.metrics.FlushSuccessTotal.Load())
+	}
+}
+
+func TestFlusher_UpsertDeadlineExceededReaddsWithFreshContext(t *testing.T) {
+	keys := []UserPlatformQuotaKey{
+		{UserID: 1, Platform: "anthropic"},
+		{UserID: 2, Platform: "openai"},
+	}
+	cache := &mockQuotaDirtyCache{
+		popSequence: [][]UserPlatformQuotaKey{keys},
+		getEntries: []*UserPlatformQuotaCacheEntry{
+			makeEntry(1.0, 2.0, 3.0),
+			makeEntry(4.0, 5.0, 6.0),
+		},
+		failOnCanceledReadd: true,
+	}
+	writer := &mockQuotaSnapshotWriter{waitForCtx: true}
+	f := newTestFlusher(cache, writer)
+	f.flushTimeout = time.Nanosecond
+
+	f.flush()
+
+	if len(cache.readdCalled) != 1 {
+		t.Fatalf("Readd calls = %d, want 1", len(cache.readdCalled))
+	}
+	if got := cache.readdCtxErrs[0]; got != nil {
+		t.Fatalf("Readd context error = %v, want nil", got)
+	}
+	if f.metrics.DirtyReaddTotal.Load() != int64(len(keys)) {
+		t.Errorf("DirtyReaddTotal = %d, want %d", f.metrics.DirtyReaddTotal.Load(), len(keys))
+	}
+	if f.metrics.DirtyLostTotal.Load() != 0 {
+		t.Errorf("DirtyLostTotal = %d, want 0", f.metrics.DirtyLostTotal.Load())
 	}
 }
 

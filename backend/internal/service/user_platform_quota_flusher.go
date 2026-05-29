@@ -47,6 +47,10 @@ const maxFlushBatchSize = 6000
 // defaultFlushBatchSize 是配置 flush_batch_size 非法(≤0)时的回退值。
 const defaultFlushBatchSize = 1000
 
+// dirtyReaddTimeout bounds the retry marker restoration after a failed flush.
+// It must not reuse the batch context because DB timeouts cancel that context.
+const dirtyReaddTimeout = 2 * time.Second
+
 // UserPlatformQuotaUsageFlusher 将 Redis 脏集快照定期批量写入 DB。
 // 不维护任何 delta/in-process 状态；每批读取 Redis 当前绝对值覆盖写入。
 type UserPlatformQuotaUsageFlusher struct {
@@ -107,7 +111,10 @@ func (s *UserPlatformQuotaUsageFlusher) updateLatencyMax(ms int64) {
 
 // readdOrCountLost 尝试把 keys 回填脏集：成功计 DirtyReaddTotal，失败计 DirtyLostTotal 并 ALERT。
 func (s *UserPlatformQuotaUsageFlusher) readdOrCountLost(ctx context.Context, keys []UserPlatformQuotaKey, stage string) {
-	if err := s.cache.ReaddDirtyUserPlatformQuotaKeys(ctx, keys); err != nil {
+	readdCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dirtyReaddTimeout)
+	defer cancel()
+
+	if err := s.cache.ReaddDirtyUserPlatformQuotaKeys(readdCtx, keys); err != nil {
 		s.metrics.DirtyLostTotal.Add(int64(len(keys)))
 		logger.LegacyPrintf("quota_flusher", "[QuotaFlusher] ALERT: Readd after %s failed, %d keys 丢出脏集(DB 镜像缺这批,Redis 仍权威,活跃 key 下次 SADD 自愈): %v", stage, len(keys), err)
 		return

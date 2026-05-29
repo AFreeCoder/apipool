@@ -734,7 +734,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					)
 					attemptedModel = defaultModel
 					effectiveMappedModel = defaultModel
-					selection, scheduleDecision, err = h.gatewayService.SelectAccountWithScheduler(
+					selection, scheduleDecision, err = h.gatewayService.SelectAccountWithSchedulerForCapability(
 						c.Request.Context(),
 						apiKey.GroupID,
 						"",
@@ -742,6 +742,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						defaultModel,
 						failedAccountIDs,
 						service.OpenAIUpstreamTransportAny,
+						service.OpenAIEndpointCapabilityChatCompletions,
 						false,
 					)
 					if err == nil && selection != nil {
