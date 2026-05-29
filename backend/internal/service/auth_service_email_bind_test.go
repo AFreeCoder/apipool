@@ -82,6 +82,10 @@ func (s *emailBindQuotaRepoStub) ResetExpiredWindow(context.Context, int64, stri
 	panic("unexpected ResetExpiredWindow call")
 }
 
+func (s *emailBindQuotaRepoStub) BatchSnapshotUsage(context.Context, []service.UserPlatformQuotaSnapshot, time.Time) error {
+	panic("unexpected BatchSnapshotUsage call")
+}
+
 func newAuthServiceForEmailBind(
 	t *testing.T,
 	settings map[string]string,

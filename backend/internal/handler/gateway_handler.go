@@ -511,7 +511,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 			// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-			h.submitUsageRecordTask(func(ctx context.Context) {
+			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 					Result:             result,
 					ParsedRequest:      parsedReq,
@@ -907,7 +907,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 			// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), currentAPIKey)
-			h.submitUsageRecordTask(func(ctx context.Context) {
+			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 					Result:             result,
 					ParsedRequest:      parsedReq,
@@ -1473,9 +1473,9 @@ func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, su
 	return min
 }
 
-// handleConcurrencyError maps concurrency acquisition errors to 429/503 responses.
+// handleConcurrencyError handles concurrency-related acquire errors.
 func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
-	status, errType, message := mapConcurrencyAcquireError(err, slotType)
+	status, errType, message := concurrencyErrorResponse(err, slotType)
 	h.handleStreamingAwareError(c, status, errType, message, streamStarted)
 }
 
@@ -2079,10 +2079,11 @@ func (h *GatewayHandler) maybeLogCompatibilityFallbackMetrics(reqLog *zap.Logger
 	)
 }
 
-func (h *GatewayHandler) submitUsageRecordTask(task service.UsageRecordTask) {
+func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
 	if task == nil {
 		return
 	}
+	task = wrapUsageRecordTaskContext(parent, task)
 	if h.usageRecordWorkerPool != nil {
 		h.usageRecordWorkerPool.Submit(task)
 		return
