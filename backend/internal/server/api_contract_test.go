@@ -314,12 +314,13 @@ func TestAPIContracts(t *testing.T) {
 					"balance_low_notify_threshold": 0,
 					"balance_low_notify_recharge_url": "",
 					"channel_monitor_enabled": true,
-					"channel_monitor_default_interval_seconds": 60,
-					"available_channels_enabled": false,
-					"affiliate_enabled": false,
-					"risk_control_enabled": false
-				}
-			}`,
+						"channel_monitor_default_interval_seconds": 60,
+						"available_channels_enabled": false,
+						"affiliate_enabled": false,
+						"allow_user_view_error_requests": false,
+						"risk_control_enabled": false
+					}
+				}`,
 		},
 		{
 			name: "GET /api/v1/keys (paginated)",
