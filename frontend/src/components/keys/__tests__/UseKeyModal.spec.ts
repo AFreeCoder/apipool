@@ -124,6 +124,12 @@ describe('UseKeyModal', () => {
     const codeBlocks = wrapper.findAll('pre code')
     expect(codeBlocks[0].text()).toContain('model = "gpt-5.5"')
     expect(codeBlocks[0].text()).toContain('review_model = "gpt-5.5"')
+    expect(codeBlocks[0].text()).toContain('model_provider = "apipool"')
+    expect(codeBlocks[0].text()).toContain('name = "apipool"')
+    expect(codeBlocks[0].text()).not.toContain('model = "gpt-5.4"')
+    expect(codeBlocks[0].text()).not.toContain('model_context_window')
+    expect(codeBlocks[0].text()).not.toContain('model_auto_compact_token_limit')
+    expect(codeBlocks[0].text()).toContain('[features]\ngoals = true')
   })
 
   it('OpenAI Codex WebSocket 默认配置使用 GPT-5.5', async () => {
@@ -138,5 +144,10 @@ describe('UseKeyModal', () => {
     const codeBlocks = wrapper.findAll('pre code')
     expect(codeBlocks[0].text()).toContain('model = "gpt-5.5"')
     expect(codeBlocks[0].text()).toContain('review_model = "gpt-5.5"')
+    expect(codeBlocks[0].text()).toContain('supports_websockets = true')
+    expect(codeBlocks[0].text()).not.toContain('model = "gpt-5.4"')
+    expect(codeBlocks[0].text()).not.toContain('model_context_window')
+    expect(codeBlocks[0].text()).not.toContain('model_auto_compact_token_limit')
+    expect(codeBlocks[0].text()).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
   })
 })

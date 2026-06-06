@@ -137,6 +137,8 @@ describe('CreateAccountModal', () => {
     await wrapper.get('#kiro-client-secret').setValue('secret-1')
     await wrapper.get('#kiro-auth-region').setValue('us-east-1')
     await wrapper.get('#kiro-api-region').setValue('us-west-2')
+    await wrapper.get('#kiro-pool-mode-toggle').trigger('click')
+    await wrapper.get('#kiro-pool-mode-retry-status-codes').setValue('502, 503 529')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -149,7 +151,10 @@ describe('CreateAccountModal', () => {
         client_id: 'client-1',
         client_secret: 'secret-1',
         auth_region: 'us-east-1',
-        api_region: 'us-west-2'
+        api_region: 'us-west-2',
+        pool_mode: true,
+        pool_mode_retry_count: 3,
+        pool_mode_retry_status_codes: [502, 503, 529]
       })
     }))
   })
@@ -204,6 +209,8 @@ describe('CreateAccountModal', () => {
     await wrapper.get('#kiro-social-provider').setValue('google')
     await wrapper.get('#kiro-auth-region').setValue('us-east-1')
     await wrapper.get('#kiro-api-region').setValue('us-west-2')
+    await wrapper.get('#kiro-pool-mode-toggle').trigger('click')
+    await wrapper.get('#kiro-pool-mode-retry-status-codes').setValue('429, 503')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -240,7 +247,10 @@ describe('CreateAccountModal', () => {
         machine_id: 'abcd'.repeat(16),
         auth_region: 'us-east-1',
         api_region: 'us-west-2',
-        profile_arn: 'arn:aws:kiro:::profile/default'
+        profile_arn: 'arn:aws:kiro:::profile/default',
+        pool_mode: true,
+        pool_mode_retry_count: 3,
+        pool_mode_retry_status_codes: [429, 503]
       })
     }))
   })
