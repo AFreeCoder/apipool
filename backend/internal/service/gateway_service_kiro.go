@@ -26,6 +26,9 @@ func (s *GatewayService) forwardKiro(
 	if parsed == nil {
 		return nil, fmt.Errorf("parse request: empty request")
 	}
+	if parsed.Body == nil {
+		return nil, fmt.Errorf("parse request: empty request body")
+	}
 
 	token, tokenType, err := s.GetAccessToken(ctx, account)
 	if err != nil {
@@ -40,7 +43,7 @@ func (s *GatewayService) forwardKiro(
 		return nil, err
 	}
 
-	payload, err := buildKiroGeneratePayload(parsed.Body, account)
+	payload, err := buildKiroGeneratePayload(parsed.Body.Bytes(), account)
 	if err != nil {
 		return nil, err
 	}

@@ -61,7 +61,7 @@ func TestForwardKiro_NonStreamingSuccess(t *testing.T) {
 		},
 	}
 	parsed := &ParsedRequest{
-		Body:   []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"stream":false}`),
+		Body:   NewRequestBodyRef([]byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"stream":false}`)),
 		Model:  "claude-sonnet-4-5",
 		Stream: false,
 	}
@@ -107,7 +107,7 @@ func TestForwardKiro_StreamingSuccess(t *testing.T) {
 		},
 	}
 	parsed := &ParsedRequest{
-		Body:   []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"stream":true}`),
+		Body:   NewRequestBodyRef([]byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"stream":true}`)),
 		Model:  "claude-sonnet-4-5",
 		Stream: true,
 	}
@@ -158,7 +158,7 @@ func TestForwardKiro_NonStreamingEventStreamSuccess(t *testing.T) {
 		},
 	}
 	parsed := &ParsedRequest{
-		Body:   []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"stream":false}`),
+		Body:   NewRequestBodyRef([]byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"stream":false}`)),
 		Model:  "claude-sonnet-4-5",
 		Stream: false,
 	}
@@ -207,7 +207,7 @@ func TestForwardKiro_StreamingEventStreamSuccess(t *testing.T) {
 		},
 	}
 	parsed := &ParsedRequest{
-		Body:   []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"stream":true}`),
+		Body:   NewRequestBodyRef([]byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"stream":true}`)),
 		Model:  "claude-sonnet-4-5",
 		Stream: true,
 	}
