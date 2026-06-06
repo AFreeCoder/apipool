@@ -20,7 +20,7 @@
 
 ## CI 约束
 
-- Go 版本必须是 **1.25.7**
+- Go 版本必须是 **1.26.4**
 - 前端 CI 使用 `pnpm install --frozen-lockfile`，改了 `package.json` 必须同步提交 `pnpm-lock.yaml`
 
 ## 开发规则

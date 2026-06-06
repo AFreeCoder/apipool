@@ -144,7 +144,7 @@ npm run dev
 | Workflow | 触发条件 | 内容 |
 |----------|----------|------|
 | deploy.yml | push to main | SSH 部署到 DigitalOcean |
-| backend-ci.yml | push, PR | 单元测试 + 集成测试 + golangci-lint v2.7 |
+| backend-ci.yml | push, PR | 单元测试 + 集成测试 + golangci-lint v2.10.1 |
 | security-scan.yml | push, PR, 每周一 | govulncheck + gosec + pnpm audit |
 | release.yml | tag `v*` | 构建发布 |
 

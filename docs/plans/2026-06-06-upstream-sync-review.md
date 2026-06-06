@@ -83,7 +83,8 @@
 
 ## 剩余风险与观察点
 
-- Go 版本事实源存在差异：本轮 upstream 和当前远端链路已升级到 Go `1.26.4`，注入的项目说明仍写 `1.25.7`。本轮选择跟随已同步的 upstream/origin 事实源；如需要固定到 `1.25.7`，应单独开一次工具链回退评估。
+- Go 版本事实源已按评审修正：本轮 upstream、当前远端链路、`backend/go.mod`、CI 与项目说明均对齐到 Go `1.26.4`。如需要固定到旧版本，应单独开一次工具链回退评估。
+- README 的 CI 描述已按评审同步为 `golangci-lint v2.10.1`，与 `.github/workflows/backend-ci.yml` 保持一致。
 - integration 未全绿，主要受本机 Docker daemon 与外部 TLS 探针影响。部署前不能把本机 integration 当作强通过证据，需要依赖 unit/lint/frontend/build/version，加上部署后的生产健康检查。
 - OpenAI / Codex / Responses / WebSocket 是本轮最大风险面，已通过定向单测和全量 unit 覆盖 `output:null`、streaming terminal output、WS error event 和 account binding 热点，但部署后仍需观察 Codex OAuth、Responses streaming、失败请求记录和用量统计。
 - Kiro `RequestBodyRef` 适配是合并后的语义修复点，已通过 service unit 覆盖，但部署后如出现 Kiro 转发 body 为空或签名异常，应优先回看该路径。
