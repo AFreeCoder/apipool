@@ -3699,6 +3699,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 					trimmedData = strings.TrimSpace(replacedData)
 				}
 			}
+			if normalizedData, normalized := normalizeOpenAIResponsesEventOutputJSONBytes(dataBytes); normalized {
+				dataBytes = normalizedData
+				trimmedData = strings.TrimSpace(string(normalizedData))
+				line = "data: " + trimmedData
+			}
 			eventType := strings.TrimSpace(gjson.Get(trimmedData, "type").String())
 			if eventType == "response.failed" {
 				failedMessage = extractOpenAISSEErrorMessage(dataBytes)
@@ -3840,6 +3845,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
+	body = normalizeOpenAIResponsesOutputJSONBytes(body)
 	c.Data(resp.StatusCode, contentType, body)
 	return &openaiNonStreamingResultPassthrough{
 		OpenAIUsage:      usage,
@@ -3877,6 +3883,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
+		body = normalizeOpenAIResponsesOutputJSONBytes(body)
 	} else {
 		terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
 		if terminalOK && terminalType == "response.failed" {
@@ -4559,9 +4566,17 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			// Fast path: most events do not contain model field values.
 			if needModelReplace && mappedModel != "" && strings.Contains(data, mappedModel) {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
+				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
+					data = replacedData
+				}
 			}
 
 			dataBytes := []byte(data)
+			if normalizedData, normalized := normalizeOpenAIResponsesEventOutputJSONBytes(dataBytes); normalized {
+				dataBytes = normalizedData
+				data = string(normalizedData)
+				line = "data: " + data
+			}
 			if openAIStreamEventIsTerminal(data) {
 				sawTerminalEvent = true
 			}
@@ -4906,6 +4921,52 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 	return openAIUsageFromGJSON(gjson.GetBytes(body, "response.usage"))
 }
 
+func normalizeOpenAIResponsesOutputJSONBytes(body []byte) []byte {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return body
+	}
+	output := gjson.GetBytes(body, "output")
+	if output.Exists() && output.IsArray() {
+		return body
+	}
+	object := strings.TrimSpace(gjson.GetBytes(body, "object").String())
+	status := gjson.GetBytes(body, "status")
+	id := strings.TrimSpace(gjson.GetBytes(body, "id").String())
+	if object != "response" && !status.Exists() && !strings.HasPrefix(id, "resp_") {
+		return body
+	}
+	normalized, err := sjson.SetRawBytes(body, "output", []byte("[]"))
+	if err != nil {
+		return body
+	}
+	return normalized
+}
+
+func normalizeOpenAIResponsesEventOutputJSONBytes(data []byte) ([]byte, bool) {
+	if len(data) == 0 || bytes.Equal(data, []byte("[DONE]")) || !gjson.ValidBytes(data) {
+		return data, false
+	}
+	eventType := strings.TrimSpace(gjson.GetBytes(data, "type").String())
+	switch eventType {
+	case "response.completed", "response.done", "response.incomplete":
+	default:
+		return data, false
+	}
+	response := gjson.GetBytes(data, "response")
+	if !response.Exists() || !response.IsObject() {
+		return data, false
+	}
+	output := response.Get("output")
+	if output.Exists() && output.IsArray() {
+		return data, false
+	}
+	normalized, err := sjson.SetRawBytes(data, "response.output", []byte("[]"))
+	if err != nil {
+		return data, false
+	}
+	return normalized, true
+}
+
 func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if !value.Exists() || !value.IsObject() {
 		return OpenAIUsage{}, false
@@ -4969,6 +5030,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if originalModel != mappedModel {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
+	body = normalizeOpenAIResponsesOutputJSONBytes(body)
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
@@ -5019,6 +5081,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
+		body = normalizeOpenAIResponsesOutputJSONBytes(body)
 	} else {
 		terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
 		if terminalOK && terminalType == "response.failed" {
