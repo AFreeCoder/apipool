@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -72,6 +73,20 @@ func NewFrontendServer(settingsProvider PublicSettingsProvider) (*FrontendServer
 		settings:    settingsProvider,
 		overrideDir: filepath.Join("data", "public"),
 	}, nil
+}
+
+func EmbeddedFrontendMiddleware(settingsProvider PublicSettingsProvider, refreshFrameOrigins func()) (gin.HandlerFunc, func(), bool) {
+	frontendServer, err := NewFrontendServer(settingsProvider)
+	if err != nil {
+		log.Printf("Warning: Failed to create frontend server with settings injection: %v, using legacy mode", err)
+		return ServeEmbeddedFrontend(), refreshFrameOrigins, true
+	}
+	return frontendServer.Middleware(), func() {
+		frontendServer.InvalidateCache()
+		if refreshFrameOrigins != nil {
+			refreshFrameOrigins()
+		}
+	}, true
 }
 
 // InvalidateCache invalidates the HTML cache (call when settings change)
