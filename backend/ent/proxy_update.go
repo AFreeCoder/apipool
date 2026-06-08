@@ -267,6 +267,21 @@ func (_u *ProxyUpdate) SetBackupProxy(v *Proxy) *ProxyUpdate {
 	return _u.SetBackupProxyID(v.ID)
 }
 
+// AddFallbackSourceIDs adds the "fallback_sources" edge to the Proxy entity by IDs.
+func (_u *ProxyUpdate) AddFallbackSourceIDs(ids ...int64) *ProxyUpdate {
+	_u.mutation.AddFallbackSourceIDs(ids...)
+	return _u
+}
+
+// AddFallbackSources adds the "fallback_sources" edges to the Proxy entity.
+func (_u *ProxyUpdate) AddFallbackSources(v ...*Proxy) *ProxyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddFallbackSourceIDs(ids...)
+}
+
 // Mutation returns the ProxyMutation object of the builder.
 func (_u *ProxyUpdate) Mutation() *ProxyMutation {
 	return _u.mutation
@@ -297,6 +312,27 @@ func (_u *ProxyUpdate) RemoveAccounts(v ...*Account) *ProxyUpdate {
 func (_u *ProxyUpdate) ClearBackupProxy() *ProxyUpdate {
 	_u.mutation.ClearBackupProxy()
 	return _u
+}
+
+// ClearFallbackSources clears all "fallback_sources" edges to the Proxy entity.
+func (_u *ProxyUpdate) ClearFallbackSources() *ProxyUpdate {
+	_u.mutation.ClearFallbackSources()
+	return _u
+}
+
+// RemoveFallbackSourceIDs removes the "fallback_sources" edge to Proxy entities by IDs.
+func (_u *ProxyUpdate) RemoveFallbackSourceIDs(ids ...int64) *ProxyUpdate {
+	_u.mutation.RemoveFallbackSourceIDs(ids...)
+	return _u
+}
+
+// RemoveFallbackSources removes "fallback_sources" edges to Proxy entities.
+func (_u *ProxyUpdate) RemoveFallbackSources(v ...*Proxy) *ProxyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveFallbackSourceIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -494,11 +530,11 @@ func (_u *ProxyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.BackupProxyCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   proxy.BackupProxyTable,
 			Columns: []string{proxy.BackupProxyColumn},
-			Bidi:    true,
+			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
 			},
@@ -507,11 +543,56 @@ func (_u *ProxyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if nodes := _u.mutation.BackupProxyIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   proxy.BackupProxyTable,
 			Columns: []string{proxy.BackupProxyColumn},
-			Bidi:    true,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.FallbackSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.FallbackSourcesTable,
+			Columns: []string{proxy.FallbackSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedFallbackSourcesIDs(); len(nodes) > 0 && !_u.mutation.FallbackSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.FallbackSourcesTable,
+			Columns: []string{proxy.FallbackSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.FallbackSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.FallbackSourcesTable,
+			Columns: []string{proxy.FallbackSourcesColumn},
+			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
 			},
@@ -779,6 +860,21 @@ func (_u *ProxyUpdateOne) SetBackupProxy(v *Proxy) *ProxyUpdateOne {
 	return _u.SetBackupProxyID(v.ID)
 }
 
+// AddFallbackSourceIDs adds the "fallback_sources" edge to the Proxy entity by IDs.
+func (_u *ProxyUpdateOne) AddFallbackSourceIDs(ids ...int64) *ProxyUpdateOne {
+	_u.mutation.AddFallbackSourceIDs(ids...)
+	return _u
+}
+
+// AddFallbackSources adds the "fallback_sources" edges to the Proxy entity.
+func (_u *ProxyUpdateOne) AddFallbackSources(v ...*Proxy) *ProxyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddFallbackSourceIDs(ids...)
+}
+
 // Mutation returns the ProxyMutation object of the builder.
 func (_u *ProxyUpdateOne) Mutation() *ProxyMutation {
 	return _u.mutation
@@ -809,6 +905,27 @@ func (_u *ProxyUpdateOne) RemoveAccounts(v ...*Account) *ProxyUpdateOne {
 func (_u *ProxyUpdateOne) ClearBackupProxy() *ProxyUpdateOne {
 	_u.mutation.ClearBackupProxy()
 	return _u
+}
+
+// ClearFallbackSources clears all "fallback_sources" edges to the Proxy entity.
+func (_u *ProxyUpdateOne) ClearFallbackSources() *ProxyUpdateOne {
+	_u.mutation.ClearFallbackSources()
+	return _u
+}
+
+// RemoveFallbackSourceIDs removes the "fallback_sources" edge to Proxy entities by IDs.
+func (_u *ProxyUpdateOne) RemoveFallbackSourceIDs(ids ...int64) *ProxyUpdateOne {
+	_u.mutation.RemoveFallbackSourceIDs(ids...)
+	return _u
+}
+
+// RemoveFallbackSources removes "fallback_sources" edges to Proxy entities.
+func (_u *ProxyUpdateOne) RemoveFallbackSources(v ...*Proxy) *ProxyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveFallbackSourceIDs(ids...)
 }
 
 // Where appends a list predicates to the ProxyUpdate builder.
@@ -1036,11 +1153,11 @@ func (_u *ProxyUpdateOne) sqlSave(ctx context.Context) (_node *Proxy, err error)
 	}
 	if _u.mutation.BackupProxyCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   proxy.BackupProxyTable,
 			Columns: []string{proxy.BackupProxyColumn},
-			Bidi:    true,
+			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
 			},
@@ -1049,11 +1166,56 @@ func (_u *ProxyUpdateOne) sqlSave(ctx context.Context) (_node *Proxy, err error)
 	}
 	if nodes := _u.mutation.BackupProxyIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   proxy.BackupProxyTable,
 			Columns: []string{proxy.BackupProxyColumn},
-			Bidi:    true,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.FallbackSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.FallbackSourcesTable,
+			Columns: []string{proxy.FallbackSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedFallbackSourcesIDs(); len(nodes) > 0 && !_u.mutation.FallbackSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.FallbackSourcesTable,
+			Columns: []string{proxy.FallbackSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.FallbackSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.FallbackSourcesTable,
+			Columns: []string{proxy.FallbackSourcesColumn},
+			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
 			},

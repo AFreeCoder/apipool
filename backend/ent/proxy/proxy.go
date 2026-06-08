@@ -47,6 +47,8 @@ const (
 	EdgeAccounts = "accounts"
 	// EdgeBackupProxy holds the string denoting the backup_proxy edge name in mutations.
 	EdgeBackupProxy = "backup_proxy"
+	// EdgeFallbackSources holds the string denoting the fallback_sources edge name in mutations.
+	EdgeFallbackSources = "fallback_sources"
 	// Table holds the table name of the proxy in the database.
 	Table = "proxies"
 	// AccountsTable is the table that holds the accounts relation/edge.
@@ -60,6 +62,10 @@ const (
 	BackupProxyTable = "proxies"
 	// BackupProxyColumn is the table column denoting the backup_proxy relation/edge.
 	BackupProxyColumn = "backup_proxy_id"
+	// FallbackSourcesTable is the table that holds the fallback_sources relation/edge.
+	FallbackSourcesTable = "proxies"
+	// FallbackSourcesColumn is the table column denoting the fallback_sources relation/edge.
+	FallbackSourcesColumn = "backup_proxy_id"
 )
 
 // Columns holds all SQL columns for proxy fields.
@@ -225,6 +231,20 @@ func ByBackupProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newBackupProxyStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByFallbackSourcesCount orders the results by fallback_sources count.
+func ByFallbackSourcesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newFallbackSourcesStep(), opts...)
+	}
+}
+
+// ByFallbackSources orders the results by fallback_sources terms.
+func ByFallbackSources(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newFallbackSourcesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newAccountsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -236,6 +256,13 @@ func newBackupProxyStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(Table, FieldID),
-		sqlgraph.Edge(sqlgraph.O2O, false, BackupProxyTable, BackupProxyColumn),
+		sqlgraph.Edge(sqlgraph.M2O, true, BackupProxyTable, BackupProxyColumn),
+	)
+}
+func newFallbackSourcesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(Table, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, FallbackSourcesTable, FallbackSourcesColumn),
 	)
 }

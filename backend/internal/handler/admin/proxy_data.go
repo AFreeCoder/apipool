@@ -152,36 +152,8 @@ func (h *ProxyHandler) ImportData(c *gin.Context) {
 		if existing, ok := proxyByKey[key]; ok {
 			result.ProxyReused++
 			if normalizedStatus != "" && normalizedStatus != existing.Status {
-				// 已存在代理同步 status 时，同时保留/覆盖导入 item 的完整字段，
-				// 避免 UpdateProxy 零值覆盖有效期/fallback 配置。
-				var existingExpiresAt *time.Time
-				if item.ExpiresAt != nil {
-					t := time.Unix(*item.ExpiresAt, 0).UTC()
-					existingExpiresAt = &t
-				}
-				existingFallbackMode := item.FallbackMode
-				if existingFallbackMode == "" {
-					existingFallbackMode = service.FallbackModeNone
-				}
-				var existingBackupProxyID *int64
-				if item.BackupProxyName != "" {
-					if bid, ok := proxyNameToID[item.BackupProxyName]; ok {
-						existingBackupProxyID = &bid
-					}
-				}
 				updateInput := &service.UpdateProxyInput{
-					Status:         normalizedStatus,
-					ExpiresAt:      existingExpiresAt,
-					FallbackMode:   existingFallbackMode,
-					BackupProxyID:  existingBackupProxyID,
-					ExpiryWarnDays: item.ExpiryWarnDays,
-					// 保留已存在代理的网络配置字段
-					Name:     existing.Name,
-					Protocol: existing.Protocol,
-					Host:     existing.Host,
-					Port:     existing.Port,
-					Username: existing.Username,
-					Password: existing.Password,
+					Status: normalizedStatus,
 				}
 				if _, err := h.adminService.UpdateProxy(ctx, existing.ID, updateInput); err != nil {
 					result.Errors = append(result.Errors, DataImportError{
@@ -251,20 +223,7 @@ func (h *ProxyHandler) ImportData(c *gin.Context) {
 		}
 
 		if normalizedStatus != "" && normalizedStatus != created.Status {
-			// 新建后同步 status 时，传入完整字段，避免零值覆盖刚创建的有效期/fallback 配置。
-			if _, err := h.adminService.UpdateProxy(ctx, created.ID, &service.UpdateProxyInput{
-				Status:         normalizedStatus,
-				ExpiresAt:      expiresAt,
-				FallbackMode:   fallbackMode,
-				BackupProxyID:  backupProxyID,
-				ExpiryWarnDays: item.ExpiryWarnDays,
-				Name:           created.Name,
-				Protocol:       created.Protocol,
-				Host:           created.Host,
-				Port:           created.Port,
-				Username:       created.Username,
-				Password:       created.Password,
-			}); err != nil {
+			if _, err := h.adminService.UpdateProxy(ctx, created.ID, &service.UpdateProxyInput{Status: normalizedStatus}); err != nil {
 				result.Errors = append(result.Errors, DataImportError{
 					Kind:     "proxy",
 					Name:     item.Name,

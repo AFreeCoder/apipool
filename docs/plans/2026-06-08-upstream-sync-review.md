@@ -35,23 +35,40 @@
 - Git 冲突：无，`git merge upstream/main -m "chore(sync): merge upstream v0.1.135"` 直接完成。
 - 语义复核：合并后确认 `upstream/main` 已是当前 HEAD 祖先；`VERSION=0.1.135`，与 upstream tag `v0.1.135` 和 upstream/main 版本文件一致。
 - 语义复核：精确扫描 `^(<<<<<<<|=======$|>>>>>>>)` 无 merge marker。
-- 语义复核：`ent/schema` 有变更，已执行 `cd backend && go generate ./ent`，未产生额外 diff。
+- 语义复核：`ent/schema` 有变更，已执行 `cd backend && go generate ./ent`；本地修复将 `backup_proxy_id` 从 Ent one-to-one 自引用改为多对一自引用，生成代码同步去掉错误的 `Unique: true`。
 - 语义复核：`golangci-lint` 暴露 `internal/server/router.go` 在非 embed 构建下的死分支；已将 embedded frontend 中间件构造收敛到 `backend/internal/web/embed_on.go` / `embed_off.go`，router 不再调用固定失败的 stub。
+
+## 双评审反馈与接收处理
+
+- `requesting-code-review` subagent 结论：不建议部署，阻断点是 `UpdateProxy` 对 `ExpiresAt/FallbackMode/BackupProxyID/ExpiryWarnDays` 的部分更新会零值覆盖现有配置；同时指出代理 fallback 可能落到 inactive proxy、Ent schema 与手写迁移对 `backup_proxy_id` 唯一性的定义不一致。
+- `gstack review` subagent 结论：不建议部署，阻断点是 Google/Gemini 鉴权路径缺少专属分组撤权校验；同时指出代理过期 sweep 可能用旧快照覆盖管理员刚续期/改状态的代理，以及 `UpdateProxy` PATCH 语义问题。
+- 已按 `receiving-code-review` 逐条核验并接受：以上 Critical/Important 反馈均成立。
+- 修复：`UpdateProxyInput` 改为 nullable/指针 PATCH 语义，导入流程只传需要变更的 status，避免零值清空代理有效期和 fallback 配置。
+- 修复：Google/Gemini API key auth 补齐 `validateAPIKeyGroupAllowed`，专属分组撤权后返回 Google-style 403，并标记 Ops business-limited 原因。
+- 修复：代理 fallback 只选择 `active` 且未过期的备用代理；创建/编辑 fallback=proxy 时校验备用代理存在、不能自指、必须 active 且未过期。
+- 修复：过期代理 sweep 对 `proxies` 增加条件 UPDATE，仅当代理仍为 active 且 `expires_at <= now` 时才标记 expired；若管理员已续期/改状态，则不再改投账号。
+- 修复：Ent 自引用 edge 改为 `fallback_sources -> backup_proxy` 多对一模型，生成 schema 中 `backup_proxy_id` 不再是唯一列。
+- 修复：补齐 admin usage 前端响应类型中的 cache creation/read token 字段；修正 `ErrAccountNotInFallback` 注释。
 
 ## 测试记录
 
-- 通过：`cd backend && go generate ./ent`，无额外 diff。
+- 通过：`cd backend && go generate ./ent`。
+- 通过：`cd backend && go test -tags=unit ./internal/service -run 'TestResolveFallbackTarget|TestAdminService_UpdateProxy|TestAdminService_CreateProxy'`。
+- 通过：`cd backend && go test -tags=unit ./internal/server/middleware -run 'Google.*Exclusive|GoogleRejectsExclusive|ExclusiveGroup'`。
+- 通过：`cd backend && go test -tags=unit ./internal/repository -run 'Proxy|Sweep'`。
+- 通过：`cd backend && go test -tags=unit ./internal/handler/admin`。
 - 通过：`cd backend && go test -tags=unit ./...`。
-- 通过：`cd backend && make test-unit`。
+- 通过：`cd backend && make test-unit`（同步初期执行）。
 - 环境阻塞：`cd backend && go test -tags=integration ./...` 失败于本地 Docker daemon 不可用，testcontainers 无法连接 `unix:///Users/afreecoder/.docker/run/docker.sock`；失败包包括 `internal/middleware` 和 `internal/server/routes` 的 Redis rate-limit integration 用例。
 - 环境阻塞：`cd backend && make test-integration` 同样失败于本地 Docker daemon 不可用。
 - 通过：`cd backend && golangci-lint run ./...`，修复后为 `0 issues`。
 - 通过：`pnpm --dir frontend run lint:check`。
 - 通过：`pnpm --dir frontend run typecheck`。
 - 通过：`pnpm --dir frontend run test:run`，120 个测试文件、732 个用例通过；有预期错误场景 stderr、Element Plus stub warning、browserslist 过期提示和 i18n compiler warning。
+- 通过：`pnpm --dir frontend run build`，存在既有 chunk size / dynamic import warning。
 - 通过：`git tag --merged upstream/main --sort=-version:refname | head -1` 输出 `v0.1.135`。
 - 通过：`cat backend/cmd/server/VERSION` 输出 `0.1.135`。
-- 通过：`make build`，Go build 使用 `main.Version=0.1.135`，前端 Vite build 通过；存在既有 chunk size / dynamic import warning。
+- 通过：`cd backend && make build`，Go build 使用 `main.Version=0.1.135`。
 - 通过：`POSTGRES_PASSWORD=dummy docker compose -f deploy/docker-compose.deploy.yml config -q`。
 - 通过：`POSTGRES_PASSWORD=dummy docker compose -f deploy/docker-compose.local.yml config -q`。
 - 通过：`bash deploy/version_resolver.sh resolve .` 输出 `0.1.135`。
@@ -66,4 +83,4 @@
 
 ## 结论
 
-- 建议保留当前同步结果并进入双 subagent review。代码层面已通过 unit、lint、前端 lint/typecheck/Vitest、build、compose config 和版本解析；未完成项限定在本机 Docker 环境阻塞的 integration。
+- 已完成上游同步、双 subagent review 和 receiving-code-review 修复。代码层面已通过 unit、lint、前端 lint/typecheck/Vitest/build、后端 build、compose config 和版本解析；未完成项限定在本机 Docker 环境阻塞的 integration。建议进入 `apipool-push-deploy`。

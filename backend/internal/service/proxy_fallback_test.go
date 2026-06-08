@@ -10,7 +10,7 @@ import (
 )
 
 func mkProxy(id int64, mode string, backup *int64, expiresInDays *int, now time.Time) Proxy {
-	p := Proxy{ID: id, FallbackMode: mode, BackupProxyID: backup}
+	p := Proxy{ID: id, Status: StatusActive, FallbackMode: mode, BackupProxyID: backup}
 	if expiresInDays != nil {
 		t := now.AddDate(0, 0, *expiresInDays)
 		p.ExpiresAt = &t
@@ -44,6 +44,15 @@ func TestResolveFallbackTarget(t *testing.T) {
 		require.True(t, change)
 		require.NotNil(t, target)
 		require.Equal(t, int64(2), *target)
+	})
+	t.Run("proxy skips inactive backup", func(t *testing.T) {
+		b := mkProxy(2, FallbackModeNone, nil, di(30), now)
+		b.Status = StatusDisabled
+		a := mkProxy(1, FallbackModeProxy, i64(2), di(-1), now)
+		by := map[int64]Proxy{1: a, 2: b}
+		target, change := ResolveProxyFallbackTarget(a, by, now)
+		require.False(t, change)
+		require.Nil(t, target)
 	})
 	t.Run("chain A->B(expired)->C(healthy)", func(t *testing.T) {
 		c := mkProxy(3, FallbackModeNone, nil, di(30), now)

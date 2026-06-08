@@ -80,7 +80,7 @@ type AccountRepository interface {
 	// ResetQuotaUsed 重置 API Key 账号所有维度的配额用量为 0
 	ResetQuotaUsed(ctx context.Context, id int64) error
 	// RevertProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
-	// 仅当 proxy_fallback_origin_id IS NOT NULL 时更新，否则视为账号不存在（返回 ErrAccountNotFound）。
+	// 仅当 proxy_fallback_origin_id IS NOT NULL 时更新，否则返回 ErrAccountNotInFallback。
 	RevertProxyFallback(ctx context.Context, accountID int64) error
 }
 

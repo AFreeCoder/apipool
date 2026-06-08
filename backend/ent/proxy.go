@@ -57,9 +57,11 @@ type ProxyEdges struct {
 	Accounts []*Account `json:"accounts,omitempty"`
 	// BackupProxy holds the value of the backup_proxy edge.
 	BackupProxy *Proxy `json:"backup_proxy,omitempty"`
+	// FallbackSources holds the value of the fallback_sources edge.
+	FallbackSources []*Proxy `json:"fallback_sources,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // AccountsOrErr returns the Accounts value or an error if the edge
@@ -80,6 +82,15 @@ func (e ProxyEdges) BackupProxyOrErr() (*Proxy, error) {
 		return nil, &NotFoundError{label: proxy.Label}
 	}
 	return nil, &NotLoadedError{edge: "backup_proxy"}
+}
+
+// FallbackSourcesOrErr returns the FallbackSources value or an error if the edge
+// was not loaded in eager-loading.
+func (e ProxyEdges) FallbackSourcesOrErr() ([]*Proxy, error) {
+	if e.loadedTypes[2] {
+		return e.FallbackSources, nil
+	}
+	return nil, &NotLoadedError{edge: "fallback_sources"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -224,6 +235,11 @@ func (_m *Proxy) QueryAccounts() *AccountQuery {
 // QueryBackupProxy queries the "backup_proxy" edge of the Proxy entity.
 func (_m *Proxy) QueryBackupProxy() *ProxyQuery {
 	return NewProxyClient(_m.config).QueryBackupProxy(_m)
+}
+
+// QueryFallbackSources queries the "fallback_sources" edge of the Proxy entity.
+func (_m *Proxy) QueryFallbackSources() *ProxyQuery {
+	return NewProxyClient(_m.config).QueryFallbackSources(_m)
 }
 
 // Update returns a builder for updating this Proxy.

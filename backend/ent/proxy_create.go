@@ -207,6 +207,21 @@ func (_c *ProxyCreate) SetBackupProxy(v *Proxy) *ProxyCreate {
 	return _c.SetBackupProxyID(v.ID)
 }
 
+// AddFallbackSourceIDs adds the "fallback_sources" edge to the Proxy entity by IDs.
+func (_c *ProxyCreate) AddFallbackSourceIDs(ids ...int64) *ProxyCreate {
+	_c.mutation.AddFallbackSourceIDs(ids...)
+	return _c
+}
+
+// AddFallbackSources adds the "fallback_sources" edges to the Proxy entity.
+func (_c *ProxyCreate) AddFallbackSources(v ...*Proxy) *ProxyCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddFallbackSourceIDs(ids...)
+}
+
 // Mutation returns the ProxyMutation object of the builder.
 func (_c *ProxyCreate) Mutation() *ProxyMutation {
 	return _c.mutation
@@ -434,11 +449,11 @@ func (_c *ProxyCreate) createSpec() (*Proxy, *sqlgraph.CreateSpec) {
 	}
 	if nodes := _c.mutation.BackupProxyIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
-			Inverse: false,
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
 			Table:   proxy.BackupProxyTable,
 			Columns: []string{proxy.BackupProxyColumn},
-			Bidi:    true,
+			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
 			},
@@ -447,6 +462,22 @@ func (_c *ProxyCreate) createSpec() (*Proxy, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.BackupProxyID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.FallbackSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.FallbackSourcesTable,
+			Columns: []string{proxy.FallbackSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
