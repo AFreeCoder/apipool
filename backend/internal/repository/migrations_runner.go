@@ -53,6 +53,12 @@ const migrationsLockRetryInterval = 500 * time.Millisecond
 const nonTransactionalMigrationSuffix = "_notx.sql"
 const paymentOrdersOutTradeNoUniqueMigration = "120_enforce_payment_orders_out_trade_no_unique_notx.sql"
 const paymentOrdersOutTradeNoUniqueIndex = "paymentorder_out_trade_no_unique"
+const accountGroupSchedulerIndexesMigration = "150_account_group_scheduler_indexes_notx.sql"
+
+var accountGroupSchedulerIndexes = []string{
+	"idx_account_groups_group_priority_account",
+	"idx_account_groups_account_priority_group",
+}
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -258,6 +264,8 @@ func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name stri
 	switch name {
 	case paymentOrdersOutTradeNoUniqueMigration:
 		return preparePaymentOrdersOutTradeNoUniqueMigration(ctx, db)
+	case accountGroupSchedulerIndexesMigration:
+		return prepareAccountGroupSchedulerIndexesMigration(ctx, db)
 	default:
 		return nil
 	}
@@ -286,6 +294,22 @@ func preparePaymentOrdersOutTradeNoUniqueMigration(ctx context.Context, db *sql.
 
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", paymentOrdersOutTradeNoUniqueIndex)); err != nil {
 		return fmt.Errorf("drop invalid index %s: %w", paymentOrdersOutTradeNoUniqueIndex, err)
+	}
+	return nil
+}
+
+func prepareAccountGroupSchedulerIndexesMigration(ctx context.Context, db *sql.DB) error {
+	for _, indexName := range accountGroupSchedulerIndexes {
+		invalid, err := indexIsInvalid(ctx, db, indexName)
+		if err != nil {
+			return fmt.Errorf("check invalid index %s: %w", indexName, err)
+		}
+		if !invalid {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", indexName)); err != nil {
+			return fmt.Errorf("drop invalid index %s: %w", indexName, err)
+		}
 	}
 	return nil
 }

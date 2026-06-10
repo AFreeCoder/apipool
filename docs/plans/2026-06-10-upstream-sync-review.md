@@ -63,6 +63,20 @@
 - 通过：`bash scripts/collect_upstream_sync_context.sh --no-fetch`，确认 upstream tag/version/local version 均为 `0.1.136`。
 - 待部署后核对：线上 `docker exec sub2api /app/sub2api --version` 或等价版本输出、页面左上角版本、容器健康和备份/回滚元数据。
 
+## Subagent 评审与接收记录
+
+- `requesting-code-review` subagent 结论：无 Critical / Important blocker；指出首次 admin compliance 确认后，已失败的后台数据请求不会自动重试。该问题成立但属于后续 UX 优化，不阻塞本轮同步部署。
+- `gstack review` subagent P1：`150_account_group_scheduler_indexes_notx.sql` 使用 `CREATE INDEX CONCURRENTLY IF NOT EXISTS`，若并发建索引中断可能留下同名 invalid index，后续重跑会被 `IF NOT EXISTS` 跳过。已采纳并修复：`migrations_runner.go` 在执行该 non-transactional migration 前检查并 `DROP INDEX CONCURRENTLY IF EXISTS` 两个目标 invalid index，新增 sqlmock 单元测试覆盖重试路径。
+- `gstack review` subagent P2：admin compliance gate 的文档 URL、确认短语和法律文档主体仍指向 upstream `Wei-Shaw/sub2api` / `Sub2API`，与 APIPool 自部署实例的品牌和责任记录不一致。已采纳并修复：后端 status、前端 fallback URL/phrase、弹窗链接和中英文法律文档主体统一为 APIPool，并保留“基于 Sub2API 开源软件”的来源说明。
+
+## 接收评审后补充验证
+
+- 通过：`cd backend && go test -tags=unit ./internal/repository -run 'AccountGroupScheduler|NonTransactionalMigration|PaymentOrdersOutTradeNoUnique'`。
+- 通过：`cd backend && go test -tags=unit ./internal/service -run AdminCompliance`。
+- 通过：`pnpm --dir frontend run typecheck`。
+- 通过：`pnpm --dir frontend run test:run -- src/api/__tests__/client.spec.ts`，实际执行全量 Vitest，121 个测试文件、740 个用例通过；输出包含既有预期错误场景 stderr、Element Plus stub warning、Browserslist 过期提示和 i18n compiler warning。
+- 通过：`git diff --check`。
+
 ## 剩余风险与观察点
 
 - 本地 integration 未完成，原因是本机 Docker daemon 不可用；需要以后在 Docker 可用环境或 CI/部署环境继续以 integration 结果补强。
@@ -73,4 +87,4 @@
 
 ## 结论
 
-- 已完成上游 `v0.1.136` 同步和本地验证。代码层面已通过 unit、lint、前端 lint/typecheck/Vitest/build、后端 build、compose config 和版本解析；未完成项限定在本机 Docker 环境阻塞的 integration。建议进入双 subagent review。
+- 已完成上游 `v0.1.136` 同步、双 subagent review、receiving-code-review 接收与修复。代码层面已通过 unit、lint、前端 lint/typecheck/Vitest/build、后端 build、compose config、版本解析和接收评审后的针对性验证；未完成项限定在本机 Docker 环境阻塞的 integration。建议进入远程部署。
