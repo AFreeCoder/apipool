@@ -77,6 +77,13 @@
 - 通过：`pnpm --dir frontend run test:run -- src/api/__tests__/client.spec.ts`，实际执行全量 Vitest，121 个测试文件、740 个用例通过；输出包含既有预期错误场景 stderr、Element Plus stub warning、Browserslist 过期提示和 i18n compiler warning。
 - 通过：`git diff --check`。
 
+## 部署构建修复记录
+
+- 首次推送触发的 GitHub Actions run `27262263413` 在 Docker `frontend-builder` 阶段失败，错误为 `Could not resolve "../../../../docs/legal/admin-compliance.zh.md?raw"`；SSH 部署步骤未执行，线上未变更。
+- 根因：Dockerfile 仅复制 `frontend/` 到 `/app/frontend`，而 `AdminComplianceDialog.vue` 与 `LegalDocumentView.vue` 从 `/app/docs/legal` 读取合规 Markdown；同时 `.dockerignore` 排除了整个 `docs/` 目录。
+- 已修复：`.dockerignore` 仅放行 `docs/legal/admin-compliance.*.md`，Dockerfile 在 frontend build 前复制 `docs/legal/` 到 `/app/docs/legal/`。
+- 通过：本机 Docker daemon 不可用时，在临时目录模拟 Docker `/app/frontend` + `/app/docs/legal` 布局并执行 `pnpm install --frozen-lockfile`、`pnpm run build`，确认 raw import 可以解析。
+
 ## 剩余风险与观察点
 
 - 本地 integration 未完成，原因是本机 Docker daemon 不可用；需要以后在 Docker 可用环境或 CI/部署环境继续以 integration 结果补强。
@@ -87,4 +94,4 @@
 
 ## 结论
 
-- 已完成上游 `v0.1.136` 同步、双 subagent review、receiving-code-review 接收与修复。代码层面已通过 unit、lint、前端 lint/typecheck/Vitest/build、后端 build、compose config、版本解析和接收评审后的针对性验证；未完成项限定在本机 Docker 环境阻塞的 integration。建议进入远程部署。
+- 已完成上游 `v0.1.136` 同步、双 subagent review、receiving-code-review 接收、Docker 构建修复与本地可验证检查。代码层面已通过 unit、lint、前端 lint/typecheck/Vitest/build、后端 build、compose config、版本解析和接收评审后的针对性验证；未完成项限定在本机 Docker 环境阻塞的 integration。建议重新触发远程部署。
