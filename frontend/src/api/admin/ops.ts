@@ -13,6 +13,123 @@ export interface OpsRequestOptions {
   signal?: AbortSignal
 }
 
+export interface ReqLogCaptureState {
+  user_id: number
+  session_id: string
+  started_at: number
+  expires_at: number
+  started_by_admin_id: number
+  max_bytes: number
+  max_items: number
+  single_request_cap: number
+  single_response_cap: number
+  overflow_strategy: string
+  reason: string
+}
+
+export interface ReqLogRedisMemoryStats {
+  used_memory: number
+  maxmemory: number
+  percent: number
+  guarded: boolean
+}
+
+export interface ReqLogSessionStats {
+  bytes_used: number
+  item_count: number
+  truncated: boolean
+  dropped_count: number
+  started_at: string
+  expires_at: string
+  status: string
+}
+
+export interface ReqLogSession {
+  user_id: number
+  session_id: string
+  started_at: string
+  expires_at: string
+  cutoff_at: string
+  bytes_used: number
+  item_count: number
+  truncated: boolean
+  dropped_count: number
+  status: string
+  reason?: string
+}
+
+export interface ReqLogStatus {
+  enabled: boolean
+  session?: ReqLogCaptureState | null
+  remaining_seconds: number
+  stats?: ReqLogSessionStats | null
+  memory?: ReqLogRedisMemoryStats | null
+}
+
+export interface ReqLogActiveSession {
+  user_id: number
+  session_id: string
+  started_at: number
+  expires_at: number
+  remaining_seconds: number
+  reason?: string
+}
+
+export interface ReqLogActiveSessionsResponse {
+  items: ReqLogActiveSession[]
+  count: number
+}
+
+export interface EnableReqLogRequest {
+  ttlSeconds?: number
+  reason: string
+  force?: boolean
+}
+
+export interface EnableReqLogResponse {
+  session: ReqLogCaptureState
+  memory?: ReqLogRedisMemoryStats | null
+}
+
+export interface DisableReqLogResponse {
+  disabled: boolean
+}
+
+export interface ReqLogEntry {
+  user_id: number
+  session_id: string
+  seq: number
+  request_id?: string
+  client_request_id?: string
+  timestamp: string
+  method: string
+  path: string
+  inbound_endpoint?: string
+  model?: string
+  stream: boolean
+  transport: string
+  status_code: number
+  duration_ms: number
+  account_id?: number | null
+  platform?: string
+  client_ip?: string
+  req_headers?: Record<string, string>
+  resp_headers?: Record<string, string>
+  req_body: string
+  req_body_kind: string
+  req_truncated: boolean
+  resp_body: string
+  resp_truncated: boolean
+  error_detail?: string
+}
+
+export type ReqLogItemsResponse = PaginatedResponse<ReqLogEntry>
+
+export interface ReqLogDownloadTokenResponse {
+  url: string
+  expires_at: string
+}
+
 export type OpsUpstreamErrorEvent = {
   at_unix_ms?: number
   platform?: string
@@ -449,6 +566,77 @@ export async function getRealtimeTrafficSummary(
 
   const { data } = await apiClient.get<OpsRealtimeTrafficSummaryResponse>('/admin/ops/realtime-traffic', { params })
   return data
+}
+
+export async function enableRequestLogging(
+  userId: number,
+  request: EnableReqLogRequest
+): Promise<EnableReqLogResponse> {
+  const body = {
+    ttl_seconds: request.ttlSeconds,
+    reason: request.reason,
+    force: request.force
+  }
+  const { data } = await apiClient.post<EnableReqLogResponse>(`/admin/ops/request-logs/users/${userId}/enable`, body)
+  return data
+}
+
+export async function disableRequestLogging(userId: number): Promise<DisableReqLogResponse> {
+  const { data } = await apiClient.post<DisableReqLogResponse>(`/admin/ops/request-logs/users/${userId}/disable`)
+  return data
+}
+
+export async function getRequestLoggingStatus(userId: number): Promise<ReqLogStatus> {
+  const { data } = await apiClient.get<ReqLogStatus>(`/admin/ops/request-logs/users/${userId}/status`)
+  return data
+}
+
+export async function getActiveRequestLoggingSessions(): Promise<ReqLogActiveSessionsResponse> {
+  const { data } = await apiClient.get<ReqLogActiveSessionsResponse>('/admin/ops/request-logs/active')
+  return data
+}
+
+export async function listRequestLogSessions(userId: number, limit = 50): Promise<ReqLogSession[]> {
+  const { data } = await apiClient.get<ReqLogSession[]>(`/admin/ops/request-logs/users/${userId}/sessions`, {
+    params: { limit }
+  })
+  return data
+}
+
+export async function listRequestLogItems(
+  sessionId: string,
+  params: { page?: number; pageSize?: number } = {}
+): Promise<ReqLogItemsResponse> {
+  const { data } = await apiClient.get<ReqLogItemsResponse>(`/admin/ops/request-logs/sessions/${sessionId}/items`, {
+    params: {
+      page: params.page,
+      page_size: params.pageSize
+    }
+  })
+  return data
+}
+
+export async function getRequestLogItem(sessionId: string, seq: number): Promise<ReqLogEntry> {
+  const { data } = await apiClient.get<ReqLogEntry>(`/admin/ops/request-logs/sessions/${sessionId}/items/${seq}`)
+  return data
+}
+
+export async function createRequestLogDownloadToken(sessionId: string): Promise<ReqLogDownloadTokenResponse> {
+  const { data } = await apiClient.post<ReqLogDownloadTokenResponse>(`/admin/ops/request-logs/sessions/${sessionId}/download-token`)
+  return data
+}
+
+export async function downloadRequestLogSession(sessionId: string): Promise<ReqLogDownloadTokenResponse> {
+  const result = await createRequestLogDownloadToken(sessionId)
+  const link = document.createElement('a')
+  link.href = result.url
+  link.download = ''
+  link.rel = 'noopener'
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  return result
 }
 
 /**
@@ -1310,6 +1498,15 @@ export const opsAPI = {
   getUserConcurrencyStats,
   getAccountAvailabilityStats,
   getRealtimeTrafficSummary,
+  enableRequestLogging,
+  disableRequestLogging,
+  getRequestLoggingStatus,
+  getActiveRequestLoggingSessions,
+  listRequestLogSessions,
+  listRequestLogItems,
+  getRequestLogItem,
+  createRequestLogDownloadToken,
+  downloadRequestLogSession,
   subscribeQPS,
 
   // Legacy unified endpoints

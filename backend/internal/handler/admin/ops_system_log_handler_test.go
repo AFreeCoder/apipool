@@ -35,7 +35,7 @@ func newOpsSystemLogTestRouter(handler *OpsHandler, withUser bool) *gin.Engine {
 }
 
 func TestOpsSystemLogHandler_ListUnavailable(t *testing.T) {
-	h := NewOpsHandler(nil)
+	h := NewOpsHandler(nil, nil, nil)
 	r := newOpsSystemLogTestRouter(h, false)
 
 	w := httptest.NewRecorder()
@@ -48,7 +48,7 @@ func TestOpsSystemLogHandler_ListUnavailable(t *testing.T) {
 
 func TestOpsSystemLogHandler_ListInvalidUserID(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, false)
 
 	w := httptest.NewRecorder()
@@ -61,7 +61,7 @@ func TestOpsSystemLogHandler_ListInvalidUserID(t *testing.T) {
 
 func TestOpsSystemLogHandler_ListInvalidAccountID(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, false)
 
 	w := httptest.NewRecorder()
@@ -76,7 +76,7 @@ func TestOpsSystemLogHandler_ListMonitoringDisabled(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, &config.Config{
 		Ops: config.OpsConfig{Enabled: false},
 	}, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, false)
 
 	w := httptest.NewRecorder()
@@ -89,7 +89,7 @@ func TestOpsSystemLogHandler_ListMonitoringDisabled(t *testing.T) {
 
 func TestOpsSystemLogHandler_ListSuccess(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, false)
 
 	w := httptest.NewRecorder()
@@ -110,7 +110,7 @@ func TestOpsSystemLogHandler_ListSuccess(t *testing.T) {
 
 func TestOpsSystemLogHandler_CleanupUnauthorized(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, false)
 
 	w := httptest.NewRecorder()
@@ -124,7 +124,7 @@ func TestOpsSystemLogHandler_CleanupUnauthorized(t *testing.T) {
 
 func TestOpsSystemLogHandler_CleanupInvalidPayload(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, true)
 
 	w := httptest.NewRecorder()
@@ -138,7 +138,7 @@ func TestOpsSystemLogHandler_CleanupInvalidPayload(t *testing.T) {
 
 func TestOpsSystemLogHandler_CleanupInvalidTime(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, true)
 
 	w := httptest.NewRecorder()
@@ -152,7 +152,7 @@ func TestOpsSystemLogHandler_CleanupInvalidTime(t *testing.T) {
 
 func TestOpsSystemLogHandler_CleanupInvalidEndTime(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, true)
 
 	w := httptest.NewRecorder()
@@ -166,7 +166,7 @@ func TestOpsSystemLogHandler_CleanupInvalidEndTime(t *testing.T) {
 
 func TestOpsSystemLogHandler_CleanupServiceUnavailable(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, true)
 
 	w := httptest.NewRecorder()
@@ -182,7 +182,7 @@ func TestOpsSystemLogHandler_CleanupMonitoringDisabled(t *testing.T) {
 	svc := service.NewOpsService(nil, nil, &config.Config{
 		Ops: config.OpsConfig{Enabled: false},
 	}, nil, nil, nil, nil, nil, nil, nil, nil)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, true)
 
 	w := httptest.NewRecorder()
@@ -197,7 +197,7 @@ func TestOpsSystemLogHandler_CleanupMonitoringDisabled(t *testing.T) {
 func TestOpsSystemLogHandler_Health(t *testing.T) {
 	sink := service.NewOpsSystemLogSink(nil)
 	svc := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, sink)
-	h := NewOpsHandler(svc)
+	h := NewOpsHandler(svc, nil, nil)
 	r := newOpsSystemLogTestRouter(h, false)
 
 	w := httptest.NewRecorder()
@@ -209,7 +209,7 @@ func TestOpsSystemLogHandler_Health(t *testing.T) {
 }
 
 func TestOpsSystemLogHandler_HealthUnavailableAndMonitoringDisabled(t *testing.T) {
-	h := NewOpsHandler(nil)
+	h := NewOpsHandler(nil, nil, nil)
 	r := newOpsSystemLogTestRouter(h, false)
 
 	w := httptest.NewRecorder()
@@ -222,7 +222,7 @@ func TestOpsSystemLogHandler_HealthUnavailableAndMonitoringDisabled(t *testing.T
 	svc := service.NewOpsService(nil, nil, &config.Config{
 		Ops: config.OpsConfig{Enabled: false},
 	}, nil, nil, nil, nil, nil, nil, nil, nil)
-	h = NewOpsHandler(svc)
+	h = NewOpsHandler(svc, nil, nil)
 	r = newOpsSystemLogTestRouter(h, false)
 	w = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/logs/health", nil)

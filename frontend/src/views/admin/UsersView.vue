@@ -264,7 +264,7 @@
           :sort-storage-key="USER_SORT_STORAGE_KEY"
           @sort="handleSort"
         >
-          <template #cell-email="{ value }">
+          <template #cell-email="{ value, row }">
             <div class="flex items-center gap-2">
               <div
                 class="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30"
@@ -273,7 +273,18 @@
                   {{ value.charAt(0).toUpperCase() }}
                 </span>
               </div>
-              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <div class="min-w-0">
+                <span class="block truncate font-medium text-gray-900 dark:text-white">{{ value }}</span>
+                <span
+                  v-if="isUserRequestLogRecording(row.id)"
+                  class="mt-1 inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:bg-red-900/20 dark:text-red-300"
+                  :title="t('admin.ops.requestLog.recording')"
+                >
+                  <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                  {{ t('admin.ops.requestLog.recordingShort') }}
+                  <span class="text-red-500 dark:text-red-300">{{ formatRequestLogCountdown(row.id) }}</span>
+                </span>
+              </div>
             </div>
           </template>
 
@@ -715,6 +726,35 @@
 
               <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
 
+              <!-- Request Log Recording -->
+              <button
+                v-if="!isUserRequestLogRecording(user.id)"
+                @click="handleOpenRequestLogDialog(user); closeActionMenu()"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+              >
+                <Icon name="play" size="sm" class="text-red-500" :stroke-width="2" />
+                {{ t('admin.ops.requestLog.enableMenu') }}
+              </button>
+
+              <button
+                v-else
+                @click="handleDisableRequestLogFromMenu(user); closeActionMenu()"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+              >
+                <Icon name="xCircle" size="sm" :stroke-width="2" />
+                {{ t('admin.ops.requestLog.disableMenu') }}
+              </button>
+
+              <button
+                @click="handleOpenRequestLogDialog(user); closeActionMenu()"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+              >
+                <Icon name="terminal" size="sm" class="text-gray-400" :stroke-width="2" />
+                {{ t('admin.ops.requestLog.viewMenu') }}
+              </button>
+
+              <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+
               <!-- Delete (not for admin) -->
               <button
                 v-if="user.role !== 'admin'"
@@ -745,6 +785,12 @@
     <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
     <GroupReplaceModal :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
     <UserAttributesConfigModal :show="showAttributesModal" @close="handleAttributesModalClose" />
+    <UserRequestLogDialog
+      :show="showRequestLogDialog"
+      :user="requestLogUser"
+      @close="closeRequestLogDialog"
+      @status-change="handleRequestLogStatusChange"
+    />
   </AppLayout>
 </template>
 
@@ -761,6 +807,7 @@ import { adminAPI } from '@/api/admin'
 import type { AdminUser, AdminGroup, UserAttributeDefinition } from '@/types'
 import type { BatchUserUsageStats } from '@/api/admin/dashboard'
 import type { PlatformQuotaItem } from '@/api/admin/users'
+import type { ReqLogActiveSession, ReqLogStatus } from '@/api/admin/ops'
 import type { Column } from '@/components/common/types'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -785,6 +832,7 @@ import UserAllowedGroupsModal from '@/components/admin/user/UserAllowedGroupsMod
 import UserBalanceModal from '@/components/admin/user/UserBalanceModal.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import GroupReplaceModal from '@/components/admin/user/GroupReplaceModal.vue'
+import UserRequestLogDialog from '@/components/admin/user/UserRequestLogDialog.vue'
 
 const appStore = useAppStore()
 
@@ -1169,9 +1217,30 @@ const getAttributeDefinition = (attrId: number): UserAttributeDefinition | undef
 }
 const usageStats = ref<Record<string, BatchUserUsageStats>>({})
 const platformQuotaStats = ref<Record<number, PlatformQuotaItem[]>>({})
+const requestLogActiveSessions = ref<Record<number, ReqLogActiveSession>>({})
+const requestLogNow = ref(Date.now())
+let requestLogTicker: ReturnType<typeof setInterval> | null = null
+let requestLogActivePoller: ReturnType<typeof setInterval> | null = null
+const REQUEST_LOG_ACTIVE_POLL_MS = 30_000
 
 const getPlatformUsage = (userId: number, platform: string) =>
   usageStats.value[userId]?.by_platform?.find((p) => p.platform === platform)
+
+const getRequestLogRemainingSeconds = (userId: number): number => {
+  const current = requestLogActiveSessions.value[userId]
+  const expiresAt = current?.expires_at
+  if (!expiresAt) return 0
+  return Math.max(0, Math.floor((expiresAt * 1000 - requestLogNow.value) / 1000))
+}
+
+const isUserRequestLogRecording = (userId: number): boolean => getRequestLogRemainingSeconds(userId) > 0
+
+const formatRequestLogCountdown = (userId: number): string => {
+  const seconds = getRequestLogRemainingSeconds(userId)
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
+}
 
 // 用量列前端排序：DataTable 工作在 server-side-sort 模式，所有 sortable
 // 字段都会触发后端查询，而用量列数据是异步批量拉取后再合并到当前页，
@@ -1293,6 +1362,30 @@ const closePlatformQuotaModal = () => {
 let abortController: AbortController | null = null
 let secondaryDataSeq = 0
 
+const loadActiveRequestLogSessions = async (
+  signal?: AbortSignal,
+  expectedSeq?: number
+) => {
+  try {
+    if (signal?.aborted) return
+    if (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq) return
+    const response = await adminAPI.ops.getActiveRequestLoggingSessions()
+    if (signal?.aborted) return
+    if (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq) return
+    const now = Date.now()
+    const next: Record<number, ReqLogActiveSession> = {}
+    for (const item of response.items || []) {
+      if (item.user_id > 0 && item.expires_at * 1000 > now) {
+        next[item.user_id] = item
+      }
+    }
+    requestLogActiveSessions.value = next
+  } catch (e) {
+    if (signal?.aborted) return
+    console.error('Failed to load active request log sessions:', e)
+  }
+}
+
 const loadUsersSecondaryData = async (
   userIds: number[],
   signal?: AbortSignal,
@@ -1317,6 +1410,8 @@ const loadUsersSecondaryData = async (
       })()
     )
   }
+
+  tasks.push(loadActiveRequestLogSessions(signal, expectedSeq))
 
   if (attributeDefinitions.value.length > 0 && hasVisibleAttributeColumns.value) {
     tasks.push(
@@ -1377,6 +1472,11 @@ const refreshCurrentPageSecondaryData = () => {
   void loadUsersSecondaryData(userIds, undefined, seq)
 }
 
+const pollActiveRequestLogSessions = () => {
+  if (document.visibilityState !== 'visible') return
+  void loadActiveRequestLogSessions()
+}
+
 // Action Menu State
 const activeMenuId = ref<number | null>(null)
 const menuPosition = ref<{ top: number; left: number } | null>(null)
@@ -1393,7 +1493,7 @@ const openActionMenu = (user: AdminUser, e: MouseEvent) => {
 
     const rect = target.getBoundingClientRect()
     const menuWidth = 200
-    const menuHeight = 240
+    const menuHeight = 360
     const padding = 8
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
@@ -1487,6 +1587,49 @@ const balanceOperation = ref<'add' | 'subtract'>('add')
 const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
 
+// Request log dialog state
+const showRequestLogDialog = ref(false)
+const requestLogUser = ref<AdminUser | null>(null)
+
+const handleOpenRequestLogDialog = (user: AdminUser) => {
+  requestLogUser.value = user
+  showRequestLogDialog.value = true
+}
+
+const closeRequestLogDialog = () => {
+  showRequestLogDialog.value = false
+  requestLogUser.value = null
+}
+
+const handleRequestLogStatusChange = (userId: number, status: ReqLogStatus) => {
+  const next = { ...requestLogActiveSessions.value }
+  if (status.enabled && status.session?.session_id && status.session.expires_at * 1000 > Date.now()) {
+    next[userId] = {
+      user_id: userId,
+      session_id: status.session.session_id,
+      started_at: status.session.started_at,
+      expires_at: status.session.expires_at,
+      remaining_seconds: status.remaining_seconds,
+      reason: status.session.reason
+    }
+  } else {
+    delete next[userId]
+  }
+  requestLogActiveSessions.value = next
+}
+
+const handleDisableRequestLogFromMenu = async (user: AdminUser) => {
+  try {
+    await adminAPI.ops.disableRequestLogging(user.id)
+    const next = { ...requestLogActiveSessions.value }
+    delete next[user.id]
+    requestLogActiveSessions.value = next
+    appStore.showSuccess(t('admin.ops.requestLog.disabledSuccess'))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.ops.requestLog.failedToDisable'))
+  }
+}
+
 // 计算剩余天数
 const getDaysRemaining = (expiresAt: string): number => {
   const now = new Date()
@@ -1551,6 +1694,7 @@ const loadUsers = async () => {
     usageStats.value = {}
     userAttributeValues.value = {}
     platformQuotaStats.value = {}
+    requestLogActiveSessions.value = {}
 
     // Defer heavy secondary data so table can render first.
     if (response.items.length > 0) {
@@ -1566,7 +1710,7 @@ const loadUsers = async () => {
     if (errorInfo?.name === 'AbortError' || errorInfo?.name === 'CanceledError' || errorInfo?.code === 'ERR_CANCELED') {
       return
     }
-    const message = error.response?.data?.detail || error.message || t('admin.users.failedToLoad')
+    const message = error?.message || t('admin.users.failedToLoad')
     appStore.showError(message)
     console.error('Error loading users:', error)
   } finally {
@@ -1673,7 +1817,7 @@ const handleToggleStatus = async (user: AdminUser) => {
     )
     loadUsers()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.users.failedToToggle'))
+    appStore.showError(error?.message || t('admin.users.failedToToggle'))
     console.error('Error toggling user status:', error)
   }
 }
@@ -1725,7 +1869,7 @@ const confirmDelete = async () => {
     deletingUser.value = null
     loadUsers()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.users.failedToDelete'))
+    appStore.showError(error?.message || t('admin.users.failedToDelete'))
     console.error('Error deleting user:', error)
   }
 }
@@ -1777,6 +1921,10 @@ const handleScroll = () => {
 }
 
 onMounted(async () => {
+  requestLogTicker = setInterval(() => {
+    requestLogNow.value = Date.now()
+  }, 1000)
+  requestLogActivePoller = setInterval(pollActiveRequestLogSessions, REQUEST_LOG_ACTIVE_POLL_MS)
   await loadAttributeDefinitions()
   loadSavedFilters()
   loadSavedColumns()
@@ -1794,6 +1942,14 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('scroll', handleScroll, true)
+  if (requestLogTicker) {
+    clearInterval(requestLogTicker)
+    requestLogTicker = null
+  }
+  if (requestLogActivePoller) {
+    clearInterval(requestLogActivePoller)
+    requestLogActivePoller = null
+  }
   clearTimeout(searchTimeout)
   abortController?.abort()
 })

@@ -78,6 +78,8 @@ func provideCleanup(
 	opsCleanup *service.OpsCleanupService,
 	opsScheduledReport *service.OpsScheduledReportService,
 	opsSystemLogSink *service.OpsSystemLogSink,
+	reqLogSink *service.ReqLogSink,
+	reqLogService *service.ReqLogService,
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
@@ -127,6 +129,12 @@ func provideCleanup(
 			{"OpsSystemLogSink", func() error {
 				if opsSystemLogSink != nil {
 					opsSystemLogSink.Stop()
+				}
+				return nil
+			}},
+			{"ReqLogSink", func() error {
+				if reqLogSink != nil {
+					reqLogSink.Stop()
 				}
 				return nil
 			}},
@@ -261,6 +269,12 @@ func provideCleanup(
 		}
 
 		infraSteps := []cleanupStep{
+			{"ReqLogService", func() error {
+				if reqLogService == nil {
+					return nil
+				}
+				return reqLogService.Close()
+			}},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil

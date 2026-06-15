@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -26,7 +28,7 @@ const (
 
 // gin.Context keys used by the middleware and helpers below.
 const (
-	ctxKeyInboundEndpoint = "_gateway_inbound_endpoint"
+	ctxKeyInboundEndpoint = string(ctxkey.InboundEndpoint)
 )
 
 // ──────────────────────────────────────────────────────────
@@ -140,7 +142,11 @@ func InboundEndpointMiddleware() gin.HandlerFunc {
 		if path == "" && c.Request != nil && c.Request.URL != nil {
 			path = c.Request.URL.Path
 		}
-		c.Set(ctxKeyInboundEndpoint, NormalizeInboundEndpoint(path))
+		inbound := NormalizeInboundEndpoint(path)
+		c.Set(ctxKeyInboundEndpoint, inbound)
+		if c.Request != nil {
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.InboundEndpoint, inbound))
+		}
 		c.Next()
 	}
 }

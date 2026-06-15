@@ -1203,6 +1203,41 @@ type OpsConfig struct {
 
 	// Pre-aggregation configuration.
 	Aggregation OpsAggregationConfig `mapstructure:"aggregation"`
+
+	// RequestLog controls temporary per-user gateway request detail capture.
+	RequestLog OpsRequestLogConfig `mapstructure:"request_log"`
+}
+
+type OpsRequestLogConfig struct {
+	Enabled               bool                     `mapstructure:"enabled"`
+	MaxWindow             time.Duration            `mapstructure:"max_window"`
+	RetentionAfterWindow  time.Duration            `mapstructure:"retention_after_window"`
+	SingleRequestCap      int                      `mapstructure:"single_request_cap"`
+	SingleResponseCap     int                      `mapstructure:"single_response_cap"`
+	MaxBytesPerSession    int64                    `mapstructure:"max_bytes_per_session"`
+	MaxItemsPerSession    int                      `mapstructure:"max_items_per_session"`
+	OverflowStrategy      string                   `mapstructure:"overflow_strategy"`
+	MaxConcurrentSessions int                      `mapstructure:"max_concurrent_sessions"`
+	QueueCapacity         int                      `mapstructure:"queue_capacity"`
+	QueueByteBudget       int64                    `mapstructure:"queue_byte_budget"`
+	LocalCacheTTL         time.Duration            `mapstructure:"local_cache_ttl"`
+	MemoryGuardPercent    int                      `mapstructure:"memory_guard_percent"`
+	MemoryInfoCacheTTL    time.Duration            `mapstructure:"memory_info_cache_ttl"`
+	Redis                 OpsRequestLogRedisConfig `mapstructure:"redis"`
+}
+
+type OpsRequestLogRedisConfig struct {
+	UseDedicated        bool   `mapstructure:"use_dedicated"`
+	Host                string `mapstructure:"host"`
+	Port                int    `mapstructure:"port"`
+	Password            string `mapstructure:"password"`
+	DB                  int    `mapstructure:"db"`
+	DialTimeoutSeconds  int    `mapstructure:"dial_timeout_seconds"`
+	ReadTimeoutSeconds  int    `mapstructure:"read_timeout_seconds"`
+	WriteTimeoutSeconds int    `mapstructure:"write_timeout_seconds"`
+	PoolSize            int    `mapstructure:"pool_size"`
+	MinIdleConns        int    `mapstructure:"min_idle_conns"`
+	EnableTLS           bool   `mapstructure:"enable_tls"`
 }
 
 type OpsCleanupConfig struct {
@@ -1733,6 +1768,31 @@ func setDefaults() {
 	viper.SetDefault("ops.metrics_collector_cache.enabled", true)
 	// TTL should be slightly larger than collection interval (1m) to maximize cross-replica cache hits.
 	viper.SetDefault("ops.metrics_collector_cache.ttl", 65*time.Second)
+	viper.SetDefault("ops.request_log.enabled", false)
+	viper.SetDefault("ops.request_log.max_window", 30*time.Minute)
+	viper.SetDefault("ops.request_log.retention_after_window", 6*time.Hour)
+	viper.SetDefault("ops.request_log.single_request_cap", 256*1024)
+	viper.SetDefault("ops.request_log.single_response_cap", 256*1024)
+	viper.SetDefault("ops.request_log.max_bytes_per_session", int64(32*1024*1024))
+	viper.SetDefault("ops.request_log.max_items_per_session", 1000)
+	viper.SetDefault("ops.request_log.overflow_strategy", "drop_oldest")
+	viper.SetDefault("ops.request_log.max_concurrent_sessions", 3)
+	viper.SetDefault("ops.request_log.queue_capacity", 2000)
+	viper.SetDefault("ops.request_log.queue_byte_budget", int64(64*1024*1024))
+	viper.SetDefault("ops.request_log.local_cache_ttl", 5*time.Second)
+	viper.SetDefault("ops.request_log.memory_guard_percent", 80)
+	viper.SetDefault("ops.request_log.memory_info_cache_ttl", 5*time.Second)
+	viper.SetDefault("ops.request_log.redis.use_dedicated", false)
+	viper.SetDefault("ops.request_log.redis.host", "")
+	viper.SetDefault("ops.request_log.redis.port", 0)
+	viper.SetDefault("ops.request_log.redis.password", "")
+	viper.SetDefault("ops.request_log.redis.db", 0)
+	viper.SetDefault("ops.request_log.redis.dial_timeout_seconds", 0)
+	viper.SetDefault("ops.request_log.redis.read_timeout_seconds", 0)
+	viper.SetDefault("ops.request_log.redis.write_timeout_seconds", 0)
+	viper.SetDefault("ops.request_log.redis.pool_size", 0)
+	viper.SetDefault("ops.request_log.redis.min_idle_conns", 0)
+	viper.SetDefault("ops.request_log.redis.enable_tls", false)
 
 	// JWT
 	viper.SetDefault("jwt.secret", "")
@@ -2313,6 +2373,9 @@ func (c *Config) Validate() error {
 	if c.Redis.MinIdleConns > c.Redis.PoolSize {
 		return fmt.Errorf("redis.min_idle_conns cannot exceed redis.pool_size")
 	}
+	if err := c.validateOpsRequestLog(); err != nil {
+		return err
+	}
 	if c.Dashboard.Enabled {
 		if c.Dashboard.StatsFreshTTLSeconds <= 0 {
 			return fmt.Errorf("dashboard_cache.stats_fresh_ttl_seconds must be positive")
@@ -2818,6 +2881,86 @@ func (c *Config) Validate() error {
 	}
 	if err := ValidateDingTalkConfig(c.DingTalk); err != nil {
 		return fmt.Errorf("dingtalk_connect: %w", err)
+	}
+	return nil
+}
+
+func (c *Config) validateOpsRequestLog() error {
+	if c == nil {
+		return nil
+	}
+	cfg := &c.Ops.RequestLog
+	if cfg.MaxWindow <= 0 {
+		return fmt.Errorf("ops.request_log.max_window must be positive")
+	}
+	if cfg.MaxWindow > 30*time.Minute {
+		slog.Warn("ops.request_log.max_window exceeds hard limit; clamping to 30m", "configured", cfg.MaxWindow)
+		cfg.MaxWindow = 30 * time.Minute
+	}
+	if cfg.RetentionAfterWindow <= 0 {
+		return fmt.Errorf("ops.request_log.retention_after_window must be positive")
+	}
+	if cfg.SingleRequestCap <= 0 {
+		return fmt.Errorf("ops.request_log.single_request_cap must be positive")
+	}
+	if cfg.SingleResponseCap <= 0 {
+		return fmt.Errorf("ops.request_log.single_response_cap must be positive")
+	}
+	if cfg.MaxBytesPerSession <= 0 {
+		return fmt.Errorf("ops.request_log.max_bytes_per_session must be positive")
+	}
+	if cfg.MaxItemsPerSession <= 0 {
+		return fmt.Errorf("ops.request_log.max_items_per_session must be positive")
+	}
+	cfg.OverflowStrategy = strings.ToLower(strings.TrimSpace(cfg.OverflowStrategy))
+	switch cfg.OverflowStrategy {
+	case "", "drop_oldest":
+		cfg.OverflowStrategy = "drop_oldest"
+	case "stop":
+	default:
+		return fmt.Errorf("ops.request_log.overflow_strategy must be one of: drop_oldest/stop")
+	}
+	if cfg.MaxConcurrentSessions <= 0 {
+		return fmt.Errorf("ops.request_log.max_concurrent_sessions must be positive")
+	}
+	if cfg.QueueCapacity <= 0 {
+		return fmt.Errorf("ops.request_log.queue_capacity must be positive")
+	}
+	if cfg.QueueByteBudget <= 0 {
+		return fmt.Errorf("ops.request_log.queue_byte_budget must be positive")
+	}
+	if cfg.LocalCacheTTL <= 0 {
+		return fmt.Errorf("ops.request_log.local_cache_ttl must be positive")
+	}
+	if cfg.MemoryGuardPercent <= 0 || cfg.MemoryGuardPercent > 100 {
+		return fmt.Errorf("ops.request_log.memory_guard_percent must be between 1 and 100")
+	}
+	if cfg.MemoryInfoCacheTTL <= 0 {
+		return fmt.Errorf("ops.request_log.memory_info_cache_ttl must be positive")
+	}
+
+	r := &cfg.Redis
+	r.Host = strings.TrimSpace(r.Host)
+	if !r.UseDedicated {
+		return nil
+	}
+	if r.Host == "" {
+		return fmt.Errorf("ops.request_log.redis.host is required when use_dedicated=true")
+	}
+	if r.Port <= 0 {
+		return fmt.Errorf("ops.request_log.redis.port must be positive when use_dedicated=true")
+	}
+	if r.DB < 0 {
+		return fmt.Errorf("ops.request_log.redis.db must be non-negative")
+	}
+	if r.DialTimeoutSeconds < 0 || r.ReadTimeoutSeconds < 0 || r.WriteTimeoutSeconds < 0 {
+		return fmt.Errorf("ops.request_log.redis timeout settings must be non-negative")
+	}
+	if r.PoolSize < 0 || r.MinIdleConns < 0 {
+		return fmt.Errorf("ops.request_log.redis pool settings must be non-negative")
+	}
+	if r.PoolSize > 0 && r.MinIdleConns > r.PoolSize {
+		return fmt.Errorf("ops.request_log.redis.min_idle_conns cannot exceed pool_size")
 	}
 	return nil
 }

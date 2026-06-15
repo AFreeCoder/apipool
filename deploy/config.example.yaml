@@ -850,6 +850,51 @@ ops:
   # Other detailed settings (cleanup, aggregation, etc.) are configured in ops settings dialog
   # 其他详细设置（数据清理、预聚合等）在运维监控设置对话框中配置
   enabled: true
+  request_log:
+    # Temporary per-user gateway request/response detail capture. Keep disabled unless troubleshooting.
+    # 临时录制指定用户的网关请求/响应明细；仅排障时开启。
+    enabled: false
+    # Max capture window. The backend hard-clamps this value to 30m.
+    # 最大录制窗口；后端硬限制不超过 30 分钟。
+    max_window: 30m
+    # How long to retain captured sessions after the capture window ends.
+    # 录制窗口结束后的保留时长。
+    retention_after_window: 6h
+    # Per-request/per-response body capture caps in bytes.
+    # 单次请求/响应 body 录制上限（字节）。
+    single_request_cap: 262144
+    single_response_cap: 262144
+    # Per-session safety limits.
+    # 单个 session 的安全上限。
+    max_bytes_per_session: 33554432
+    max_items_per_session: 1000
+    # Overflow strategy: drop_oldest or stop.
+    # 超限策略：drop_oldest 淘汰最旧项，stop 停止写入新项。
+    overflow_strategy: drop_oldest
+    # Global concurrent capture sessions and async queue budgets.
+    # 全局并发录制 session 数量与异步队列预算。
+    max_concurrent_sessions: 3
+    queue_capacity: 2000
+    queue_byte_budget: 67108864
+    # Hot-path cache TTL and Redis memory guard settings.
+    # 热路径缓存 TTL 与 Redis 内存保护设置。
+    local_cache_ttl: 5s
+    memory_guard_percent: 80
+    memory_info_cache_ttl: 5s
+    redis:
+      # true: use a dedicated Redis for request logs; false: reuse the main Redis.
+      # true 时使用独立 Redis；false 时复用主 Redis。
+      use_dedicated: false
+      host: ""
+      port: 0
+      password: ""
+      db: 0
+      dial_timeout_seconds: 0
+      read_timeout_seconds: 0
+      write_timeout_seconds: 0
+      pool_size: 0
+      min_idle_conns: 0
+      enable_tls: false
 
 # =============================================================================
 # JWT Configuration

@@ -27,16 +27,7 @@ func InitRedis(cfg *config.Config) *redis.Client {
 // buildRedisOptions 构建 Redis 连接选项
 // 从配置文件读取连接池和超时参数，支持生产环境调优
 func buildRedisOptions(cfg *config.Config) *redis.Options {
-	opts := &redis.Options{
-		Addr:         cfg.Redis.Address(),
-		Password:     cfg.Redis.Password,
-		DB:           cfg.Redis.DB,
-		DialTimeout:  time.Duration(cfg.Redis.DialTimeoutSeconds) * time.Second,  // 建连超时
-		ReadTimeout:  time.Duration(cfg.Redis.ReadTimeoutSeconds) * time.Second,  // 读取超时
-		WriteTimeout: time.Duration(cfg.Redis.WriteTimeoutSeconds) * time.Second, // 写入超时
-		PoolSize:     cfg.Redis.PoolSize,                                         // 连接池大小
-		MinIdleConns: cfg.Redis.MinIdleConns,                                     // 最小空闲连接
-	}
+	opts := buildRedisOptionsFromRedisConfig(cfg.Redis)
 
 	if cfg.Redis.EnableTLS {
 		opts.TLSConfig = &tls.Config{
@@ -46,4 +37,17 @@ func buildRedisOptions(cfg *config.Config) *redis.Options {
 	}
 
 	return opts
+}
+
+func buildRedisOptionsFromRedisConfig(cfg config.RedisConfig) *redis.Options {
+	return &redis.Options{
+		Addr:         cfg.Address(),
+		Password:     cfg.Password,
+		DB:           cfg.DB,
+		DialTimeout:  time.Duration(cfg.DialTimeoutSeconds) * time.Second,
+		ReadTimeout:  time.Duration(cfg.ReadTimeoutSeconds) * time.Second,
+		WriteTimeout: time.Duration(cfg.WriteTimeoutSeconds) * time.Second,
+		PoolSize:     cfg.PoolSize,
+		MinIdleConns: cfg.MinIdleConns,
+	}
 }

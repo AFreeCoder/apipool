@@ -16,6 +16,9 @@ func RegisterAdminRoutes(
 	adminAuth middleware.AdminAuthMiddleware,
 	settingService *service.SettingService,
 ) {
+	if h != nil && h.Admin != nil && h.Admin.Ops != nil {
+		h.Admin.Ops.SetDownloadAdminAuth(gin.HandlerFunc(adminAuth))
+	}
 	admin := v1.Group("/admin")
 	admin.Use(gin.HandlerFunc(adminAuth))
 	admin.Use(middleware.AdminComplianceGuard(settingService))
@@ -107,6 +110,7 @@ func RegisterAdminRoutes(
 		// 邀请返利（专属用户管理）
 		registerAffiliateRoutes(admin, h)
 	}
+	registerReqLogDownloadRoutes(v1, h)
 }
 
 func registerAdminComplianceRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
@@ -207,6 +211,18 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// Request drilldown (success + error)
 		ops.GET("/requests", h.Admin.Ops.ListRequestDetails)
 
+		reqLogs := ops.Group("/request-logs")
+		{
+			reqLogs.GET("/active", h.Admin.Ops.ListActiveRequestLogs)
+			reqLogs.POST("/users/:user_id/enable", h.Admin.Ops.EnableRequestLog)
+			reqLogs.POST("/users/:user_id/disable", h.Admin.Ops.DisableRequestLog)
+			reqLogs.GET("/users/:user_id/status", h.Admin.Ops.GetRequestLogStatus)
+			reqLogs.GET("/users/:user_id/sessions", h.Admin.Ops.ListRequestLogSessions)
+			reqLogs.GET("/sessions/:session_id/items", h.Admin.Ops.ListRequestLogItems)
+			reqLogs.GET("/sessions/:session_id/items/:seq", h.Admin.Ops.GetRequestLogItem)
+			reqLogs.POST("/sessions/:session_id/download-token", h.Admin.Ops.CreateRequestLogDownloadToken)
+		}
+
 		// Indexed system logs
 		ops.GET("/system-logs", h.Admin.Ops.ListSystemLogs)
 		ops.POST("/system-logs/cleanup", h.Admin.Ops.CleanupSystemLogs)
@@ -220,6 +236,16 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/dashboard/error-trend", h.Admin.Ops.GetDashboardErrorTrend)
 		ops.GET("/dashboard/error-distribution", h.Admin.Ops.GetDashboardErrorDistribution)
 		ops.GET("/dashboard/openai-token-stats", h.Admin.Ops.GetDashboardOpenAITokenStats)
+	}
+}
+
+func registerReqLogDownloadRoutes(v1 *gin.RouterGroup, h *handler.Handlers) {
+	if h == nil || h.Admin == nil || h.Admin.Ops == nil {
+		return
+	}
+	opsDownload := v1.Group("/ops-download")
+	{
+		opsDownload.GET("/request-logs/sessions/:session_id/download", h.Admin.Ops.DownloadRequestLogSession)
 	}
 }
 

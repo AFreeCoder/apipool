@@ -14,7 +14,10 @@ import (
 )
 
 type OpsHandler struct {
-	opsService *service.OpsService
+	opsService        *service.OpsService
+	reqLogService     *service.ReqLogService
+	settingService    *service.SettingService
+	downloadAdminAuth gin.HandlerFunc
 }
 
 // GetErrorLogByID returns ops error log detail.
@@ -68,8 +71,14 @@ func parseOpsViewParam(c *gin.Context) string {
 	}
 }
 
-func NewOpsHandler(opsService *service.OpsService) *OpsHandler {
-	return &OpsHandler{opsService: opsService}
+func NewOpsHandler(opsService *service.OpsService, reqLogService *service.ReqLogService, settingService *service.SettingService) *OpsHandler {
+	return &OpsHandler{opsService: opsService, reqLogService: reqLogService, settingService: settingService}
+}
+
+func (h *OpsHandler) SetDownloadAdminAuth(auth gin.HandlerFunc) {
+	if h != nil {
+		h.downloadAdminAuth = auth
+	}
 }
 
 // GetErrorLogs lists ops error logs.
