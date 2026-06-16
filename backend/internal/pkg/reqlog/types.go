@@ -210,59 +210,61 @@ func binarySnapshot(body []byte, contentType string) *BodySnapshot {
 }
 
 type ReqLogEntry struct {
-	UserID          int64             `json:"user_id"`
-	SessionID       string            `json:"session_id"`
-	Seq             int64             `json:"seq"`
-	RequestID       string            `json:"request_id,omitempty"`
-	ClientReqID     string            `json:"client_request_id,omitempty"`
-	Timestamp       time.Time         `json:"timestamp"`
-	Method          string            `json:"method"`
-	Path            string            `json:"path"`
-	InboundEndpoint string            `json:"inbound_endpoint,omitempty"`
-	Model           string            `json:"model,omitempty"`
-	Stream          bool              `json:"stream"`
-	Transport       string            `json:"transport"`
-	StatusCode      int               `json:"status_code"`
-	DurationMs      int64             `json:"duration_ms"`
-	AccountID       *int64            `json:"account_id,omitempty"`
-	Platform        string            `json:"platform,omitempty"`
-	ClientIP        string            `json:"client_ip,omitempty"`
-	ReqHeaders      map[string]string `json:"req_headers,omitempty"`
-	RespHeaders     map[string]string `json:"resp_headers,omitempty"`
-	ReqBody         []byte            `json:"-"`
-	ReqBodyKind     string            `json:"req_body_kind"`
-	ReqTruncated    bool              `json:"req_truncated"`
-	RespBody        []byte            `json:"-"`
-	RespTruncated   bool              `json:"resp_truncated"`
-	ErrorDetail     string            `json:"error_detail,omitempty"`
+	UserID           int64             `json:"user_id"`
+	SessionID        string            `json:"session_id"`
+	Seq              int64             `json:"seq"`
+	RequestID        string            `json:"request_id,omitempty"`
+	ClientReqID      string            `json:"client_request_id,omitempty"`
+	Timestamp        time.Time         `json:"timestamp"`
+	Method           string            `json:"method"`
+	Path             string            `json:"path"`
+	InboundEndpoint  string            `json:"inbound_endpoint,omitempty"`
+	Model            string            `json:"model,omitempty"`
+	Stream           bool              `json:"stream"`
+	Transport        string            `json:"transport"`
+	StatusCode       int               `json:"status_code"`
+	DurationMs       int64             `json:"duration_ms"`
+	AccountID        *int64            `json:"account_id,omitempty"`
+	Platform         string            `json:"platform,omitempty"`
+	ClientIP         string            `json:"client_ip,omitempty"`
+	ReqHeaders       map[string]string `json:"req_headers,omitempty"`
+	RespHeaders      map[string]string `json:"resp_headers,omitempty"`
+	ReqBody          []byte            `json:"-"`
+	ReqBodyKind      string            `json:"req_body_kind"`
+	ReqTruncated     bool              `json:"req_truncated"`
+	RespBody         []byte            `json:"-"`
+	RespTruncated    bool              `json:"resp_truncated"`
+	ResponseCaptured bool              `json:"response_captured"`
+	ErrorDetail      string            `json:"error_detail,omitempty"`
 }
 
 type reqLogEntryJSON struct {
-	UserID          int64             `json:"user_id"`
-	SessionID       string            `json:"session_id"`
-	Seq             int64             `json:"seq"`
-	RequestID       string            `json:"request_id,omitempty"`
-	ClientReqID     string            `json:"client_request_id,omitempty"`
-	Timestamp       time.Time         `json:"timestamp"`
-	Method          string            `json:"method"`
-	Path            string            `json:"path"`
-	InboundEndpoint string            `json:"inbound_endpoint,omitempty"`
-	Model           string            `json:"model,omitempty"`
-	Stream          bool              `json:"stream"`
-	Transport       string            `json:"transport"`
-	StatusCode      int               `json:"status_code"`
-	DurationMs      int64             `json:"duration_ms"`
-	AccountID       *int64            `json:"account_id,omitempty"`
-	Platform        string            `json:"platform,omitempty"`
-	ClientIP        string            `json:"client_ip,omitempty"`
-	ReqHeaders      map[string]string `json:"req_headers,omitempty"`
-	RespHeaders     map[string]string `json:"resp_headers,omitempty"`
-	ReqBody         string            `json:"req_body"`
-	ReqBodyKind     string            `json:"req_body_kind"`
-	ReqTruncated    bool              `json:"req_truncated"`
-	RespBody        string            `json:"resp_body"`
-	RespTruncated   bool              `json:"resp_truncated"`
-	ErrorDetail     string            `json:"error_detail,omitempty"`
+	UserID           int64             `json:"user_id"`
+	SessionID        string            `json:"session_id"`
+	Seq              int64             `json:"seq"`
+	RequestID        string            `json:"request_id,omitempty"`
+	ClientReqID      string            `json:"client_request_id,omitempty"`
+	Timestamp        time.Time         `json:"timestamp"`
+	Method           string            `json:"method"`
+	Path             string            `json:"path"`
+	InboundEndpoint  string            `json:"inbound_endpoint,omitempty"`
+	Model            string            `json:"model,omitempty"`
+	Stream           bool              `json:"stream"`
+	Transport        string            `json:"transport"`
+	StatusCode       int               `json:"status_code"`
+	DurationMs       int64             `json:"duration_ms"`
+	AccountID        *int64            `json:"account_id,omitempty"`
+	Platform         string            `json:"platform,omitempty"`
+	ClientIP         string            `json:"client_ip,omitempty"`
+	ReqHeaders       map[string]string `json:"req_headers,omitempty"`
+	RespHeaders      map[string]string `json:"resp_headers,omitempty"`
+	ReqBody          string            `json:"req_body"`
+	ReqBodyKind      string            `json:"req_body_kind"`
+	ReqTruncated     bool              `json:"req_truncated"`
+	RespBody         string            `json:"resp_body"`
+	RespTruncated    bool              `json:"resp_truncated"`
+	ResponseCaptured bool              `json:"response_captured"`
+	ErrorDetail      string            `json:"error_detail,omitempty"`
 }
 
 func (e *ReqLogEntry) MarshalJSON() ([]byte, error) {
@@ -270,31 +272,32 @@ func (e *ReqLogEntry) MarshalJSON() ([]byte, error) {
 		return []byte("null"), nil
 	}
 	return json.Marshal(reqLogEntryJSON{
-		UserID:          e.UserID,
-		SessionID:       e.SessionID,
-		Seq:             e.Seq,
-		RequestID:       e.RequestID,
-		ClientReqID:     e.ClientReqID,
-		Timestamp:       e.Timestamp,
-		Method:          e.Method,
-		Path:            e.Path,
-		InboundEndpoint: e.InboundEndpoint,
-		Model:           e.Model,
-		Stream:          e.Stream,
-		Transport:       e.Transport,
-		StatusCode:      e.StatusCode,
-		DurationMs:      e.DurationMs,
-		AccountID:       cloneInt64Ptr(e.AccountID),
-		Platform:        e.Platform,
-		ClientIP:        e.ClientIP,
-		ReqHeaders:      cloneStringMap(e.ReqHeaders),
-		RespHeaders:     cloneStringMap(e.RespHeaders),
-		ReqBody:         string(e.ReqBody),
-		ReqBodyKind:     e.ReqBodyKind,
-		ReqTruncated:    e.ReqTruncated,
-		RespBody:        string(e.RespBody),
-		RespTruncated:   e.RespTruncated,
-		ErrorDetail:     e.ErrorDetail,
+		UserID:           e.UserID,
+		SessionID:        e.SessionID,
+		Seq:              e.Seq,
+		RequestID:        e.RequestID,
+		ClientReqID:      e.ClientReqID,
+		Timestamp:        e.Timestamp,
+		Method:           e.Method,
+		Path:             e.Path,
+		InboundEndpoint:  e.InboundEndpoint,
+		Model:            e.Model,
+		Stream:           e.Stream,
+		Transport:        e.Transport,
+		StatusCode:       e.StatusCode,
+		DurationMs:       e.DurationMs,
+		AccountID:        cloneInt64Ptr(e.AccountID),
+		Platform:         e.Platform,
+		ClientIP:         e.ClientIP,
+		ReqHeaders:       cloneStringMap(e.ReqHeaders),
+		RespHeaders:      cloneStringMap(e.RespHeaders),
+		ReqBody:          string(e.ReqBody),
+		ReqBodyKind:      e.ReqBodyKind,
+		ReqTruncated:     e.ReqTruncated,
+		RespBody:         string(e.RespBody),
+		RespTruncated:    e.RespTruncated,
+		ResponseCaptured: e.ResponseCaptured,
+		ErrorDetail:      e.ErrorDetail,
 	})
 }
 
@@ -327,6 +330,7 @@ func (e *ReqLogEntry) UnmarshalJSON(raw []byte) error {
 	e.ReqTruncated = dto.ReqTruncated
 	e.RespBody = []byte(dto.RespBody)
 	e.RespTruncated = dto.RespTruncated
+	e.ResponseCaptured = dto.ResponseCaptured
 	e.ErrorDetail = dto.ErrorDetail
 	return nil
 }

@@ -872,7 +872,11 @@ ops:
     # 超限策略：drop_oldest 淘汰最旧项，stop 停止写入新项。
     overflow_strategy: drop_oldest
     # Global concurrent capture sessions and async queue budgets.
+    # NOTE: with shared Redis (redis.use_dedicated=false) this is clamped to 1 for safety;
+    # set redis.use_dedicated=true (recommended for production) to use the configured value (e.g. 3).
     # 全局并发录制 session 数量与异步队列预算。
+    # 注意：共享 Redis（redis.use_dedicated=false）下会被强制钳制为 1；
+    # 生产建议 redis.use_dedicated=true 使用独立实例，此时该值（如 3）才生效。
     max_concurrent_sessions: 3
     queue_capacity: 2000
     queue_byte_budget: 67108864
@@ -882,8 +886,8 @@ ops:
     memory_guard_percent: 80
     memory_info_cache_ttl: 5s
     redis:
-      # true: use a dedicated Redis for request logs; false: reuse the main Redis.
-      # true 时使用独立 Redis；false 时复用主 Redis。
+      # true: use a dedicated Redis for request logs (REQUIRED for production); false: reuse the main Redis (dev/test only).
+      # true 时使用独立 Redis（生产环境必须）；false 时复用主 Redis（仅限开发/测试）。
       use_dedicated: false
       host: ""
       port: 0

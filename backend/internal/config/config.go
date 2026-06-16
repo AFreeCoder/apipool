@@ -2923,6 +2923,14 @@ func (c *Config) validateOpsRequestLog() error {
 	if cfg.MaxConcurrentSessions <= 0 {
 		return fmt.Errorf("ops.request_log.max_concurrent_sessions must be positive")
 	}
+	// P3：共享 Redis 档（非独立实例）更保守，并发会话钳制为 1，避免在主 Redis 上
+	// 堆叠多会话逻辑预算、增大逐出业务/计费 key 的风险（设计 §3.5.1 / §3.6.3）。
+	// 生产应配 redis.use_dedicated=true 以获得 3 路并发。
+	if !cfg.Redis.UseDedicated && cfg.MaxConcurrentSessions > 1 {
+		slog.Warn("ops.request_log: shared Redis profile clamps max_concurrent_sessions to 1; set redis.use_dedicated=true for production",
+			"configured", cfg.MaxConcurrentSessions)
+		cfg.MaxConcurrentSessions = 1
+	}
 	if cfg.QueueCapacity <= 0 {
 		return fmt.Errorf("ops.request_log.queue_capacity must be positive")
 	}

@@ -4812,6 +4812,7 @@ export default {
         detailTitle: 'Request item #{seq}',
         requestBody: 'Request body',
         responseBody: 'Response body',
+        responseNotCaptured: '(Response body not captured: WebSocket or metadata GET records metadata only)',
         requestHeaders: 'Request headers',
         responseHeaders: 'Response headers',
         metadata: 'Metadata',

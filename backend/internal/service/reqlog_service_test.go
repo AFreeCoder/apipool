@@ -27,6 +27,9 @@ type reqLogMemoryStore struct {
 	listItems     []*reqlog.ReqLogEntry
 	getItem       *reqlog.ReqLogEntry
 	consumeToken  *ReqLogDownloadToken
+	createToken   atomic.Int64
+	writeReturn   int64 // >0: 用作 WriteItem 返回 seq；<0: 返回 0（模拟 Lua 丢弃）；0: 默认用 writes 计数
+	memStats      *ReqLogRedisMemoryStats
 }
 
 func (s *reqLogMemoryStore) GetEnabled(ctx context.Context, userID int64) (*reqlog.CaptureState, error) {
@@ -57,6 +60,12 @@ func (s *reqLogMemoryStore) ListActive(context.Context) ([]*reqlog.CaptureState,
 }
 func (s *reqLogMemoryStore) WriteItem(context.Context, *reqlog.ReqLogEntry, *reqlog.CaptureState, time.Duration) (int64, error) {
 	s.writes.Add(1)
+	if s.writeReturn < 0 {
+		return 0, nil
+	}
+	if s.writeReturn > 0 {
+		return s.writeReturn, nil
+	}
 	return s.writes.Load(), nil
 }
 func (s *reqLogMemoryStore) DropItem(context.Context, *reqlog.CaptureState) error {
@@ -93,7 +102,8 @@ func (s *reqLogMemoryStore) GetItem(context.Context, string, int64) (*reqlog.Req
 	return s.getItem.DeepCopy(), nil
 }
 func (s *reqLogMemoryStore) CreateDownloadToken(context.Context, string, int64, time.Duration) (string, time.Time, error) {
-	return "", time.Time{}, nil
+	s.createToken.Add(1)
+	return "tok", time.Now().Add(time.Minute), nil
 }
 func (s *reqLogMemoryStore) ConsumeDownloadToken(context.Context, string) (*ReqLogDownloadToken, error) {
 	if s.consumeToken == nil {
@@ -103,7 +113,11 @@ func (s *reqLogMemoryStore) ConsumeDownloadToken(context.Context, string) (*ReqL
 	return &cp, nil
 }
 func (s *reqLogMemoryStore) MemoryStats(context.Context) (*ReqLogRedisMemoryStats, error) {
-	return nil, nil
+	if s.memStats == nil {
+		return nil, nil
+	}
+	cp := *s.memStats
+	return &cp, nil
 }
 func (s *reqLogMemoryStore) Close() error { return nil }
 

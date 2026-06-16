@@ -135,7 +135,9 @@ func (s *ReqLogStore) createSession(ctx context.Context, state *reqlog.CaptureSt
 	default:
 		return fmt.Errorf("unexpected reqlog enable lua code: %v", vals[0])
 	}
-	return s.refreshSessionsTTL(ctx, state.UserID)
+	// P4：sessions ZSet 的绝对 TTL 已在 enable Lua 内原子设置（ZADD 后 PEXPIREAT），
+	// 不再依赖此处单独的 Go 侧 refresh，避免「Lua 成功但 TTL 未设」的崩溃窗口。
+	return nil
 }
 
 func (s *ReqLogStore) DisableSession(ctx context.Context, userID int64) error {
@@ -206,6 +208,11 @@ func (s *ReqLogStore) WriteItem(ctx context.Context, entry *reqlog.ReqLogEntry, 
 		return 0, fmt.Errorf("request log store unavailable")
 	}
 	state.NormalizeTimes()
+	// 防御性校验：entry 必须归属当前会话，绝不把旧会话在途 entry 写入新会话（P1）。
+	// 正常流程下 sink.process 已先行校验并丢弃不匹配项，这里作为 store 层兜底。
+	if strings.TrimSpace(entry.SessionID) != "" && entry.SessionID != state.SessionID {
+		return 0, fmt.Errorf("request log entry session mismatch: entry=%s state=%s", entry.SessionID, state.SessionID)
+	}
 	entry.UserID = state.UserID
 	entry.SessionID = state.SessionID
 	raw, err := json.Marshal(entry)
@@ -243,7 +250,9 @@ func (s *ReqLogStore) DropItem(ctx context.Context, state *reqlog.CaptureState) 
 	if s == nil || s.rdb == nil || state == nil {
 		return nil
 	}
-	return s.rdb.HIncrBy(ctx, sessionKey(state.UserID, state.SessionID), "dropped_count", 1).Err()
+	// P5：仅当会话 hash 仍存在时才累加 dropped_count，避免 HINCRBY 复活一个无 TTL 的 hash。
+	// 会话 hash 缺失（已过期/被逐出）时直接跳过 Redis，进程内 dropped 指标仍会计数。
+	return reqLogDropItemScript.Run(ctx, s.rdb, []string{sessionKey(state.UserID, state.SessionID)}).Err()
 }
 
 func (s *ReqLogStore) GetStats(ctx context.Context, userID int64, sessionID string) (*service.ReqLogSessionStats, error) {
@@ -622,8 +631,24 @@ redis.call("PEXPIRE", sessKey, absTTL)
 redis.call("SET", seqKey, 0, "PX", absTTL)
 redis.call("DEL", idxKey)
 redis.call("ZADD", sessionsKey, cutoffUnix, sessionID)
+-- P4：在 Lua 内原子设置 sessions ZSet 的绝对 TTL（= 当前最晚会话 cutoff），
+-- 避免 ZADD 与 TTL 设置分两步导致崩溃后残留无 TTL 的 ZSet。
+local topMember = redis.call("ZREVRANGE", sessionsKey, 0, 0, "WITHSCORES")
+if topMember and topMember[2] then
+  local maxCutoff = tonumber(topMember[2])
+  if maxCutoff and maxCutoff > 0 then
+    redis.call("PEXPIREAT", sessionsKey, maxCutoff * 1000)
+  end
+end
 
 return {"ok", count}
+`)
+
+var reqLogDropItemScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[1]) == 1 then
+  return redis.call("HINCRBY", KEYS[1], "dropped_count", 1)
+end
+return 0
 `)
 
 var reqLogDisableSessionScript = redis.NewScript(`

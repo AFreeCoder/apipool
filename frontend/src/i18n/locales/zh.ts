@@ -4966,6 +4966,7 @@ export default {
         detailTitle: '请求条目 #{seq}',
         requestBody: '请求体',
         responseBody: '响应体',
+        responseNotCaptured: '（本期未捕获该响应体：WebSocket 或元数据 GET 仅记录元数据）',
         requestHeaders: '请求 Headers',
         responseHeaders: '响应 Headers',
         metadata: '元数据',

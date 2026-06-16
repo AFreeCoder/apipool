@@ -406,6 +406,10 @@ func (s *ReqLogService) CreateDownloadToken(ctx context.Context, adminID int64, 
 	if !s.ConfigEnabled() {
 		return "", time.Time{}, ErrReqLogDisabled
 	}
+	// P6：按 sid 的接口必须先反查 uid，避免给不存在/已过期的 session 签发有效 token。
+	if _, err := s.store.ResolveSessionUser(ctx, sessionID); err != nil {
+		return "", time.Time{}, err
+	}
 	return s.store.CreateDownloadToken(ctx, sessionID, adminID, time.Minute)
 }
 
@@ -428,6 +432,22 @@ func (s *ReqLogService) ResolveSessionUser(ctx context.Context, sessionID string
 		return 0, ErrReqLogDisabled
 	}
 	return s.store.ResolveSessionUser(ctx, sessionID)
+}
+
+// GetSessionStats 反查 uid 后读取该会话的统计信息（P7：供下载首行 metadata 使用）。
+func (s *ReqLogService) GetSessionStats(ctx context.Context, sessionID string) (*ReqLogSessionStats, int64, error) {
+	if !s.ConfigEnabled() {
+		return nil, 0, ErrReqLogDisabled
+	}
+	userID, err := s.store.ResolveSessionUser(ctx, sessionID)
+	if err != nil {
+		return nil, 0, err
+	}
+	stats, err := s.store.GetStats(ctx, userID, sessionID)
+	if err != nil {
+		return nil, userID, err
+	}
+	return stats, userID, nil
 }
 
 func (s *ReqLogService) DownloadItems(ctx context.Context, adminID int64, sessionID string, fn func(*reqlog.ReqLogEntry) error) (int64, error) {

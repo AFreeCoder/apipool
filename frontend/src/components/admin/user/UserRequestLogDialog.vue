@@ -248,7 +248,7 @@
           />
           <DetailBlock
             :title="t('admin.ops.requestLog.responseBody')"
-            :content="detailItem.resp_body"
+            :content="detailItem.response_captured === false ? t('admin.ops.requestLog.responseNotCaptured') : detailItem.resp_body"
             :truncated="detailItem.resp_truncated"
             @copy="copyText"
           />

@@ -180,7 +180,7 @@ func (h *OpsHandler) DownloadRequestLogSession(c *gin.Context) {
 	if !h.requireDownloadCompliance(c, adminID) {
 		return
 	}
-	userID, err := h.reqLogService.ResolveSessionUser(c.Request.Context(), sessionID)
+	stats, userID, err := h.reqLogService.GetSessionStats(c.Request.Context(), sessionID)
 	if err != nil {
 		writeReqLogError(c, err)
 		return
@@ -197,10 +197,18 @@ func (h *OpsHandler) DownloadRequestLogSession(c *gin.Context) {
 		c.Status(http.StatusOK)
 		bw = bufio.NewWriter(c.Writer)
 		started = true
+		// P7：首行 metadata 补齐设计 §3.8 要求的字段，便于解析方校验上下文与完整性。
 		meta := map[string]any{
 			"schema_version": 1,
 			"session_id":     sessionID,
 			"user_id":        userID,
+		}
+		if stats != nil {
+			meta["started_at"] = stats.StartedAt
+			meta["expires_at"] = stats.ExpiresAt
+			meta["item_count"] = stats.ItemCount
+			meta["truncated"] = stats.Truncated
+			meta["dropped_count"] = stats.DroppedCount
 		}
 		raw, err := json.Marshal(meta)
 		if err != nil {

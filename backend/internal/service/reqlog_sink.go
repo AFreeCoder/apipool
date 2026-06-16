@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,6 +45,12 @@ type ReqLogSink struct {
 	writeFailed   atomic.Uint64
 	writtenCount  atomic.Uint64
 	lastError     atomic.Value
+
+	// P2: worker 侧 Redis 内存护栏（防线4）的短 TTL 缓存。
+	memMu       sync.Mutex
+	memChecked  time.Time
+	memGuarded  bool
+	memZeroWarn sync.Once
 }
 
 func NewReqLogSink(store ReqLogStore, cfg *config.Config) *ReqLogSink {
@@ -179,7 +186,20 @@ func (s *ReqLogSink) process(item reqLogQueuedEntry) {
 	}
 	state := enabled
 	state.NormalizeTimes()
+	// P1：entry 必须归属当前 enabled 会话；force 重开 / disable+重开 后旧会话的在途
+	// entry 一律丢弃，绝不串写进新会话（NB2「不补落」在会话切换场景下的延伸）。
+	if item.entry.SessionID != "" && state.SessionID != item.entry.SessionID {
+		_ = s.store.DropItem(context.Background(), &reqlog.CaptureState{UserID: item.entry.UserID, SessionID: item.entry.SessionID})
+		s.droppedCount.Add(1)
+		return
+	}
 	if !state.ExpiresAt.IsZero() && item.entry.Timestamp.After(state.ExpiresAt) {
+		_ = s.store.DropItem(context.Background(), state)
+		s.droppedCount.Add(1)
+		return
+	}
+	// P2：写入前做 Redis 内存自检（防线4），越线则丢弃不写，宁可丢日志也不挤压业务。
+	if s.memoryGuarded() {
 		_ = s.store.DropItem(context.Background(), state)
 		s.droppedCount.Add(1)
 		return
@@ -188,13 +208,63 @@ func (s *ReqLogSink) process(item reqLogQueuedEntry) {
 	if s.cfg != nil && s.cfg.Ops.RequestLog.RetentionAfterWindow > 0 {
 		retention = s.cfg.Ops.RequestLog.RetentionAfterWindow
 	}
-	if _, err := s.store.WriteItem(context.Background(), item.entry, state, retention); err != nil {
+	seq, err := s.store.WriteItem(context.Background(), item.entry, state, retention)
+	if err != nil {
 		s.writeFailed.Add(1)
 		s.lastError.Store(err.Error())
 		return
 	}
+	// P9：Lua 因二次校验/预算（disabled/expired/oversize/full）丢弃时返回 seq==0、无 err，
+	// 应计入 dropped 而非 written，保证健康指标准确。
+	if seq == 0 {
+		s.droppedCount.Add(1)
+		return
+	}
 	s.writtenCount.Add(1)
 	s.lastError.Store("")
+}
+
+// memoryGuarded 按 MemoryInfoCacheTTL 周期性读取 Redis INFO memory（防线4）。
+// maxmemory=0 时无法按比例判断，跳过护栏（仅依赖逻辑预算）并提醒一次。
+// 读取失败时 fail-open（不阻塞写入），由逻辑预算兜底。
+func (s *ReqLogSink) memoryGuarded() bool {
+	if s == nil || s.store == nil || s.cfg == nil {
+		return false
+	}
+	ttl := s.cfg.Ops.RequestLog.MemoryInfoCacheTTL
+	if ttl <= 0 {
+		ttl = 5 * time.Second
+	}
+	now := time.Now()
+	s.memMu.Lock()
+	if !s.memChecked.IsZero() && now.Sub(s.memChecked) < ttl {
+		guarded := s.memGuarded
+		s.memMu.Unlock()
+		return guarded
+	}
+	s.memMu.Unlock()
+
+	guarded := false
+	stats, err := s.store.MemoryStats(context.Background())
+	if err == nil && stats != nil {
+		if stats.MaxMemory > 0 {
+			threshold := s.cfg.Ops.RequestLog.MemoryGuardPercent
+			if threshold <= 0 {
+				threshold = 80
+			}
+			percent := int((stats.UsedMemory * 100) / stats.MaxMemory)
+			guarded = percent >= threshold
+		} else {
+			s.memZeroWarn.Do(func() {
+				slog.Warn("reqlog redis maxmemory=0; memory guard disabled, relying on per-session byte budget only")
+			})
+		}
+	}
+	s.memMu.Lock()
+	s.memChecked = now
+	s.memGuarded = guarded
+	s.memMu.Unlock()
+	return guarded
 }
 
 func defaultReqLogMaxBytes(cfg *config.Config) int64 {

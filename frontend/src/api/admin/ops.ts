@@ -120,6 +120,7 @@ export interface ReqLogEntry {
   req_truncated: boolean
   resp_body: string
   resp_truncated: boolean
+  response_captured?: boolean
   error_detail?: string
 }
 
