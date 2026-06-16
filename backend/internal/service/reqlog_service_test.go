@@ -38,8 +38,8 @@ func (s *reqLogMemoryStore) GetEnabled(ctx context.Context, userID int64) (*reql
 	if v == nil {
 		return nil, nil
 	}
-	st := v.(*reqlog.CaptureState)
-	if st == nil {
+	st, ok := v.(*reqlog.CaptureState)
+	if !ok || st == nil {
 		return nil, nil
 	}
 	cp := *st

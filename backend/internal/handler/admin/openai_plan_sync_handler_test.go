@@ -169,7 +169,7 @@ func TestOpenAIOAuthHandler_CreateAccountFromOAuth_SyncsPlanType(t *testing.T) {
 	state := parsedAuthURL.Query().Get("state")
 	require.NotEmpty(t, state)
 
-	handler := NewOpenAIOAuthHandler(openaiSvc, adminSvc)
+	handler := NewOpenAIOAuthHandler(openaiSvc, adminSvc, nil)
 	router := gin.New()
 	router.POST("/api/v1/admin/openai/create-from-oauth", handler.CreateAccountFromOAuth)
 

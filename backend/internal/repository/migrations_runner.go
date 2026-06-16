@@ -54,6 +54,8 @@ const nonTransactionalMigrationSuffix = "_notx.sql"
 const paymentOrdersOutTradeNoUniqueMigration = "120_enforce_payment_orders_out_trade_no_unique_notx.sql"
 const paymentOrdersOutTradeNoUniqueIndex = "paymentorder_out_trade_no_unique"
 const accountGroupSchedulerIndexesMigration = "150_account_group_scheduler_indexes_notx.sql"
+const accountAutopauseExpiryIndexMigration = "151_account_autopause_expiry_index_notx.sql"
+const accountAutopauseExpiryIndex = "idx_accounts_autopause_expiry_due"
 const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_dedup_key_index_notx.sql"
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
 
@@ -268,6 +270,8 @@ func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name stri
 		return preparePaymentOrdersOutTradeNoUniqueMigration(ctx, db)
 	case accountGroupSchedulerIndexesMigration:
 		return prepareAccountGroupSchedulerIndexesMigration(ctx, db)
+	case accountAutopauseExpiryIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, accountAutopauseExpiryIndex)
 	case schedulerOutboxPendingDedupKeyMigration:
 		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxPendingDedupKeyIndex)
 	default:

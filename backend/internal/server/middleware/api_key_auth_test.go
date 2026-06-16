@@ -892,7 +892,7 @@ func TestAPIKeyAuthIPRestrictionUsesForwardedClientIPInDenialWhenTrusted(t *test
 	cfg.SetTrustForwardedIPForAPIKeyACL(true)
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
 	router := gin.New()
-	require.NoError(t, router.SetTrustedProxies(nil))
+	require.NoError(t, router.SetTrustedProxies([]string{"192.0.2.1"}))
 	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
 	router.GET("/t", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -900,7 +900,7 @@ func TestAPIKeyAuthIPRestrictionUsesForwardedClientIPInDenialWhenTrusted(t *test
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/t", nil)
-	req.RemoteAddr = "9.9.9.9:12345"
+	req.RemoteAddr = "192.0.2.1:12345"
 	req.Header.Set("x-api-key", apiKey.Key)
 	req.Header.Set("X-Forwarded-For", "1.2.3.4")
 	req.Header.Set("X-Real-IP", "1.2.3.4")
