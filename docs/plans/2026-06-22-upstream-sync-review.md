@@ -3,7 +3,8 @@
 ## 基线
 
 - 当前分支：`main`
-- 当前 HEAD：`f6bb9d6550b3b26a71e1a9de6cc33acdbc410759`
+- 合入后评审基线 HEAD：`cc966a3a878e9832fdbff988a2f3adc874b7be41`
+- 评审修复提交：`34d918865437e6ef611df367cf9f1ab775e9ee8c`
 - 合入前本地基线：`f6bb9d6550b3b26a71e1a9de6cc33acdbc410759`
 - 上游引用：`upstream/main`
 - 上游 SHA：`d430343f513aa811be4ef949a945d3d69e3dd0df`
@@ -91,6 +92,12 @@
 - 本地 integration 需要显式 Colima socket 和串行 `-p 1` 才稳定通过；这是本机测试环境约束，不是代码失败。
 - 部署后仍需确认自动备份、回退镜像、服务器代码版本和 `sub2api` 健康状态。
 - 快速回滚建议仍优先使用镜像回滚：`cd /opt/sub2api/deploy && ./rollback.sh image`。
+
+## 代码评审处理
+
+- Descartes 评审发现的 `scheduler_score_weights.reset` 校验/求和漏项已在 `34d918865437e6ef611df367cf9f1ab775e9ee8c` 修复，并补充 reset 单独启用与 reset 负数用例。
+- Ampere 评审发现的流式 OpenAI 图片 `response.incomplete` 未触发 failover 已在 `34d918865437e6ef611df367cf9f1ab775e9ee8c` 修复，并补充未 flush 前 failover 回归测试。
+- Descartes 评审发现的文档 HEAD 字段已改为“合入后评审基线 HEAD”，避免与后续修复提交混淆。
 
 ## 结论
 
