@@ -680,6 +680,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 			return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
 				InputPricePerToken:             litellmPricing.InputCostPerToken,
 				InputPricePerTokenPriority:     litellmPricing.InputCostPerTokenPriority,
+				ImageInputPricePerToken:        litellmPricing.InputCostPerImageToken,
 				OutputPricePerToken:            litellmPricing.OutputCostPerToken,
 				OutputPricePerTokenPriority:    litellmPricing.OutputCostPerTokenPriority,
 				CacheCreationPricePerToken:     litellmPricing.CacheCreationInputTokenCost,

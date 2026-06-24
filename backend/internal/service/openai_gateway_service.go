@@ -5337,12 +5337,17 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if cacheReadTokens == 0 {
 		cacheReadTokens = value.Get("prompt_tokens_details.cached_tokens").Int()
 	}
+	imageInputTokens := value.Get("input_tokens_details.image_tokens").Int()
+	if imageInputTokens == 0 {
+		imageInputTokens = value.Get("prompt_tokens_details.image_tokens").Int()
+	}
 	imageOutputTokens := value.Get("output_tokens_details.image_tokens").Int()
 	if imageOutputTokens == 0 {
 		imageOutputTokens = value.Get("completion_tokens_details.image_tokens").Int()
 	}
 	return OpenAIUsage{
 		InputTokens:              int(inputTokens),
+		ImageInputTokens:         int(imageInputTokens),
 		OutputTokens:             int(outputTokens),
 		CacheCreationInputTokens: int(value.Get("cache_creation_input_tokens").Int()),
 		CacheReadInputTokens:     int(cacheReadTokens),
@@ -6239,8 +6244,14 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
 	if result != nil && result.ImageCount > 0 {
-		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
-		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
+		// 渠道显式配置优先：token 走 token，image/per_request 走图片。
+		// 没有渠道显式配置时，gpt-image-2 可通过全局开关改为按 usage token 计费。
+		resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
+		if resolved == nil {
+			if !s.shouldUseGPTImage2TokenBilling(billingModels) {
+				return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
+			}
+		} else if resolved.Mode != BillingModeToken {
 			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
 		}
 	}
@@ -6265,6 +6276,27 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	return nil, fmt.Errorf("calculate OpenAI usage cost failed for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
 }
 
+func (s *OpenAIGatewayService) shouldUseGPTImage2TokenBilling(billingModels []string) bool {
+	if s == nil || s.cfg == nil || !s.cfg.Billing.GPTImage2TokenBillingEnabled {
+		return false
+	}
+	for _, model := range billingModels {
+		if isGPTImage2BillingModel(model) {
+			return true
+		}
+	}
+	return false
+}
+
+func isGPTImage2BillingModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return false
+	}
+	normalized := strings.ToLower(normalizeModelNameForPricing(model))
+	return normalized == "gpt-image-2" || strings.HasPrefix(normalized, "gpt-image-2-")
+}
+
 func isUsagePricingUnavailableError(err error) bool {
 	if err == nil {
 		return false
@@ -6284,9 +6316,11 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	tokens UsageTokens,
 	serviceTier string,
 ) (*CostBreakdown, error) {
+	var cost *CostBreakdown
+	var err error
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
-		return s.billingService.CalculateCostUnified(CostInput{
+		cost, err = s.billingService.CalculateCostUnified(CostInput{
 			Ctx:            ctx,
 			Model:          billingModel,
 			GroupID:        &gid,
@@ -6296,8 +6330,16 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			ServiceTier:    serviceTier,
 			Resolver:       s.resolver,
 		})
+	} else {
+		cost, err = s.billingService.CalculateCostWithServiceTier(billingModel, tokens, multiplier, serviceTier)
 	}
-	return s.billingService.CalculateCostWithServiceTier(billingModel, tokens, multiplier, serviceTier)
+	if err != nil {
+		return nil, err
+	}
+	if cost != nil && cost.BillingMode == "" {
+		cost.BillingMode = string(BillingModeToken)
+	}
+	return cost, nil
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIImageCost(

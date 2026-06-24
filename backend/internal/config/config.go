@@ -649,6 +649,9 @@ type ProxyProbeConfig struct {
 
 type BillingConfig struct {
 	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker"`
+	// GPTImage2TokenBillingEnabled 为 true 时，gpt-image-2 在没有渠道显式图片计费配置时按 usage token 计费。
+	// 默认 false，保持历史按张计费行为；渠道级 token/image 计费配置仍优先于该开关。
+	GPTImage2TokenBillingEnabled bool `mapstructure:"gpt_image_2_token_billing_enabled"`
 	// UserPlatformQuotaCacheTTLSeconds 用户 × 平台 quota 缓存 TTL（秒），默认 86400=1天，覆盖典型 daily 窗口。
 	// 消费点：
 	//   - billing_cache_service.cacheWriteWorker 异步累加
@@ -1657,6 +1660,7 @@ func setDefaults() {
 	viper.SetDefault("billing.circuit_breaker.failure_threshold", 5)
 	viper.SetDefault("billing.circuit_breaker.reset_timeout_seconds", 30)
 	viper.SetDefault("billing.circuit_breaker.half_open_requests", 3)
+	viper.SetDefault("billing.gpt_image_2_token_billing_enabled", false)
 	viper.SetDefault("billing.user_platform_quota_cache_ttl_seconds", 86400)
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
 

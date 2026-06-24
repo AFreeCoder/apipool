@@ -1177,6 +1177,28 @@ func TestGetModelPricing_MapsDynamicPriorityFieldsIntoBillingPricing(t *testing.
 	require.InDelta(t, 1.25, pricing.LongContextOutputMultiplier, 1e-12)
 }
 
+func TestGetModelPricing_MapsDynamicImageTokenFieldsIntoBillingPricing(t *testing.T) {
+	pricingSvc := NewPricingService(&config.Config{}, nil)
+	data, err := pricingSvc.parsePricingData([]byte(`{
+		"gpt-image-2": {
+			"input_cost_per_token": 0.000005,
+			"input_cost_per_image_token": 0.000008,
+			"output_cost_per_token": 0.00001,
+			"output_cost_per_image_token": 0.00003
+		}
+	}`))
+	require.NoError(t, err)
+	pricingSvc.pricingData = data
+	svc := NewBillingService(&config.Config{}, pricingSvc)
+
+	pricing, err := svc.GetModelPricing("gpt-image-2")
+	require.NoError(t, err)
+	require.InDelta(t, 5e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 8e-6, pricing.ImageInputPricePerToken, 1e-12)
+	require.InDelta(t, 1e-5, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 3e-5, pricing.ImageOutputPricePerToken, 1e-12)
+}
+
 // ---------------------------------------------------------------------------
 // GetModelPricingWithChannel
 // ---------------------------------------------------------------------------
