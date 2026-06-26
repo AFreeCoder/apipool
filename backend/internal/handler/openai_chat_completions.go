@@ -103,6 +103,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	requestPlatform := openAICompatibleRequestPlatform(apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -147,6 +148,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			service.OpenAIUpstreamTransportAny,
 			service.OpenAIEndpointCapabilityChatCompletions,
 			false,
+			requestPlatform,
 		)
 		if err != nil {
 			reqLog.Warn("openai_chat_completions.account_select_failed",
@@ -154,9 +156,16 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
-				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				publicErr := publicOpenAIAccountSelectionError(err, attemptedModel)
-				h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, attemptedModel, service.PlatformOpenAI)
+				if !cls.ModelNotFound {
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				}
+				if cls.ModelNotFound {
+					h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted)
+				} else {
+					publicErr := publicOpenAIAccountSelectionError(err, attemptedModel)
+					h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
+				}
 				return
 			} else {
 				if lastFailoverErr != nil {
@@ -168,9 +177,16 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
-			markOpsRoutingCapacityLimited(c)
-			publicErr := publicOpenAIAccountSelectionError(service.ErrNoAvailableAccounts, attemptedModel)
-			h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
+			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, attemptedModel, service.PlatformOpenAI)
+			if !cls.ModelNotFound {
+				markOpsRoutingCapacityLimited(c)
+			}
+			if cls.ModelNotFound {
+				h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted)
+			} else {
+				publicErr := publicOpenAIAccountSelectionError(service.ErrNoAvailableAccounts, attemptedModel)
+				h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
+			}
 			return
 		}
 		account := selection.Account

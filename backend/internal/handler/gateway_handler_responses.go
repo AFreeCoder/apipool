@@ -162,9 +162,16 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				publicErr := publicGatewayAccountSelectionError(err, reqModel)
-				h.responsesErrorResponse(c, publicErr.Status, publicErr.Code, publicErr.Message)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformAnthropic)
+				if !cls.ModelNotFound {
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				}
+				if cls.ModelNotFound {
+					h.responsesErrorResponse(c, cls.Status, cls.Code, cls.Message)
+				} else {
+					publicErr := publicGatewayAccountSelectionError(err, reqModel)
+					h.responsesErrorResponse(c, publicErr.Status, publicErr.Code, publicErr.Message)
+				}
 				return
 			}
 			action := fs.HandleSelectionExhausted(requestCtx)

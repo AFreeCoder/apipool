@@ -1,5 +1,7 @@
 # APIPool
 
+English | [中文](README_CN.md) | [日本語](README_JA.md)
+
 基于 [Sub2API](https://github.com/Wei-Shaw/sub2api) 的 AI API 网关平台，用于订阅配额的分发与管理。
 
 在线访问：**https://apipool.dev**
@@ -23,8 +25,8 @@ API 端点：**https://api.apipool.dev**（推荐，国内直连无需代理）
 - **支付能力** - 已合入上游内建支付相关能力，同时保留当前项目通过 iframe 接入外部充值页的方式
 - **管理后台** - Web 界面进行监控与管理
 - **外部系统集成** - 可通过 iframe 嵌入支付、工单等外部系统扩展后台能力
-
-[日本語](README_JA.md)
+- **Grok / xAI OAuth** - 支持 Grok 订阅账号接入和 `/v1/responses` 转发
+- **Antigravity** - 支持专用 Claude / Gemini 网关入口
 
 ## 技术栈
 
@@ -91,6 +93,66 @@ docker compose -f docker-compose.deploy.yml restart      # 重启服务
 - 自动部署会额外收敛旧 `rollback-*` 镜像标签；应用镜像由 GitHub Actions 构建并推送到 GHCR，服务器只拉取本次 commit 对应镜像
 
 上游内建支付功能的配置文档见 [docs/PAYMENT.md](docs/PAYMENT.md) 与 [docs/PAYMENT_CN.md](docs/PAYMENT_CN.md)。当前 APIPool 仍保留通过系统设置配置 iframe 充值页的本地方案，两种能力并存，合入上游时不要默认互相替换。
+
+## Simple Mode
+
+- 开启方式：设置环境变量 `RUN_MODE=simple`
+- 行为差异：隐藏 SaaS 相关功能并跳过计费流程
+- 生产安全要求：生产环境还必须设置 `SIMPLE_MODE_CONFIRM=true`
+
+## Grok / xAI OAuth 支持
+
+APIPool 合入了上游 Grok 订阅账号支持。Grok 账号通过 xAI OAuth 接入，OpenAI-compatible Responses 请求会转发到 `${XAI_BASE_URL:-https://api.x.ai/v1}/responses`。
+
+### 支持范围
+
+- 平台名：`grok`
+- 账号类型：OAuth 订阅账号
+- 公共网关：`/v1/responses` 与 `/responses`
+- 初始模型：`grok-4.3`、`grok-build-0.1`、`grok-4.20-0309-reasoning`、`grok-4.20-0309-non-reasoning`、`grok-4.20-multi-agent-0309`
+- 暂不支持：公共 Grok Chat Completions、图片、视频、TTS、转录、浏览器自动化、cookie 和 Grok 网页抓取
+
+### OAuth 配置
+
+Grok OAuth 使用 PKCE，不需要提交私有密钥。默认配置可通过环境变量覆盖：
+
+| 变量 | 默认值 |
+|------|--------|
+| `XAI_OAUTH_CLIENT_ID` | public xAI OAuth client ID |
+| `XAI_OAUTH_SCOPE` | `openid profile email offline_access grok-cli:access api:access` |
+| `XAI_OAUTH_REDIRECT_URI` | `http://127.0.0.1:56121/callback` |
+| `XAI_OAUTH_AUTHORIZE_URL` | `https://auth.x.ai/oauth2/authorize` |
+| `XAI_OAUTH_TOKEN_URL` | `https://auth.x.ai/oauth2/token` |
+| `XAI_BASE_URL` | `https://api.x.ai/v1` |
+
+管理员可以在后台创建或重新授权 Grok 账号，也可以调用管理 API：
+
+| Endpoint | 用途 |
+|----------|------|
+| `POST /api/v1/admin/grok/oauth/auth-url` | 生成 xAI OAuth 授权 URL |
+| `POST /api/v1/admin/grok/oauth/exchange-code` | 将 callback URL、query string 或 code 换成 OAuth 凭据 |
+| `POST /api/v1/admin/grok/oauth/refresh-token` | 校验或刷新 Grok refresh token |
+| `POST /api/v1/admin/grok/accounts/:id/refresh` | 刷新已有 Grok 账号 |
+
+xAI quota 是被动展示：系统不会自造订阅额度，只会在 xAI 返回 rate-limit headers 时记录并展示。`401` 会标记账号需要重新授权；`403` 作为权益或订阅层级失败处理；`429` 根据 `Retry-After` 或短 cooldown 临时移出调度。
+
+## Antigravity 支持
+
+APIPool 支持 [Antigravity](https://antigravity.so/) 账号。授权后可使用专用 Claude 和 Gemini 入口。
+
+### 专用端点
+
+| Endpoint | Model |
+|----------|-------|
+| `/antigravity/v1/messages` | Claude models |
+| `/antigravity/v1beta/` | Gemini models |
+
+### Claude Code 配置
+
+```bash
+export ANTHROPIC_BASE_URL="http://localhost:8080/antigravity"
+export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+```
 
 ## 本地开发
 

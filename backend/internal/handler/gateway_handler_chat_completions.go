@@ -165,9 +165,16 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				publicErr := publicGatewayAccountSelectionError(err, reqModel)
-				h.chatCompletionsErrorResponseWithCode(c, publicErr.Status, publicErr.Type, publicErr.Code, publicErr.Message)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, groupPlatform)
+				if !cls.ModelNotFound {
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				}
+				if cls.ModelNotFound {
+					h.chatCompletionsErrorResponseWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message)
+				} else {
+					publicErr := publicGatewayAccountSelectionError(err, reqModel)
+					h.chatCompletionsErrorResponseWithCode(c, publicErr.Status, publicErr.Type, publicErr.Code, publicErr.Message)
+				}
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context())

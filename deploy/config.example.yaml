@@ -1088,6 +1088,10 @@ billing:
   # Bill gpt-image-2 image requests by usage tokens when no channel-level image pricing is configured
   # 没有渠道级图片计费配置时，是否将 gpt-image-2 图片请求改为按 usage token 计费
   gpt_image_2_token_billing_enabled: false
+  # Conservative minimum balance required before forwarding balance-billed requests.
+  # Set to 0 to only require balance > 0.
+  # 余额计费请求转发前要求的保守最小余额；设为 0 则仅要求余额 > 0。
+  minimum_balance_reserve: 0.000001
   # Cache TTL (seconds) for per-user × per-platform quota records
   # 用户 × 平台 quota 缓存 TTL（秒），默认 86400=1天，覆盖典型 daily 窗口
   user_platform_quota_cache_ttl_seconds: 86400

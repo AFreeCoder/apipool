@@ -228,6 +228,11 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 	if isCodexSparkModel(normalizedModel) && applyCodexSparkImageUnsupportedInstructions(reqBody) {
 		result.Modified = true
 	}
+	// gpt-5.3-codex-spark rejects the image_generation tool upstream (HTTP 400,
+	// param=tools); Codex CLI advertises it by default, so strip it for spark.
+	if isCodexSparkModel(normalizedModel) && stripCodexSparkImageGenerationTools(reqBody) {
+		result.Modified = true
+	}
 
 	// 先把 role:"tool" 这类 Responses 不接受的消息形态转换成 transcript item，
 	// 再执行 APIPool 的 OAuth input 归一化，避免工具输出被包进 message content。
@@ -965,6 +970,41 @@ func hasOpenAIImageGenerationTool(reqBody map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// stripCodexSparkImageGenerationTools removes image_generation tool entries from
+// reqBody["tools"]. gpt-5.3-codex-spark rejects that tool upstream with HTTP 400
+// (invalid_request_error, param=tools), and Codex CLI advertises it by default, so
+// it must be dropped for spark. When the tools list becomes empty the key is removed.
+// Returns true when the body was modified.
+func stripCodexSparkImageGenerationTools(reqBody map[string]any) bool {
+	rawTools, ok := reqBody["tools"]
+	if !ok || rawTools == nil {
+		return false
+	}
+	tools, ok := rawTools.([]any)
+	if !ok {
+		return false
+	}
+	filtered := make([]any, 0, len(tools))
+	removed := false
+	for _, rawTool := range tools {
+		if toolMap, ok := rawTool.(map[string]any); ok &&
+			strings.TrimSpace(firstNonEmptyString(toolMap["type"])) == "image_generation" {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, rawTool)
+	}
+	if !removed {
+		return false
+	}
+	if len(filtered) == 0 {
+		delete(reqBody, "tools")
+	} else {
+		reqBody["tools"] = filtered
+	}
+	return true
 }
 
 func hasOpenAIInputImage(reqBody map[string]any) bool {
