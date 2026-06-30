@@ -54,7 +54,11 @@ LATEST_TAG="$(git tag --merged upstream/main --sort=-version:refname | head -1)"
 LOCAL_VERSION="$(cat backend/cmd/server/VERSION 2>/dev/null || echo 'N/A')"
 UPSTREAM_VERSION="$(git show upstream/main:backend/cmd/server/VERSION 2>/dev/null || echo 'N/A')"
 
-if git rev-parse HEAD^2 >/dev/null 2>&1; then
+if git rev-parse --verify MERGE_HEAD >/dev/null 2>&1; then
+  LOCAL_BASELINE="$HEAD_SHA"
+  UPSTREAM_SHA="$(git rev-parse MERGE_HEAD)"
+  MERGE_BASE="$(git merge-base "$LOCAL_BASELINE" "$UPSTREAM_SHA")"
+elif git rev-parse HEAD^2 >/dev/null 2>&1; then
   LOCAL_BASELINE="$(git rev-parse HEAD^1)"
   UPSTREAM_SHA="$(git rev-parse HEAD^2)"
   MERGE_BASE="$(git merge-base "$LOCAL_BASELINE" "$UPSTREAM_SHA")"
