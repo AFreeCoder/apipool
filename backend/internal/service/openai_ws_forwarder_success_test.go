@@ -798,7 +798,8 @@ func TestOpenAIGatewayService_BuildOpenAIWSHeadersNormalizesLeadingSlashUserAgen
 				}
 			}
 
-			headers, _ := svc.buildOpenAIWSHeaders(
+			headers, _, err := svc.buildOpenAIWSHeaders(
+				context.Background(),
 				c,
 				account,
 				"token",
@@ -809,6 +810,7 @@ func TestOpenAIGatewayService_BuildOpenAIWSHeadersNormalizesLeadingSlashUserAgen
 				"",
 			)
 
+			require.NoError(t, err)
 			require.Equal(t, tt.wantUA, headers.Get("User-Agent"))
 		})
 	}
