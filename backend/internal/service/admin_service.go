@@ -210,8 +210,8 @@ type CreateGroupInput struct {
 	DailyLimitUSD    *float64 // 日限额 (USD)
 	WeeklyLimitUSD   *float64 // 周限额 (USD)
 	MonthlyLimitUSD  *float64 // 月限额 (USD)
-	// 图片生成计费配置（仅 antigravity 平台使用）
-	AllowImageGeneration bool
+	// 图片生成计费配置；nil 表示使用平台默认值，非 nil 表示显式设置。
+	AllowImageGeneration *bool
 	ImageRateIndependent bool
 	ImageRateMultiplier  *float64
 	// 高峰时段倍率配置（PeakRateMultiplier 为 nil 时按 1.0 处理）
@@ -1887,7 +1887,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		mcpXMLInject = *input.MCPXMLInject
 	}
 
-	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
+	allowImageGeneration := defaultAllowImageGenerationForPlatform(platform)
+	if input.AllowImageGeneration != nil {
+		allowImageGeneration = *input.AllowImageGeneration
+	}
 
 	// 如果指定了复制账号的源分组，先获取账号 ID 列表
 	var accountIDsToCopy []int64

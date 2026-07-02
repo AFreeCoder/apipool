@@ -38,3 +38,20 @@ func resolveOpenAICompactForwardModel(account *Account, model string) string {
 	}
 	return trimmedModel
 }
+
+// resolveOpenAICompactForwardModelWithFallback applies account-level compact
+// mappings first, then falls back to the deployment-wide compact model.
+func resolveOpenAICompactForwardModelWithFallback(account *Account, model, fallbackModel string) string {
+	trimmedModel := strings.TrimSpace(model)
+	if trimmedModel == "" {
+		return ""
+	}
+	mappedModel := resolveOpenAICompactForwardModel(account, trimmedModel)
+	if mappedModel != trimmedModel {
+		return mappedModel
+	}
+	if fallback := strings.TrimSpace(fallbackModel); fallback != "" {
+		return fallback
+	}
+	return trimmedModel
+}

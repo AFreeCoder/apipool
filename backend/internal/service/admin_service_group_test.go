@@ -15,6 +15,10 @@ func ptrString[T ~string](v T) *string {
 	return &s
 }
 
+func ptrBoolForGroupTest(v bool) *bool {
+	return &v
+}
+
 // groupRepoStubForAdmin 用于测试 AdminService 的 GroupRepository Stub
 type groupRepoStubForAdmin struct {
 	created *Group // 记录 Create 调用的参数
@@ -213,6 +217,24 @@ func TestAdminService_CreateGroup_DefaultsGrokMediaGenerationEnabled(t *testing.
 	require.NotNil(t, repo.created)
 	require.True(t, repo.created.AllowImageGeneration)
 	require.True(t, group.AllowImageGeneration)
+}
+
+func TestAdminService_CreateGroup_PreservesExplicitGrokMediaGenerationDisabled(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:                 "grok-text-only",
+		Description:          "Grok group with media disabled",
+		Platform:             PlatformGrok,
+		RateMultiplier:       1.0,
+		AllowImageGeneration: ptrBoolForGroupTest(false),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.created)
+	require.False(t, repo.created.AllowImageGeneration)
+	require.False(t, group.AllowImageGeneration)
 }
 
 func TestAdminService_CreateGroup_PreservesNonGrokImageGenerationDisabled(t *testing.T) {

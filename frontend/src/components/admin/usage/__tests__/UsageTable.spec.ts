@@ -362,6 +362,20 @@ describe('admin UsageTable IP geolocation batch toolbar', () => {
     expect(wrapper.text()).not.toContain('usage.ipGeo.batchFetch')
   })
 
+  it('does not render IP geolocation controls by default when the ip_address column is visible', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{ request_id: 'r1', ip_address: '8.8.8.8' }],
+        loading: false,
+        columns: [{ key: 'ip_address', label: 'IP' }],
+      },
+      global: { stubs: { DataTable: DataTableStubWithIp, EmptyState: true, Teleport: true } },
+    })
+    expect(wrapper.text()).toContain('8.8.8.8')
+    expect(wrapper.text()).not.toContain('usage.ipGeo.batchFetch')
+    expect(wrapper.text()).not.toContain('usage.ipGeo.fetch')
+  })
+
   it('renders the batch toolbar with a pending count when the ip_address column is visible', () => {
     const wrapper = mount(UsageTable, {
       props: {
@@ -372,6 +386,7 @@ describe('admin UsageTable IP geolocation batch toolbar', () => {
         ],
         loading: false,
         columns: [{ key: 'ip_address', label: 'IP' }],
+        enableIpGeo: true,
       },
       global: { stubs: { DataTable: DataTableStubWithIp, EmptyState: true, Teleport: true } },
     })
@@ -392,6 +407,7 @@ describe('admin UsageTable IP geolocation batch toolbar', () => {
         ],
         loading: false,
         columns: [{ key: 'ip_address', label: 'IP' }],
+        enableIpGeo: true,
       },
       global: { stubs: { DataTable: DataTableStubWithIp, EmptyState: true, Teleport: true } },
     })
@@ -407,6 +423,7 @@ describe('admin UsageTable IP geolocation batch toolbar', () => {
         data: [{ request_id: 'r1', ip_address: '8.8.8.8' }],
         loading: false,
         columns: [{ key: 'ip_address', label: 'IP' }],
+        enableIpGeo: true,
       },
       global: { stubs: { DataTable: DataTableStubWithIp, EmptyState: true, Teleport: true } },
     })
@@ -421,6 +438,7 @@ describe('admin UsageTable IP geolocation batch toolbar', () => {
         data: [{ request_id: 'r1', ip_address: '121.35.47.43' }],
         loading: false,
         columns: [{ key: 'ip_address', label: 'IP' }],
+        enableIpGeo: true,
       },
       global: { stubs: { DataTable: DataTableStubWithIp, EmptyState: true, Teleport: true } },
     })

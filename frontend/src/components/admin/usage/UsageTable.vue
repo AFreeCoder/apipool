@@ -206,7 +206,7 @@
         <template #cell-ip_address="{ row }">
           <div v-if="row.ip_address">
             <span class="text-sm font-mono text-gray-600 dark:text-gray-400">{{ row.ip_address }}</span>
-            <IpGeoCell :ip="row.ip_address" />
+            <IpGeoCell v-if="enableIpGeo" :ip="row.ip_address" />
           </div>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
@@ -474,6 +474,7 @@ interface Props {
   defaultSortOrder?: 'asc' | 'desc'
   showAccountBilling?: boolean
   showUpstreamEndpoint?: boolean
+  enableIpGeo?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -482,7 +483,8 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSortKey: '',
   defaultSortOrder: 'asc',
   showAccountBilling: true,
-  showUpstreamEndpoint: true
+  showUpstreamEndpoint: true,
+  enableIpGeo: false
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]
@@ -492,9 +494,10 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
+const enableIpGeo = computed(() => props.enableIpGeo)
 const ipGeoBatchLoading = ref(false)
 
-const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
+const showIpGeoToolbar = computed(() => enableIpGeo.value && props.columns.some((col) => col.key === 'ip_address'))
 
 const currentPageIps = computed(() =>
   Array.from(new Set(props.data.map((row) => row.ip_address).filter((ip): ip is string => Boolean(ip))))

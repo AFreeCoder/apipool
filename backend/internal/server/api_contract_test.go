@@ -318,7 +318,9 @@ func TestAPIContracts(t *testing.T) {
 						"available_channels_enabled": false,
 						"affiliate_enabled": false,
 						"allow_user_view_error_requests": false,
-						"risk_control_enabled": false
+						"risk_control_enabled": false,
+						"server_timezone": "Local",
+						"server_utc_offset": "+08:00"
 					}
 				}`,
 		},
