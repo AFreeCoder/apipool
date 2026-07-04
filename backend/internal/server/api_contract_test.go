@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -320,7 +321,7 @@ func TestAPIContracts(t *testing.T) {
 						"allow_user_view_error_requests": false,
 						"risk_control_enabled": false,
 						"server_timezone": "Local",
-						"server_utc_offset": "+08:00"
+						"server_utc_offset": "` + currentContractUTCOffset() + `"
 					}
 				}`,
 		},
@@ -1320,6 +1321,16 @@ func TestAPIContracts(t *testing.T) {
 			require.JSONEq(t, tt.wantJSON, body)
 		})
 	}
+}
+
+func currentContractUTCOffset() string {
+	_, offset := time.Now().In(time.Local).Zone()
+	sign := "+"
+	if offset < 0 {
+		sign = "-"
+		offset = -offset
+	}
+	return sign + fmt.Sprintf("%02d:%02d", offset/3600, (offset%3600)/60)
 }
 
 type contractDeps struct {

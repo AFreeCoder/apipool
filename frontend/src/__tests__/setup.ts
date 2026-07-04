@@ -57,6 +57,28 @@ if (typeof globalThis.cancelIdleCallback === 'undefined') {
   }) as unknown as typeof cancelIdleCallback
 }
 
+// Mock requestAnimationFrame/cancelAnimationFrame (jsdom 不稳定提供; 部分组件在异步动画中依赖它)
+if (typeof globalThis.requestAnimationFrame === 'undefined') {
+  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    return window.setTimeout(() => callback(performance.now()), 16)
+  }) as unknown as typeof requestAnimationFrame
+}
+
+if (typeof globalThis.cancelAnimationFrame === 'undefined') {
+  globalThis.cancelAnimationFrame = ((id: number) => {
+    window.clearTimeout(id)
+  }) as unknown as typeof cancelAnimationFrame
+}
+
+if (typeof window !== 'undefined') {
+  if (typeof window.requestAnimationFrame === 'undefined') {
+    window.requestAnimationFrame = globalThis.requestAnimationFrame
+  }
+  if (typeof window.cancelAnimationFrame === 'undefined') {
+    window.cancelAnimationFrame = globalThis.cancelAnimationFrame
+  }
+}
+
 // Mock matchMedia (jsdom 未实现;DataTable 等组件依赖它做桌面/移动分支)
 if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   window.matchMedia = ((query: string) => ({
