@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -60,6 +61,30 @@ func IsImageGenerationIntentMap(endpoint string, requestedModel string, reqBody 
 		return true
 	}
 	return openAIAnyToolChoiceSelectsImageGeneration(reqBody["tool_choice"])
+}
+
+// IsImageGenerationIntentAfterOpenAIImageToolStrip classifies the request after
+// applying the same explicit image_generation tool strip used by Codex account
+// policy. It preserves image model and dedicated endpoint detection.
+func IsImageGenerationIntentAfterOpenAIImageToolStrip(endpoint string, requestedModel string, body []byte) bool {
+	if len(body) == 0 {
+		return IsImageGenerationIntent(endpoint, requestedModel, body)
+	}
+	reqBody := make(map[string]any)
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		return IsImageGenerationIntent(endpoint, requestedModel, body)
+	}
+	stripOpenAIImageGenerationTools(reqBody)
+	return IsImageGenerationIntentMap(endpoint, requestedModel, reqBody)
+}
+
+// EffectiveImageGenerationIntentForOpenAIResponses mirrors the service-side
+// Codex account policy before handler-level permission and concurrency gates run.
+func EffectiveImageGenerationIntentForOpenAIResponses(endpoint string, requestedModel string, body []byte, isCodexCLI bool, account *Account) bool {
+	if isCodexCLI && account != nil && account.CodexImageGenerationExplicitToolPolicy() == codexImageGenerationExplicitToolPolicyStrip {
+		return IsImageGenerationIntentAfterOpenAIImageToolStrip(endpoint, requestedModel, body)
+	}
+	return IsImageGenerationIntent(endpoint, requestedModel, body)
 }
 
 // IsImageGenerationEndpoint identifies dedicated generated-image endpoints.

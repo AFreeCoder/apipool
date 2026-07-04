@@ -64,6 +64,64 @@ func TestIsImageGenerationIntent(t *testing.T) {
 	}
 }
 
+func TestEffectiveImageGenerationIntentForOpenAIResponses_CodexStripPolicy(t *testing.T) {
+	stripAccount := &Account{
+		Platform: PlatformOpenAI,
+		Extra: map[string]any{
+			featureKeyCodexImageGenerationExplicitToolPolicy: codexImageGenerationExplicitToolPolicyStrip,
+		},
+	}
+	allowAccount := &Account{Platform: PlatformOpenAI}
+
+	tests := []struct {
+		name       string
+		account    *Account
+		isCodexCLI bool
+		model      string
+		body       []byte
+		want       bool
+	}{
+		{
+			name:       "codex strip policy removes explicit image tool intent",
+			account:    stripAccount,
+			isCodexCLI: true,
+			model:      "gpt-5.4",
+			body:       []byte(`{"model":"gpt-5.4","tools":[{"type":"function","name":"shell"},{"type":"image_generation"}],"tool_choice":{"type":"image_generation"}}`),
+			want:       false,
+		},
+		{
+			name:       "codex strip policy preserves image model intent",
+			account:    stripAccount,
+			isCodexCLI: true,
+			model:      "gpt-image-2",
+			body:       []byte(`{"model":"gpt-image-2","tools":[{"type":"image_generation"}]}`),
+			want:       true,
+		},
+		{
+			name:       "default account policy keeps explicit image tool intent",
+			account:    allowAccount,
+			isCodexCLI: true,
+			model:      "gpt-5.4",
+			body:       []byte(`{"model":"gpt-5.4","tools":[{"type":"image_generation"}]}`),
+			want:       true,
+		},
+		{
+			name:       "strip policy only applies to codex clients",
+			account:    stripAccount,
+			isCodexCLI: false,
+			model:      "gpt-5.4",
+			body:       []byte(`{"model":"gpt-5.4","tools":[{"type":"image_generation"}]}`),
+			want:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, EffectiveImageGenerationIntentForOpenAIResponses("/v1/responses", tt.model, tt.body, tt.isCodexCLI, tt.account))
+		})
+	}
+}
+
 func TestResolveOpenAIResponsesImageBillingConfigUsesCurrentBodyModel(t *testing.T) {
 	imageModel, imageSize, err := resolveOpenAIResponsesImageBillingConfigFromBody(
 		[]byte(`{"model":"mapped-image-model","tools":[{"type":"image_generation","size":"1024x1024"}]}`),

@@ -159,18 +159,58 @@ func TestOpenAIGatewayHandlerResponses_ImageIntentRejectedByImageConcurrency(t *
 	})
 	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 20, Concurrency: 1})
 
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Default.RateMultiplier = 1
+	cfg.Gateway.ImageConcurrency = config.ImageConcurrencyConfig{
+		Enabled:               true,
+		MaxConcurrentRequests: 1,
+		OverflowMode:          config.ImageConcurrencyOverflowModeReject,
+	}
+	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: []service.Account{{
+		ID:          101,
+		Name:        "openai-image-intent-account",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}}}
+	rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	gatewaySvc := service.NewOpenAIGatewayService(
+		accountRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		cfg,
+		nil,
+		nil,
+		service.NewBillingService(cfg, nil),
+		rateLimitSvc,
+		billingCacheSvc,
+		nil,
+		&service.DeferredService{},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
 	h := &OpenAIGatewayHandler{
-		gatewayService:          &service.OpenAIGatewayService{},
-		billingCacheService:     &service.BillingCacheService{},
+		gatewayService:          gatewaySvc,
+		billingCacheService:     billingCacheSvc,
 		apiKeyService:           &service.APIKeyService{},
 		concurrencyHelper:       &ConcurrencyHelper{concurrencyService: service.NewConcurrencyService(&helperConcurrencyCacheStub{userSeq: []bool{true}})},
 		errorPassthroughService: nil,
-		cfg: &config.Config{Gateway: config.GatewayConfig{ImageConcurrency: config.ImageConcurrencyConfig{
-			Enabled:               true,
-			MaxConcurrentRequests: 1,
-			OverflowMode:          config.ImageConcurrencyOverflowModeReject,
-		}}},
-		imageLimiter: &imageConcurrencyLimiter{},
+		cfg:                     cfg,
+		imageLimiter:            &imageConcurrencyLimiter{},
 	}
 	release, acquired := h.acquireImageGenerationSlot(c, false)
 	require.True(t, acquired)
@@ -227,4 +267,26 @@ func TestOpenAIGatewayHandlerResponses_TextOnlyNotRejectedByImageConcurrency(t *
 
 	require.NotEqual(t, http.StatusTooManyRequests, rec.Code)
 	require.NotContains(t, rec.Body.String(), "Image generation concurrency limit exceeded")
+}
+
+func TestOpenAIGatewayHandlerResponsesImageIntent_RespectsCodexStripPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-5.4","input":"draw","tools":[{"type":"function","name":"shell"},{"type":"image_generation"}],"tool_choice":{"type":"image_generation"}}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.98.0")
+
+	h := &OpenAIGatewayHandler{}
+	stripAccount := &service.Account{
+		Platform: service.PlatformOpenAI,
+		Extra: map[string]any{
+			"codex_image_generation_explicit_tool_policy": "strip",
+		},
+	}
+	allowAccount := &service.Account{Platform: service.PlatformOpenAI}
+
+	require.False(t, h.responsesImageGenerationIntent(c, stripAccount, "gpt-5.4", body))
+	require.True(t, h.shouldDeferCodexResponsesImageToolGate(c, "gpt-5.4", body))
+	require.True(t, h.responsesImageGenerationIntent(c, allowAccount, "gpt-5.4", body))
 }

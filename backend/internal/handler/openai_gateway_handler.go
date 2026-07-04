@@ -16,6 +16,7 @@ import (
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/reqlog"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -71,6 +72,28 @@ func newOpenAIModelMappedBodyCache(body []byte, replace openAIModelBodyReplaceFu
 		replacedBodies[mappedModel] = replacedBody
 		return replacedBody
 	}
+}
+
+func (h *OpenAIGatewayHandler) isOpenAICodexCLIRequest(c *gin.Context) bool {
+	if c != nil && openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) {
+		return true
+	}
+	return h != nil && h.cfg != nil && h.cfg.Gateway.ForceCodexCLI
+}
+
+func (h *OpenAIGatewayHandler) responsesImageGenerationIntent(c *gin.Context, account *service.Account, reqModel string, body []byte) bool {
+	return service.EffectiveImageGenerationIntentForOpenAIResponses(
+		"/v1/responses",
+		reqModel,
+		body,
+		h.isOpenAICodexCLIRequest(c),
+		account,
+	)
+}
+
+func (h *OpenAIGatewayHandler) shouldDeferCodexResponsesImageToolGate(c *gin.Context, reqModel string, body []byte) bool {
+	return h.isOpenAICodexCLIRequest(c) &&
+		!service.IsImageGenerationIntentAfterOpenAIImageToolStrip("/v1/responses", reqModel, body)
 }
 
 func usageRecordContext(parent context.Context, base context.Context) context.Context {
@@ -268,21 +291,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
-	imageIntent := service.IsImageGenerationIntent("/v1/responses", reqModel, body)
-	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+	if service.IsImageGenerationIntent("/v1/responses", reqModel, body) &&
+		!service.GroupAllowsImageGeneration(apiKey.Group) &&
+		!h.shouldDeferCodexResponsesImageToolGate(c, reqModel, body) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
-	}
-	var imageReleaseFunc func()
-	if imageIntent {
-		var imageAcquired bool
-		imageReleaseFunc, imageAcquired = h.acquireImageGenerationSlot(c, streamStarted)
-		if !imageAcquired {
-			return
-		}
-		if imageReleaseFunc != nil {
-			defer imageReleaseFunc()
-		}
 	}
 
 	// 解析渠道级模型映射
@@ -338,6 +351,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	imageSlotReserved := false
 
 	for {
 		// Select account supporting the requested model
@@ -413,6 +427,22 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
 		reqLog.Debug("openai.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
+
+		imageIntent := h.responsesImageGenerationIntent(c, account, reqModel, forwardBody)
+		if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+			h.handleStreamingAwareError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage(), streamStarted)
+			return
+		}
+		if imageIntent && !imageSlotReserved {
+			imageReleaseFunc, imageAcquired := h.acquireImageGenerationSlot(c, streamStarted)
+			if !imageAcquired {
+				return
+			}
+			imageSlotReserved = true
+			if imageReleaseFunc != nil {
+				defer imageReleaseFunc()
+			}
+		}
 
 		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if !acquired {
@@ -1349,7 +1379,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
-	if service.IsImageGenerationIntent("/v1/responses", reqModel, firstMessage) && !service.GroupAllowsImageGeneration(apiKey.Group) {
+	if service.IsImageGenerationIntent("/v1/responses", reqModel, firstMessage) &&
+		!service.GroupAllowsImageGeneration(apiKey.Group) &&
+		!h.shouldDeferCodexResponsesImageToolGate(c, reqModel, firstMessage) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
 		return
 	}
