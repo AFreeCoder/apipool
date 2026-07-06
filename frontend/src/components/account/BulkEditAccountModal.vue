@@ -1275,6 +1275,7 @@ import {
 import {
   buildHeaderOverridesObject,
   getHeaderOverrideTemplate,
+  hasEffectiveHeaderOverrideRows,
   isHeaderOverridePlatform,
   validateHeaderOverrideRows,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
@@ -1862,7 +1863,7 @@ const handleSubmit = async () => {
   if (enableHeaderOverride.value && headerOverrideEnabled.value) {
     // 批量保存对 header_overrides 是整键替换：开启但没有任何有效行会把所选账号的
     // 既有覆写配置静默清空，必须显式拦截（清空请走关闭开关的路径，有专门提示）
-    if (!headerOverrideRows.value.some((row) => row.name.trim())) {
+    if (!hasEffectiveHeaderOverrideRows(headerOverrideRows.value)) {
       appStore.showError(t('admin.accounts.headerOverride.bulkEmptyRows'))
       return
     }

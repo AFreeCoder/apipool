@@ -243,6 +243,25 @@ func NormalizeHeaderOverrideCredentials(credentials map[string]any) error {
 	return nil
 }
 
+func ValidateBulkHeaderOverrideCredentials(credentials map[string]any) error {
+	if credentials == nil {
+		return nil
+	}
+	enabled, hasEnabled := credentials[credKeyHeaderOverrideEnabled].(bool)
+	if !hasEnabled || !enabled {
+		return nil
+	}
+	raw, hasOverrides := credentials[credKeyHeaderOverrides]
+	if !hasOverrides {
+		return nil
+	}
+	if len(resolveHeaderOverrides(stringMappingFromRaw(raw))) == 0 {
+		return infraerrors.New(http.StatusBadRequest, "INVALID_HEADER_OVERRIDE",
+			"enabled header_overrides must include at least one non-empty header value in bulk update")
+	}
+	return nil
+}
+
 // normalizeHeaderOverrideEntry 校验并规范化单个覆写条目，保存路径（Normalize，err → 400）
 // 与应用路径（resolveHeaderOverrides，err → 跳过）共用同一套规则，避免两处校验漂移。
 // 名和值均为空表示空占位行，返回 ("", "", nil)；空 value 的具名条目合法（模板占位）。

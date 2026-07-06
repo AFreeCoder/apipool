@@ -9,6 +9,7 @@ import {
   buildKiroCredentials,
   buildHeaderOverridesObject,
   getHeaderOverrideTemplate,
+  hasEffectiveHeaderOverrideRows,
   isHeaderOverridePlatform,
   splitHeaderOverridesObject,
   validateHeaderOverrideRows
@@ -196,6 +197,23 @@ describe('buildHeaderOverridesObject / splitHeaderOverridesObject', () => {
       { name: 'x-app', value: 'cli' }
     ]
     expect(splitHeaderOverridesObject(buildHeaderOverridesObject(rows))).toEqual(rows)
+  })
+})
+
+describe('hasEffectiveHeaderOverrideRows', () => {
+  it('requires both a header name and a non-empty value for bulk replacement safety', () => {
+    expect(
+      hasEffectiveHeaderOverrideRows([
+        { name: 'user-agent', value: '' },
+        { name: '', value: 'ignored' }
+      ])
+    ).toBe(false)
+    expect(
+      hasEffectiveHeaderOverrideRows([
+        { name: 'user-agent', value: ' my-agent ' },
+        { name: 'x-app', value: '' }
+      ])
+    ).toBe(true)
   })
 })
 

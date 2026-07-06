@@ -3986,11 +3986,23 @@ func (s *SettingService) openAIAdvancedSchedulerEffectiveWeights() config.Gatewa
 	}
 
 	weights := s.cfg.Gateway.OpenAIWS.SchedulerScoreWeights
-	baseSum := weights.Priority + weights.Load + weights.Queue + weights.ErrorRate + weights.TTFT + weights.QuotaHeadroom
-	if baseSum <= 0 {
+	weightSum := openAIAdvancedSchedulerWeightSum(weights)
+	if weightSum <= 0 {
 		return defaults
 	}
 	return weights
+}
+
+func openAIAdvancedSchedulerWeightSum(weights config.GatewayOpenAIWSSchedulerScoreWeights) float64 {
+	return weights.Priority +
+		weights.Load +
+		weights.Queue +
+		weights.ErrorRate +
+		weights.TTFT +
+		weights.Reset +
+		weights.QuotaHeadroom +
+		weights.PreviousResponse +
+		weights.SessionSticky
 }
 
 func formatOpenAIAdvancedSchedulerFloat(value float64) string {
@@ -4024,17 +4036,20 @@ func (s *SettingService) normalizeOpenAIAdvancedSchedulerOverrides(settings *Sys
 	}
 
 	// 与 config.Validate 的 "scheduler_score_weights must not all be zero" 保持一致：
-	// 覆盖值（空则回退到生效的配置值）叠加后的基础权重和不允许为 0，
+	// 覆盖值（空则回退到生效的配置值）叠加后的权重和不允许为 0，
 	// 否则调度会静默退化为 TopK 内均匀随机。
 	effective := s.openAIAdvancedSchedulerEffectiveWeights()
-	baseSum := resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightPriority, effective.Priority) +
+	weightSum := resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightPriority, effective.Priority) +
 		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightLoad, effective.Load) +
 		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightQueue, effective.Queue) +
 		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightErrorRate, effective.ErrorRate) +
 		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightTTFT, effective.TTFT) +
-		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightQuotaHeadroom, effective.QuotaHeadroom)
-	if baseSum <= 0 {
-		return infraerrors.BadRequest("INVALID_OPENAI_ADVANCED_SCHEDULER_WEIGHT", "openai advanced scheduler base weights must not all be zero")
+		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightReset, effective.Reset) +
+		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightQuotaHeadroom, effective.QuotaHeadroom) +
+		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightPreviousResponse, effective.PreviousResponse) +
+		resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightSessionSticky, effective.SessionSticky)
+	if weightSum <= 0 {
+		return infraerrors.BadRequest("INVALID_OPENAI_ADVANCED_SCHEDULER_WEIGHT", "openai advanced scheduler weights must not all be zero")
 	}
 	return nil
 }

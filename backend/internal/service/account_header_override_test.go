@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -335,5 +336,42 @@ func TestNormalizeHeaderOverrideCredentials(t *testing.T) {
 			credKeyHeaderOverrides: map[string]any{"x-app": string(big)},
 		})
 		require.Error(t, err)
+	})
+}
+
+func TestValidateBulkHeaderOverrideCredentials(t *testing.T) {
+	t.Run("allows disabled clear", func(t *testing.T) {
+		creds := map[string]any{
+			credKeyHeaderOverrideEnabled: false,
+			credKeyHeaderOverrides:       map[string]any{},
+		}
+		require.NoError(t, NormalizeHeaderOverrideCredentials(creds))
+		require.NoError(t, ValidateBulkHeaderOverrideCredentials(creds))
+	})
+
+	t.Run("rejects enabled overrides without effective value", func(t *testing.T) {
+		creds := map[string]any{
+			credKeyHeaderOverrideEnabled: true,
+			credKeyHeaderOverrides: map[string]any{
+				" User-Agent ": "",
+				"":             "",
+			},
+		}
+		require.NoError(t, NormalizeHeaderOverrideCredentials(creds))
+		err := ValidateBulkHeaderOverrideCredentials(creds)
+		require.Error(t, err)
+		require.Equal(t, "INVALID_HEADER_OVERRIDE", infraerrors.Reason(err))
+	})
+
+	t.Run("allows enabled overrides with at least one effective value", func(t *testing.T) {
+		creds := map[string]any{
+			credKeyHeaderOverrideEnabled: true,
+			credKeyHeaderOverrides: map[string]any{
+				" User-Agent ": " cli ",
+				"X-App":        "",
+			},
+		}
+		require.NoError(t, NormalizeHeaderOverrideCredentials(creds))
+		require.NoError(t, ValidateBulkHeaderOverrideCredentials(creds))
 	})
 }

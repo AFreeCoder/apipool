@@ -387,6 +387,49 @@ func TestSettingService_GetAllSettings_OpenAIAdvancedSchedulerEffectiveValuesUse
 	require.Equal(t, "10", settings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky)
 }
 
+func TestSettingService_UpdateSettings_OpenAIAdvancedSchedulerAllowsResetOnly(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights = config.GatewayOpenAIWSSchedulerScoreWeights{
+		Reset: 1,
+	}
+	svc := NewSettingService(repo, cfg)
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		OpenAIAdvancedSchedulerWeightPriority:         "0",
+		OpenAIAdvancedSchedulerWeightLoad:             "0",
+		OpenAIAdvancedSchedulerWeightQueue:            "0",
+		OpenAIAdvancedSchedulerWeightErrorRate:        "0",
+		OpenAIAdvancedSchedulerWeightTTFT:             "0",
+		OpenAIAdvancedSchedulerWeightReset:            "1",
+		OpenAIAdvancedSchedulerWeightQuotaHeadroom:    "0",
+		OpenAIAdvancedSchedulerWeightPreviousResponse: "0",
+		OpenAIAdvancedSchedulerWeightSessionSticky:    "0",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "1", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightReset])
+}
+
+func TestSettingService_UpdateSettings_OpenAIAdvancedSchedulerRejectsAllZeroWeights(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		OpenAIAdvancedSchedulerWeightPriority:         "0",
+		OpenAIAdvancedSchedulerWeightLoad:             "0",
+		OpenAIAdvancedSchedulerWeightQueue:            "0",
+		OpenAIAdvancedSchedulerWeightErrorRate:        "0",
+		OpenAIAdvancedSchedulerWeightTTFT:             "0",
+		OpenAIAdvancedSchedulerWeightReset:            "0",
+		OpenAIAdvancedSchedulerWeightQuotaHeadroom:    "0",
+		OpenAIAdvancedSchedulerWeightPreviousResponse: "0",
+		OpenAIAdvancedSchedulerWeightSessionSticky:    "0",
+	})
+	require.Error(t, err)
+	require.Equal(t, "INVALID_OPENAI_ADVANCED_SCHEDULER_WEIGHT", infraerrors.Reason(err))
+	require.Nil(t, repo.updates)
+}
+
 func TestSettingService_UpdateSettings_AntigravityUserAgentVersion(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})

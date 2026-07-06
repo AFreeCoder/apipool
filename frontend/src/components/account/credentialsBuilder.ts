@@ -236,6 +236,10 @@ export function buildHeaderOverridesObject(rows: HeaderOverrideRow[]): Record<st
   return result
 }
 
+export function hasEffectiveHeaderOverrideRows(rows: HeaderOverrideRow[]): boolean {
+  return rows.some((row) => row.name.trim() !== '' && row.value.trim() !== '')
+}
+
 /** credentials 存储对象 → 行数组（按名称排序保证稳定展示） */
 export function splitHeaderOverridesObject(record: unknown): HeaderOverrideRow[] {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return []
