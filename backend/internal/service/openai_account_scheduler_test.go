@@ -1002,6 +1002,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_Enabled_ChatCompletions
 		OpenAIUpstreamTransportAny,
 		OpenAIEndpointCapabilityChatCompletions,
 		false,
+		false,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, selection)

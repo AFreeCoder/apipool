@@ -1791,6 +1791,8 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.Reset = 0
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom = 0
+				c.Gateway.OpenAIWS.SchedulerScoreWeights.PreviousResponse = 0
+				c.Gateway.OpenAIWS.SchedulerScoreWeights.SessionSticky = 0
 			},
 			wantErr: "gateway.openai_ws.scheduler_score_weights must not all be zero",
 		},
