@@ -506,6 +506,11 @@ type UsageLog struct {
 	ImageSizeBreakdown map[string]int `json:"image_size_breakdown"`
 	MediaType          *string        `json:"media_type"`
 
+	// 视频生成字段
+	VideoCount           int     `json:"video_count"`
+	VideoResolution      *string `json:"video_resolution"`
+	VideoDurationSeconds *int    `json:"video_duration_seconds"`
+
 	// User-Agent
 	UserAgent *string `json:"user_agent"`
 	// IPAddress is visible to the owner of the usage record.
@@ -514,7 +519,7 @@ type UsageLog struct {
 	// Cache TTL Override 标记
 	CacheTTLOverridden bool `json:"cache_ttl_overridden"`
 
-	// BillingMode 计费模式：token/image
+	// BillingMode 计费模式：token/image/video
 	BillingMode *string `json:"billing_mode,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`

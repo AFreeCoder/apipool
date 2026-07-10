@@ -104,7 +104,6 @@ func buildOpenAICompactSSEPayload(finalResponse []byte) ([]byte, bool) {
 	}
 
 	var buf bytes.Buffer
-	outputIndex := 0
 	appendEvent := func(eventType string, data []byte) {
 		_, _ = buf.WriteString("event: ")
 		_, _ = buf.WriteString(eventType)
@@ -112,6 +111,22 @@ func buildOpenAICompactSSEPayload(finalResponse []byte) ([]byte, bool) {
 		_, _ = buf.Write(data)
 		_, _ = buf.WriteString("\n\n")
 	}
+
+	status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(response, "status").String()))
+	terminalEventType, ok := openAICompactTerminalEventType(status)
+	if !ok {
+		return nil, false
+	}
+	if terminalEventType != "response.completed" {
+		terminal, err := sjson.SetRawBytes([]byte(`{"type":"`+terminalEventType+`"}`), "response", response)
+		if err != nil {
+			return nil, false
+		}
+		appendEvent(terminalEventType, terminal)
+		return buf.Bytes(), true
+	}
+
+	outputIndex := 0
 	for _, item := range gjson.GetBytes(response, "output").Array() {
 		if !item.IsObject() {
 			continue
@@ -134,6 +149,23 @@ func buildOpenAICompactSSEPayload(finalResponse []byte) ([]byte, bool) {
 	}
 	appendEvent("response.completed", completed)
 	return buf.Bytes(), true
+}
+
+func openAICompactTerminalEventType(status string) (string, bool) {
+	switch status {
+	case "", "completed":
+		return "response.completed", true
+	case "failed":
+		return "response.failed", true
+	case "incomplete":
+		return "response.incomplete", true
+	case "cancelled":
+		return "response.cancelled", true
+	case "canceled":
+		return "response.canceled", true
+	default:
+		return "", false
+	}
 }
 
 func openAICompactUsageParsableByCodex(usage gjson.Result) bool {

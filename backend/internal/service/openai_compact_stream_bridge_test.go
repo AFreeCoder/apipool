@@ -133,6 +133,47 @@ func TestBuildOpenAICompactSSEPayload_KeepsWellFormedUsage(t *testing.T) {
 	require.Equal(t, int64(2), gjson.Get(completed, "response.usage.input_tokens_details.cached_tokens").Int())
 }
 
+func TestBuildOpenAICompactSSEPayload_EmitsNonCompletedTerminalStatus(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status string
+		event  string
+	}{
+		"failed":     {status: "failed", event: "response.failed"},
+		"incomplete": {status: "incomplete", event: "response.incomplete"},
+		"cancelled":  {status: "cancelled", event: "response.cancelled"},
+		"canceled":   {status: "canceled", event: "response.canceled"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			payload, ok := buildOpenAICompactSSEPayload([]byte(`{
+				"id":"resp_terminal",
+				"object":"response",
+				"status":"` + tc.status + `",
+				"output":[{"type":"compaction","encrypted_content":"partial"}],
+				"usage":{"input_tokens":9,"output_tokens":0,"total_tokens":9}
+			}`))
+			require.True(t, ok)
+
+			events := parseCompactBridgeSSE(t, string(payload))
+			require.Len(t, events, 1)
+			require.Equal(t, tc.event, events[0][0])
+			require.Equal(t, tc.event, gjson.Get(events[0][1], "type").String())
+			require.Equal(t, "resp_terminal", gjson.Get(events[0][1], "response.id").String())
+			require.Equal(t, tc.status, gjson.Get(events[0][1], "response.status").String())
+			require.NotContains(t, string(payload), "response.completed")
+			require.NotContains(t, string(payload), "response.output_item.done")
+		})
+	}
+}
+
+func TestBuildOpenAICompactSSEPayload_RejectsUnknownTerminalStatus(t *testing.T) {
+	_, ok := buildOpenAICompactSSEPayload([]byte(`{
+		"id":"resp_1",
+		"status":"in_progress",
+		"output":[{"type":"compaction","encrypted_content":"x"}]
+	}`))
+	require.False(t, ok)
+}
+
 func TestBuildOpenAICompactSSEPayload_RejectsNonJSONObject(t *testing.T) {
 	for name, body := range map[string][]byte{
 		"empty":     nil,
@@ -283,4 +324,33 @@ func TestHandleNonStreamingResponsePassthrough_CompactClientStreamBridgesToSSE(t
 	require.Equal(t, "resp_compact_pt", gjson.Get(events[1][1], "response.id").String())
 	require.NotNil(t, result.usage)
 	require.Equal(t, 7, result.usage.InputTokens)
+}
+
+func TestHandleNonStreamingResponsePassthrough_CompactClientStreamPreservesIncompleteTerminal(t *testing.T) {
+	svc := newCompactBridgeTestService()
+	c, rec := newCompactBridgeTestContext(t, true)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"id":"resp_compact_incomplete",
+			"object":"response",
+			"status":"incomplete",
+			"incomplete_details":{"reason":"max_output_tokens"},
+			"usage":{"input_tokens":7,"output_tokens":0,"total_tokens":7}
+		}`)),
+	}
+
+	result, err := svc.handleNonStreamingResponsePassthrough(context.Background(), resp, c, "gpt-5.5", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	require.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	events := parseCompactBridgeSSE(t, rec.Body.String())
+	require.Len(t, events, 1)
+	require.Equal(t, "response.incomplete", events[0][0])
+	require.Equal(t, "response.incomplete", gjson.Get(events[0][1], "type").String())
+	require.Equal(t, "resp_compact_incomplete", gjson.Get(events[0][1], "response.id").String())
+	require.Equal(t, "max_output_tokens", gjson.Get(events[0][1], "response.incomplete_details.reason").String())
+	require.NotContains(t, rec.Body.String(), "response.completed")
 }

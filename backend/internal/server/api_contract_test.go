@@ -681,6 +681,9 @@ func TestAPIContracts(t *testing.T) {
 							"image_size_source": null,
 							"image_size_breakdown": null,
 							"media_type": null,
+							"video_count": 0,
+							"video_resolution": null,
+							"video_duration_seconds": null,
 							"cache_ttl_overridden": false,
 							"created_at": "2025-01-02T03:04:05Z",
 							"user_agent": null

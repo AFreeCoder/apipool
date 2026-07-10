@@ -111,8 +111,16 @@
         </template>
 
         <template #cell-tokens="{ row }">
+          <!-- 视频生成请求 -->
+          <div v-if="isVideoUsage(row)" class="flex items-center gap-1.5">
+            <svg class="h-4 w-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <span class="font-medium text-gray-900 dark:text-white">{{ row.video_count || 1 }}{{ t('usage.videoUnit') }}</span>
+            <span class="text-gray-400">({{ formatVideoUsageDetails(row) }})</span>
+          </div>
           <!-- 图片生成请求（仅按次计费时显示图片格式） -->
-          <div v-if="isImageUsage(row)" class="flex items-center gap-1.5">
+          <div v-else-if="isImageUsage(row)" class="flex items-center gap-1.5">
             <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
@@ -331,7 +339,7 @@
               <span class="font-medium text-pink-300">${{ tooltipData.image_output_cost.toFixed(6) }}</span>
             </div>
             <!-- Token billing: show unit prices per 1M tokens -->
-            <template v-if="!tooltipData || getDisplayBillingMode(tooltipData) === BILLING_MODE_TOKEN">
+            <template v-if="!tooltipData || (getDisplayBillingMode(tooltipData) === BILLING_MODE_TOKEN && !isVideoUsage(tooltipData))">
               <div v-if="tooltipData && tooltipData.input_tokens > 0" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.inputTokenPrice') }}</span>
                 <span class="font-medium text-sky-300">{{ formatTokenPricePerMillion(tooltipData.input_cost, tooltipData.input_tokens) }} {{ t('usage.perMillionTokens') }}</span>
@@ -343,6 +351,28 @@
               <div v-if="tooltipData && hasImageOutputTokens(tooltipData)" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.imageOutputTokenPrice') }}</span>
                 <span class="font-medium text-pink-300">{{ formatTokenPricePerMillion(tooltipData.image_output_cost ?? 0, tooltipData.image_output_tokens) }} {{ t('usage.perMillionTokens') }}</span>
+              </div>
+            </template>
+            <template v-else-if="tooltipData && isVideoUsage(tooltipData)">
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoCount') }}</span>
+                <span class="font-medium text-white">{{ tooltipData.video_count || 1 }}{{ t('usage.videoUnit') }}</span>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoResolution') }}</span>
+                <span class="font-medium text-white">{{ formatVideoResolution(tooltipData) }}</span>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoDuration') }}</span>
+                <span class="font-medium text-white">{{ formatVideoDuration(tooltipData) }}</span>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoEffectiveUnitPrice') }}</span>
+                <span class="font-medium text-sky-300">${{ videoUnitPrice(tooltipData).toFixed(6) }}</span>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoTotalPrice') }}</span>
+                <span class="font-medium text-white">${{ tooltipData.total_cost?.toFixed(6) || '0.000000' }}</span>
               </div>
             </template>
             <template v-else-if="tooltipData && isImageUsage(tooltipData)">
@@ -454,6 +484,7 @@ import {
   getBillingModeLabel,
   getBillingModeBadgeClass,
   isImageUsage,
+  isVideoUsage,
   getDisplayBillingMode,
   imageUnitPrice,
 } from '@/utils/billingMode'
@@ -585,6 +616,30 @@ const formatDuration = (ms: number | null | undefined): string => {
   const totalSec = Math.round(ms / 1000)
   if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
+}
+
+type VideoUsageRow = Pick<AdminUsageLog, 'video_count' | 'video_resolution' | 'video_duration_seconds' | 'total_cost'>
+
+const formatVideoResolution = (row: VideoUsageRow | null | undefined): string => {
+  return row?.video_resolution || t('usage.imageSizeUnknown')
+}
+
+const formatVideoDuration = (row: VideoUsageRow | null | undefined): string => {
+  const seconds = row?.video_duration_seconds
+  if (seconds == null || seconds <= 0) return t('usage.imageSizeUnknown')
+  return `${seconds}s`
+}
+
+const formatVideoUsageDetails = (row: VideoUsageRow | null | undefined): string => {
+  return `${formatVideoResolution(row)} · ${formatVideoDuration(row)}`
+}
+
+const videoUnitPrice = (row: VideoUsageRow | null | undefined): number => {
+  const count = row?.video_count && row.video_count > 0 ? row.video_count : 1
+  const seconds = row?.video_duration_seconds && row.video_duration_seconds > 0 ? row.video_duration_seconds : 0
+  if (!row || seconds <= 0) return 0
+  const price = (row.total_cost ?? 0) / count / seconds
+  return Number.isFinite(price) ? price : 0
 }
 
 // Cost tooltip functions

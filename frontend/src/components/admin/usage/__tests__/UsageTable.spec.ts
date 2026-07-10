@@ -48,9 +48,17 @@ const messages: Record<string, string> = {
   'usage.imageSizeUnknown': 'unknown',
   'usage.imageUnitPrice': 'Per-image price',
   'usage.imageTotalPrice': 'Image total price',
+  'usage.videoUnit': ' videos',
+  'usage.videoCount': 'Video count',
+  'usage.videoResolution': 'Resolution',
+  'usage.videoDuration': 'Duration',
+  'usage.videoDurationSeconds': 'Video duration (s)',
+  'usage.videoEffectiveUnitPrice': 'Effective price / s',
+  'usage.videoTotalPrice': 'Video total price',
   'admin.usage.billingModeToken': 'Token',
   'admin.usage.billingModePerRequest': 'Per request',
   'admin.usage.billingModeImage': 'Image',
+  'admin.usage.billingModeVideo': 'Video',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -103,6 +111,9 @@ const baseImageRow = {
   image_output_size: null,
   image_size_source: null,
   image_size_breakdown: null,
+  video_count: 0,
+  video_resolution: null,
+  video_duration_seconds: null,
 }
 
 describe('admin UsageTable tooltip', () => {
@@ -328,6 +339,52 @@ describe('admin UsageTable tooltip', () => {
     expect(text).toContain('Per-image price')
     expect(text).toContain('not recorded')
     expect(text).not.toContain('(2K)')
+  })
+
+  it('shows video usage metadata in the row and cost tooltip', async () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          {
+            ...baseImageRow,
+            request_id: 'req-admin-video',
+            model: 'grok-imagine-video',
+            billing_mode: 'video',
+            image_count: 0,
+            image_size: null,
+            total_cost: 0.35,
+            actual_cost: 0.35,
+            video_count: 1,
+            video_resolution: '720p',
+            video_duration_seconds: 5,
+          },
+        ],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    await wrapper.find('.group.relative').trigger('mouseenter')
+    await nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('Video')
+    expect(text).toContain('1 videos')
+    expect(text).toContain('720p · 5s')
+    expect(text).toContain('Video count')
+    expect(text).toContain('Resolution')
+    expect(text).toContain('Duration')
+    expect(text).toContain('Effective price / s')
+    expect(text).toContain('$0.070000')
+    expect(text).toContain('Video total price')
   })
 })
 

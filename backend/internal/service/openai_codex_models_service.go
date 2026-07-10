@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,6 +26,42 @@ type CodexModelsManifest struct {
 	Body        []byte
 	ETag        string
 	NotModified bool
+}
+
+// SelectCodexModelsAccount selects a schedulable OpenAI OAuth account that can
+// call ChatGPT backend APIs. Plain OpenAI API-key accounts can serve gateway
+// traffic but do not carry the access_token required by the Codex models
+// manifest endpoint.
+func (s *OpenAIGatewayService) SelectCodexModelsAccount(ctx context.Context, groupID *int64) (*Account, error) {
+	if s == nil {
+		return nil, errors.New("openai gateway service is required")
+	}
+	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
+	if err != nil {
+		return nil, fmt.Errorf("query accounts failed: %w", err)
+	}
+
+	var selected *Account
+	for i := range accounts {
+		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, &accounts[i], PlatformOpenAI, "", false, "")
+		if fresh == nil || !fresh.IsOpenAIOAuth() {
+			continue
+		}
+		credAccount, err := resolveCredentialAccount(ctx, s.accountRepo, fresh)
+		if err != nil || credAccount == nil || credAccount.GetOpenAIAccessToken() == "" {
+			continue
+		}
+		if selected == nil || s.isBetterAccount(fresh, selected) {
+			selected = fresh
+		}
+	}
+
+	if selected == nil {
+		return nil, errors.New("no available OpenAI OAuth accounts")
+	}
+	return s.hydrateSelectedAccount(ctx, selected)
 }
 
 // FetchCodexModelsManifest fetches the live Codex models manifest from the

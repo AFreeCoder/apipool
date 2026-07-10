@@ -181,6 +181,8 @@ func TestUserUsageListKeepsUserBillingAndIPWithoutAdminCostFields(t *testing.T) 
 	channelID := int64(99)
 	accountRateMultiplier := 1.7
 	accountStatsCost := 0.12
+	videoResolution := "720p"
+	videoDurationSeconds := 5
 	repo := &userUsageRepoCapture{
 		listRows: []service.UsageLog{{
 			ID:                    1,
@@ -196,6 +198,9 @@ func TestUserUsageListKeepsUserBillingAndIPWithoutAdminCostFields(t *testing.T) 
 			TotalCost:             0.10,
 			ActualCost:            0.08,
 			RateMultiplier:        0.8,
+			VideoCount:            1,
+			VideoResolution:       &videoResolution,
+			VideoDurationSeconds:  &videoDurationSeconds,
 			IPAddress:             &ipAddress,
 			UpstreamModel:         &upstreamModel,
 			BillingTier:           &billingTier,
@@ -219,6 +224,9 @@ func TestUserUsageListKeepsUserBillingAndIPWithoutAdminCostFields(t *testing.T) 
 	require.Contains(t, body, `"total_cost":0.1`)
 	require.Contains(t, body, `"actual_cost":0.08`)
 	require.Contains(t, body, `"rate_multiplier":0.8`)
+	require.Contains(t, body, `"video_count":1`)
+	require.Contains(t, body, `"video_resolution":"720p"`)
+	require.Contains(t, body, `"video_duration_seconds":5`)
 	require.Contains(t, body, `"ip_address":"203.0.113.10"`)
 	require.NotContains(t, body, "upstream_endpoint")
 	require.NotContains(t, body, "account_rate_multiplier")

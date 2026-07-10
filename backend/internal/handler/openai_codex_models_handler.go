@@ -30,9 +30,9 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 
-	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, "", "")
+	account, err := h.gatewayService.SelectCodexModelsAccount(c.Request.Context(), apiKey.GroupID)
 	if err != nil {
-		h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI accounts")
+		h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI OAuth accounts")
 		return
 	}
 

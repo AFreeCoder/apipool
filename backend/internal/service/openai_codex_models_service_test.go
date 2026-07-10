@@ -136,3 +136,59 @@ func TestFetchCodexModelsManifestMissingToken(t *testing.T) {
 		t.Fatal("expected error for missing access token, got nil")
 	}
 }
+
+func TestSelectCodexModelsAccountSkipsAPIKeyAndOAuthWithoutToken(t *testing.T) {
+	s := &OpenAIGatewayService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:          1,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{"api_key": "sk-test"},
+			},
+			{
+				ID:          2,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{"chatgpt_account_id": "acc-missing-token"},
+			},
+			{
+				ID:          3,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{"access_token": "oauth-token"},
+			},
+		}},
+	}
+
+	account, err := s.SelectCodexModelsAccount(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("SelectCodexModelsAccount returned error: %v", err)
+	}
+	if account.ID != 3 {
+		t.Fatalf("selected account ID = %d, want 3", account.ID)
+	}
+}
+
+func TestSelectCodexModelsAccountReturnsErrorWhenOnlyAPIKeyAccountsExist(t *testing.T) {
+	s := &OpenAIGatewayService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{{
+			ID:          1,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{"api_key": "sk-test"},
+		}}},
+	}
+
+	if _, err := s.SelectCodexModelsAccount(context.Background(), nil); err == nil {
+		t.Fatal("expected error when no OAuth accounts are available")
+	}
+}
