@@ -52,7 +52,11 @@ func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsR
 				declared[tool.Function.Name] = true
 			}
 		}
-		if tc := responsesToolChoiceToChatToolChoice(req.ToolChoice, declared); len(tc) > 0 {
+		tc, err := responsesToolChoiceToChatToolChoice(req.ToolChoice, declared, NamespaceToolNames(req.Tools))
+		if err != nil {
+			return nil, err
+		}
+		if len(tc) > 0 {
 			out.ToolChoice = tc
 		}
 	}
@@ -715,14 +719,14 @@ func flattenNamespaceToolName(namespace, name string) string {
 }
 
 // responsesToolChoiceToChatToolChoice 把 Responses 的 tool_choice 转为 chat 形态。
-// declared 是转换后实际声明的 chat 工具名集合：具名选择项仅在目标工具幸存时转发，
-// 服务端工具（web_search 等）的选择项随工具本身丢弃——指向未声明工具的 tool_choice
-// 会被 chat 上游 400 拒绝。返回 nil 表示丢弃 tool_choice。
-func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[string]bool) json.RawMessage {
+// declared 是转换后实际声明的 chat 工具名集合；namespaceTools 用于把协议中仅带
+// 裸子工具名的强制选择映射到摊平名。裸名同时命中多个 namespace 时无法可靠判断
+// 目标，必须显式报错。返回 nil 表示选择项指向已丢弃或未声明的工具。
+func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[string]bool, namespaceTools map[string]NamespacedToolName) (json.RawMessage, error) {
 	var choice map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &choice); err != nil {
 		// "auto"/"none"/"required" 等字符串形式原样转发。
-		return raw
+		return raw, nil
 	}
 	var name string
 	switch rawString(choice["type"]) {
@@ -738,13 +742,30 @@ func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[strin
 			name = rawNestedString(choice["function"], "name")
 		}
 		if name == "" {
-			return raw
+			return raw, nil
 		}
 	default:
-		return nil
+		return nil, nil
 	}
-	if !declared[name] {
-		return nil
+
+	requestedNamespace := rawString(choice["namespace"])
+	if requestedNamespace != "" || !declared[name] {
+		flatName := ""
+		var matched NamespacedToolName
+		for flat, candidate := range namespaceTools {
+			if candidate.Name != name || (requestedNamespace != "" && candidate.Namespace != requestedNamespace) {
+				continue
+			}
+			if flatName != "" && flatName != flat {
+				return nil, fmt.Errorf("tool_choice function %q matches multiple namespace tools (%s/%s and %s/%s); this upstream cannot disambiguate them", name, matched.Namespace, matched.Name, candidate.Namespace, candidate.Name)
+			}
+			flatName = flat
+			matched = candidate
+		}
+		if flatName == "" {
+			return nil, nil
+		}
+		name = flatName
 	}
 	out, err := json.Marshal(map[string]any{
 		"type": "function",
@@ -753,9 +774,9 @@ func responsesToolChoiceToChatToolChoice(raw json.RawMessage, declared map[strin
 		},
 	})
 	if err != nil {
-		return raw
+		return nil, err
 	}
-	return out
+	return out, nil
 }
 
 // extractCustomToolCallInput 从降级 function 调用的 arguments 中还原 custom 工具的

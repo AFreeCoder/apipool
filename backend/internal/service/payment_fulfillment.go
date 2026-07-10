@@ -2,13 +2,16 @@ package service
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"entgo.io/ent/dialect"
@@ -29,6 +32,10 @@ import (
 var ErrOrderNotFound = errors.New("payment order not found")
 
 const paymentFulfillmentLeaseDuration = 5 * time.Minute
+
+const paymentSubscriptionAssignmentLockShards = 256
+
+var paymentSubscriptionAssignmentLocks [paymentSubscriptionAssignmentLockShards]sync.Mutex
 
 type paymentFulfillmentLease struct {
 	version time.Time
@@ -515,6 +522,11 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 	if s.subscriptionSvc == nil {
 		return errors.New("subscription service is unavailable")
 	}
+	// 两笔不同订单可以同时进入各自的履约事务；若它们命中同一用户/分组，
+	// 绝对 expires_at 更新会发生丢失续期。进程锁覆盖 SQLite/单实例，事务级
+	// advisory lock 覆盖 PostgreSQL 多实例，并且也能锁住“订阅尚不存在”的键。
+	unlock := lockPaymentSubscriptionAssignmentProcess(o.UserID, groupID)
+	defer unlock()
 
 	tx, err := s.entClient.Tx(ctx)
 	if err != nil {
@@ -524,6 +536,9 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 
 	txCtx := dbent.NewTxContext(ctx, tx)
 	txClient := tx.Client()
+	if err := acquirePaymentSubscriptionAssignmentDBLock(txCtx, txClient, o.UserID, groupID); err != nil {
+		return fmt.Errorf("lock subscription assignment: %w", err)
+	}
 	alreadyAssigned, err := hasPaymentSubscriptionAssignmentAudit(txCtx, txClient, o.ID)
 	if err != nil {
 		return fmt.Errorf("check subscription assignment audit: %w", err)
@@ -583,6 +598,31 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 		return fmt.Errorf("invalidate subscription cache after fulfillment: %w", err)
 	}
 	return nil
+}
+
+func paymentSubscriptionAssignmentLockID(userID, groupID int64) uint64 {
+	var key [16]byte
+	binary.LittleEndian.PutUint64(key[:8], uint64(userID))
+	binary.LittleEndian.PutUint64(key[8:], uint64(groupID))
+	h := fnv.New64a()
+	_, _ = h.Write(key[:])
+	return h.Sum64()
+}
+
+func lockPaymentSubscriptionAssignmentProcess(userID, groupID int64) func() {
+	lockID := paymentSubscriptionAssignmentLockID(userID, groupID)
+	mu := &paymentSubscriptionAssignmentLocks[lockID%paymentSubscriptionAssignmentLockShards]
+	mu.Lock()
+	return mu.Unlock
+}
+
+func acquirePaymentSubscriptionAssignmentDBLock(ctx context.Context, client *dbent.Client, userID, groupID int64) error {
+	if paymentAuditDialect(client) != dialect.Postgres {
+		return nil
+	}
+	// PostgreSQL advisory lock 接受 signed bigint；位模式保持稳定即可，负数合法。
+	_, err := client.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", int64(paymentSubscriptionAssignmentLockID(userID, groupID)))
+	return err
 }
 
 func hasPaymentSubscriptionAssignmentAudit(ctx context.Context, client *dbent.Client, orderID int64) (bool, error) {

@@ -296,7 +296,9 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		if contentType == "" {
 			contentType = "application/json"
 		}
-		c.Data(resp.StatusCode, contentType, body)
+		if !writeOpenAICompactSSEErrorIfCommitted(c, resp.StatusCode, code, cyberMsg) {
+			c.Data(resp.StatusCode, contentType, body)
+		}
 		if cyberMsg == "" {
 			return nil, fmt.Errorf("openai cyber_policy: %d", resp.StatusCode)
 		}
@@ -337,12 +339,14 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		"Upstream request failed",
 	); matched {
 		MarkResponseCommitted(c)
-		c.JSON(status, gin.H{
-			"error": gin.H{
-				"type":    errType,
-				"message": errMsg,
-			},
-		})
+		if !writeOpenAICompactSSEErrorIfCommitted(c, status, errType, errMsg) {
+			c.JSON(status, gin.H{
+				"error": gin.H{
+					"type":    errType,
+					"message": errMsg,
+				},
+			})
+		}
 		if upstreamMsg == "" {
 			upstreamMsg = errMsg
 		}
@@ -365,12 +369,14 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			Detail:             upstreamDetail,
 		})
 		MarkResponseCommitted(c)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"type":    "upstream_error",
-				"message": "Upstream gateway error",
-			},
-		})
+		if !writeOpenAICompactSSEErrorIfCommitted(c, http.StatusInternalServerError, "upstream_error", "Upstream gateway error") {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": gin.H{
+					"type":    "upstream_error",
+					"message": "Upstream gateway error",
+				},
+			})
+		}
 		if upstreamMsg == "" {
 			return nil, fmt.Errorf("upstream error: %d (not in custom error codes)", resp.StatusCode)
 		}
@@ -440,12 +446,14 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		errMsg = upstreamMsg
 	}
 
-	c.JSON(statusCode, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": errMsg,
-		},
-	})
+	if !writeOpenAICompactSSEErrorIfCommitted(c, statusCode, errType, errMsg) {
+		c.JSON(statusCode, gin.H{
+			"error": gin.H{
+				"type":    errType,
+				"message": errMsg,
+			},
+		})
+	}
 
 	if upstreamMsg == "" {
 		return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)

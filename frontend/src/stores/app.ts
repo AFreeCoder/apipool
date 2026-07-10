@@ -34,6 +34,8 @@ export const useAppStore = defineStore('app', () => {
   const docUrl = ref<string>('')
   const cachedPublicSettings = ref<PublicSettings | null>(null)
   let publicSettingsRequest: Promise<PublicSettings | null> | null = null
+  let publicSettingsRequestForced = false
+  let queuedPublicSettingsForceRequest: Promise<PublicSettings | null> | null = null
 
   // Version cache state
   const versionLoaded = ref<boolean>(false)
@@ -313,10 +315,23 @@ export const useAppStore = defineStore('app', () => {
    * @param force - Force refresh from API
    */
   function fetchPublicSettings(force = false): Promise<PublicSettings | null> {
-    // An active request always wins over cache/force semantics so every caller observes
-    // the same refresh result and no older request can overwrite a newer one.
+    // 普通调用复用当前请求；force 若撞上普通请求，则合并为一次排队刷新，保证
+    // “保存后强刷”不会拿到保存前已经在途的旧结果。当前请求本身已是 force 时复用。
     if (publicSettingsRequest) {
-      return publicSettingsRequest
+      if (!force || publicSettingsRequestForced) {
+        return publicSettingsRequest
+      }
+      if (!queuedPublicSettingsForceRequest) {
+        const queuedRequest = publicSettingsRequest
+          .then(() => fetchPublicSettings(true))
+          .finally(() => {
+            if (queuedPublicSettingsForceRequest === queuedRequest) {
+              queuedPublicSettingsForceRequest = null
+            }
+          })
+        queuedPublicSettingsForceRequest = queuedRequest
+      }
+      return queuedPublicSettingsForceRequest
     }
 
     // Check for injected config from server (eliminates flash)
@@ -403,11 +418,13 @@ export const useAppStore = defineStore('app', () => {
       .finally(() => {
         if (publicSettingsRequest === request) {
           publicSettingsRequest = null
+          publicSettingsRequestForced = false
           publicSettingsLoading.value = false
         }
       })
 
     publicSettingsRequest = request
+    publicSettingsRequestForced = force
     return request
   }
 

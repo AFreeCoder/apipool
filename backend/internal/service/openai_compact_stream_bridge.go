@@ -103,6 +103,25 @@ func writeOpenAICompactSSEFailure(c *gin.Context, statusCode int, errorBody []by
 	writeOpenAICompactSSEFailureMessage(c, statusCode, "upstream_error", message)
 }
 
+// writeOpenAICompactSSEErrorIfCommitted 把 generic error handler 的 JSON
+// 错误写回接入 compact SSE：只有心跳已经提交 HTTP 200 时才接管；否则调用方
+// 继续按原状态码和 JSON 响应写回。
+func writeOpenAICompactSSEErrorIfCommitted(c *gin.Context, statusCode int, errType, message string) bool {
+	if c == nil || !openAICompactClientWantsStream(c) || !StopOpenAICompactSSEKeepaliveCommitted(c) {
+		return false
+	}
+	errType = strings.TrimSpace(errType)
+	if errType == "" {
+		errType = "upstream_error"
+	}
+	message = sanitizeUpstreamErrorMessage(strings.TrimSpace(message))
+	if message == "" {
+		message = "Upstream compact request failed with HTTP " + strconv.Itoa(statusCode)
+	}
+	writeOpenAICompactSSEFailureMessage(c, statusCode, errType, message)
+	return true
+}
+
 // writeOpenAICompactSSEFailureMessage 写出 response.failed 终止事件。Codex 对
 // 流式 Responses 请求把 response.failed 作为合法终止事件处理（普通 error 帧
 // 不被识别，会退化为 "stream closed before response.completed" 盲重连）。

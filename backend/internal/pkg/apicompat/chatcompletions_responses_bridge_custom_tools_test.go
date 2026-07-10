@@ -357,6 +357,36 @@ func TestResponsesToChatCompletionsRequest_NamespaceToolFlattensChildren(t *test
 	assert.Equal(t, "Send mail", out.Tools[0].Function.Description)
 }
 
+func TestResponsesToChatCompletionsRequest_NamespaceToolChoiceMapsUniqueChild(t *testing.T) {
+	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
+		Model: "glm-5.2",
+		Input: json.RawMessage(`"hi"`),
+		Tools: []ResponsesTool{{
+			Type:  "namespace",
+			Name:  "gmail",
+			Tools: []ResponsesTool{{Type: "function", Name: "send"}},
+		}},
+		ToolChoice: json.RawMessage(`{"type":"function","name":"send"}`),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type":"function","function":{"name":"gmail__send"}}`, string(out.ToolChoice))
+}
+
+func TestResponsesToChatCompletionsRequest_RejectsAmbiguousNamespaceToolChoice(t *testing.T) {
+	_, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
+		Model: "glm-5.2",
+		Input: json.RawMessage(`"hi"`),
+		Tools: []ResponsesTool{
+			{Type: "namespace", Name: "gmail", Tools: []ResponsesTool{{Type: "function", Name: "send"}}},
+			{Type: "namespace", Name: "slack", Tools: []ResponsesTool{{Type: "function", Name: "send"}}},
+		},
+		ToolChoice: json.RawMessage(`{"type":"function","name":"send"}`),
+	})
+	require.Error(t, err, "裸子工具名同时命中多个 namespace 时不能静默丢弃或猜测")
+	assert.Contains(t, err.Error(), "tool_choice")
+	assert.Contains(t, err.Error(), "send")
+}
+
 func TestResponsesToolsParsing_StringToolBecomesCustom(t *testing.T) {
 	var req ResponsesRequest
 	require.NoError(t, json.Unmarshal([]byte(`{"model":"glm-5.2","input":"hi","tools":["exec",{"type":"function","name":"wait"}]}`), &req))

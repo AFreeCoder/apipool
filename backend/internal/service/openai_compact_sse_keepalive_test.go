@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -119,6 +121,35 @@ func TestWriteOpenAICompactSSEBridge_BeforeKeepaliveCommitFailureKeepsJSONPath(t
 
 	require.False(t, writeOpenAICompactSSEBridge(c, http.StatusBadGateway, []byte(`{"error":{"message":"fast fail"}}`)))
 	require.Zero(t, rec.Body.Len())
+}
+
+// generic upstream error handler 也可能在 compact 心跳提交 200 后才拿到
+// 非 2xx。此时不能把裸 JSON 直接拼进 SSE，必须以 response.failed 收尾。
+func TestHandleErrorResponse_AfterCompactKeepaliveCommitEmitsFailedEvent(t *testing.T) {
+	c, rec := newCompactBridgeTestContext(t, true)
+	stop := StartOpenAICompactSSEKeepalive(c, keepaliveTestInterval)
+	defer stop()
+	waitForKeepaliveBeats()
+
+	cyberBody := `{"error":{"code":"cyber_policy","message":"flagged for cyber policy"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(cyberBody)),
+	}
+	svc := &OpenAIGatewayService{}
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, &Account{
+		ID:       1,
+		Platform: PlatformOpenAI,
+		Name:     "compact-test",
+	}, nil)
+	require.Error(t, err)
+
+	events := parseCompactBridgeSSE(t, stripKeepaliveComments(rec.Body.String()))
+	require.Len(t, events, 1)
+	require.Equal(t, "response.failed", events[0][0])
+	require.Equal(t, "cyber_policy", gjson.Get(events[0][1], "response.error.code").String())
+	require.Contains(t, gjson.Get(events[0][1], "response.error.message").String(), "flagged")
 }
 
 // 未被显式拦截的写回路径（直接操作 c.Writer）也必须与心跳互斥：包装器在

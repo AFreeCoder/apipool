@@ -7,6 +7,8 @@ import (
 	"errors"
 	"math"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -762,6 +764,118 @@ func TestExecuteSubscriptionFulfillmentRecoversCommittedAssignmentWithoutExtendi
 		Count(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, assignmentAuditCount)
+}
+
+type concurrentPaymentSubscriptionRepo struct {
+	userSubRepoNoop
+
+	mu        sync.Mutex
+	sub       UserSubscription
+	readDelay time.Duration
+}
+
+func (r *concurrentPaymentSubscriptionRepo) GetByUserIDAndGroupID(_ context.Context, userID, groupID int64) (*UserSubscription, error) {
+	r.mu.Lock()
+	if r.sub.UserID != userID || r.sub.GroupID != groupID {
+		r.mu.Unlock()
+		return nil, ErrSubscriptionNotFound
+	}
+	cp := r.sub
+	r.mu.Unlock()
+	time.Sleep(r.readDelay)
+	return &cp, nil
+}
+
+func (r *concurrentPaymentSubscriptionRepo) GetByID(_ context.Context, id int64) (*UserSubscription, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sub.ID != id {
+		return nil, ErrSubscriptionNotFound
+	}
+	cp := r.sub
+	return &cp, nil
+}
+
+func (r *concurrentPaymentSubscriptionRepo) ExtendExpiry(_ context.Context, id int64, expiresAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sub.ID != id {
+		return ErrSubscriptionNotFound
+	}
+	r.sub.ExpiresAt = expiresAt
+	return nil
+}
+
+func (r *concurrentPaymentSubscriptionRepo) UpdateNotes(_ context.Context, id int64, notes string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sub.ID != id {
+		return ErrSubscriptionNotFound
+	}
+	r.sub.Notes = notes
+	return nil
+}
+
+func (r *concurrentPaymentSubscriptionRepo) snapshot() UserSubscription {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sub
+}
+
+func TestEnsurePaymentSubscriptionAssignedSerializesDifferentOrdersForSameEntitlement(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+
+	baseExpiry := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	repo := &concurrentPaymentSubscriptionRepo{
+		sub: UserSubscription{
+			ID:        91,
+			UserID:    7001,
+			GroupID:   7,
+			StartsAt:  time.Now().Add(-time.Hour),
+			ExpiresAt: baseExpiry,
+			Status:    SubscriptionStatusActive,
+		},
+		readDelay: 75 * time.Millisecond,
+	}
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	svc := &PaymentService{
+		entClient:       client,
+		subscriptionSvc: NewSubscriptionService(groupRepo, repo, nil, nil, nil),
+	}
+	orders := []*dbent.PaymentOrder{
+		{ID: 8101, UserID: 7001},
+		{ID: 8102, UserID: 7001},
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, len(orders))
+	var wg sync.WaitGroup
+	for _, order := range orders {
+		order := order
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- svc.ensurePaymentSubscriptionAssigned(ctx, order, 7, 30)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	sub := repo.snapshot()
+	require.True(t, sub.ExpiresAt.Equal(baseExpiry.AddDate(0, 0, 60)),
+		"两笔不同订单必须各续期 30 天，got=%s", sub.ExpiresAt)
+	require.Contains(t, sub.Notes, paymentSubscriptionOrderNote(orders[0].ID))
+	require.Contains(t, sub.Notes, paymentSubscriptionOrderNote(orders[1].ID))
+	require.Equal(t, 2, strings.Count(sub.Notes, "payment order "))
 }
 
 func TestHasPaymentSubscriptionOrderNoteRequiresIndependentExactLine(t *testing.T) {
