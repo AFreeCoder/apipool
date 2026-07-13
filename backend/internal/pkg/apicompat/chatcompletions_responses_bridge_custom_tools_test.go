@@ -417,6 +417,40 @@ func TestResponsesToChatCompletionsRequest_NamespaceToolChoiceMapsUniqueChild(t 
 	assert.JSONEq(t, `{"type":"function","function":{"name":"gmail__send"}}`, string(out.ToolChoice))
 }
 
+func TestResponsesToChatCompletionsRequest_AdditionalNamespaceToolChoiceMapsUniqueChild(t *testing.T) {
+	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
+		Model: "glm-5.2",
+		Input: json.RawMessage(`[
+			{"type":"additional_tools","tools":[
+				{"type":"namespace","name":"collaboration","tools":[
+					{"type":"function","name":"send_message"}
+				]}
+			]},
+			{"type":"message","role":"user","content":"send it"}
+		]`),
+		ToolChoice: json.RawMessage(`{"type":"function","name":"send_message"}`),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type":"function","function":{"name":"collaboration__send_message"}}`, string(out.ToolChoice))
+}
+
+func TestResponsesToChatCompletionsRequest_RejectsAmbiguousAdditionalNamespaceToolChoice(t *testing.T) {
+	_, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
+		Model: "glm-5.2",
+		Input: json.RawMessage(`[
+			{"type":"additional_tools","tools":[
+				{"type":"namespace","name":"gmail","tools":[{"type":"function","name":"send"}]},
+				{"type":"namespace","name":"slack","tools":[{"type":"function","name":"send"}]}
+			]},
+			{"type":"message","role":"user","content":"send it"}
+		]`),
+		ToolChoice: json.RawMessage(`{"type":"function","name":"send"}`),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool_choice")
+	assert.Contains(t, err.Error(), "send")
+}
+
 func TestResponsesToChatCompletionsRequest_RejectsAmbiguousNamespaceToolChoice(t *testing.T) {
 	_, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
 		Model: "glm-5.2",

@@ -56,7 +56,7 @@ func ResponsesToChatCompletionsRequest(req *ResponsesRequest) (*ChatCompletionsR
 				declared[tool.Function.Name] = true
 			}
 		}
-		tc, err := responsesToolChoiceToChatToolChoice(req.ToolChoice, declared, NamespaceToolNames(req.Tools))
+		tc, err := responsesToolChoiceToChatToolChoice(req.ToolChoice, declared, NamespaceToolNames(effectiveTools))
 		if err != nil {
 			return nil, err
 		}
