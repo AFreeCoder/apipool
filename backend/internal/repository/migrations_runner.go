@@ -58,6 +58,8 @@ const accountAutopauseExpiryIndexMigration = "151_account_autopause_expiry_index
 const accountAutopauseExpiryIndex = "idx_accounts_autopause_expiry_due"
 const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_dedup_key_index_notx.sql"
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
+const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index_notx.sql"
+const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 
 var accountGroupSchedulerIndexes = []string{
 	"idx_account_groups_group_priority_account",
@@ -276,6 +278,8 @@ func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name stri
 		return dropInvalidIndexIfPresent(ctx, db, accountAutopauseExpiryIndex)
 	case schedulerOutboxPendingDedupKeyMigration:
 		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxPendingDedupKeyIndex)
+	case latestAPIKeyIPIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, latestAPIKeyIPIndex)
 	default:
 		return nil
 	}

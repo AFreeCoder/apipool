@@ -188,6 +188,12 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if cfg.RateLimit.OpenAIOAuth403ChallengeCooldownMinutes != 10 {
 		t.Fatalf("RateLimit.OpenAIOAuth403ChallengeCooldownMinutes = %d, want 10", cfg.RateLimit.OpenAIOAuth403ChallengeCooldownMinutes)
 	}
+	if cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds != 300 {
+		t.Fatalf("Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = %d, want 300", cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds)
+	}
+	if cfg.Gateway.OpenAIWS.MaxIngressConnectionsPerAPIKey != 64 {
+		t.Fatalf("Gateway.OpenAIWS.MaxIngressConnectionsPerAPIKey = %d, want 64", cfg.Gateway.OpenAIWS.MaxIngressConnectionsPerAPIKey)
+	}
 }
 
 func TestLoadDefaultOpsConfig(t *testing.T) {
@@ -1673,6 +1679,16 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 			name:    "max_conns_per_account 必须为正数",
 			mutate:  func(c *Config) { c.Gateway.OpenAIWS.MaxConnsPerAccount = 0 },
 			wantErr: "gateway.openai_ws.max_conns_per_account",
+		},
+		{
+			name:    "ingress_inter_turn_idle_timeout_seconds 不能为负数",
+			mutate:  func(c *Config) { c.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = -1 },
+			wantErr: "gateway.openai_ws.ingress_inter_turn_idle_timeout_seconds",
+		},
+		{
+			name:    "max_ingress_connections_per_api_key 不能为负数",
+			mutate:  func(c *Config) { c.Gateway.OpenAIWS.MaxIngressConnectionsPerAPIKey = -1 },
+			wantErr: "gateway.openai_ws.max_ingress_connections_per_api_key",
 		},
 		{
 			name:    "min_idle_per_account 不能为负数",
