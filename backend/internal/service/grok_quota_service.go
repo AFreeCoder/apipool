@@ -318,9 +318,8 @@ func (s *GrokQuotaService) fetchBilling(
 		return nil, resp.StatusCode, nil
 	}
 	if resp.StatusCode >= 400 {
-		bodyText := truncate(strings.TrimSpace(string(bodyBytes)), 240)
-		slog.Warn("grok_quota_billing_failed", "account_id", account.ID, "weekly", weekly, "status", resp.StatusCode, "body", bodyText)
-		return nil, resp.StatusCode, infraerrors.Newf(mapUpstreamStatus(resp.StatusCode), "GROK_QUOTA_PROBE_UPSTREAM_ERROR", "billing returned %d: %s", resp.StatusCode, bodyText)
+		slog.Warn("grok_quota_billing_failed", "account_id", account.ID, "weekly", weekly, "status", resp.StatusCode)
+		return nil, resp.StatusCode, infraerrors.Newf(mapUpstreamStatus(resp.StatusCode), "GROK_QUOTA_PROBE_UPSTREAM_ERROR", "billing returned %d", resp.StatusCode)
 	}
 	payload, err := xai.ParseBillingPayload(bodyBytes)
 	if err != nil {
@@ -396,22 +395,33 @@ func (s *GrokQuotaService) prepareProbe(ctx context.Context, accountID int64) (*
 		return nil, "", "", infraerrors.New(http.StatusBadGateway, "GROK_QUOTA_TOKEN_UNAVAILABLE", "access token is empty")
 	}
 
-	return account, token, s.resolveProxyURL(ctx, account), nil
+	proxyURL, err := s.resolveProxyURL(ctx, account)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return account, token, proxyURL, nil
 }
 
-func (s *GrokQuotaService) resolveProxyURL(ctx context.Context, account *Account) string {
+func (s *GrokQuotaService) resolveProxyURL(ctx context.Context, account *Account) (string, error) {
 	if account == nil || account.ProxyID == nil {
-		return ""
+		return "", nil
 	}
-	switch {
-	case account.Proxy != nil:
-		return account.Proxy.URL()
-	case s != nil && s.proxyRepo != nil:
-		if proxy, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && proxy != nil {
-			return proxy.URL()
+	proxy := account.Proxy
+	if proxy == nil {
+		if s == nil || s.proxyRepo == nil {
+			return "", infraerrors.New(http.StatusBadGateway, "GROK_QUOTA_PROXY_UNAVAILABLE", "configured proxy is unavailable")
+		}
+		var err error
+		proxy, err = s.proxyRepo.GetByID(ctx, *account.ProxyID)
+		if err != nil || proxy == nil {
+			return "", infraerrors.New(http.StatusBadGateway, "GROK_QUOTA_PROXY_UNAVAILABLE", "configured proxy is unavailable")
 		}
 	}
-	return ""
+	proxyURL := strings.TrimSpace(proxy.URL())
+	if proxyURL == "" {
+		return "", infraerrors.New(http.StatusBadGateway, "GROK_QUOTA_PROXY_UNAVAILABLE", "configured proxy is unavailable")
+	}
+	return proxyURL, nil
 }
 
 func (s *GrokQuotaService) loadGrokOAuthAccount(ctx context.Context, accountID int64) (*Account, error) {

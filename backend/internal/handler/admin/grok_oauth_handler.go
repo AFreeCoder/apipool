@@ -106,14 +106,7 @@ func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	var proxyURL string
-	if req.ProxyID != nil {
-		proxy, err := h.adminService.GetProxy(c.Request.Context(), *req.ProxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
-	}
-	tokenInfo, err := h.grokOAuthService.RefreshToken(c.Request.Context(), refreshToken, proxyURL, req.ClientID)
+	tokenInfo, err := h.grokOAuthService.RefreshTokenWithProxyID(c.Request.Context(), refreshToken, req.ProxyID, req.ClientID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

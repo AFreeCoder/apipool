@@ -186,6 +186,88 @@ func TestCodexModelsDoesNotFailOverFromUpstreamConfigurationError(t *testing.T) 
 	}
 }
 
+func TestCodexModelsSkipsAccountsWithoutManifestCapability(t *testing.T) {
+	tests := []struct {
+		name        string
+		accountType string
+		credentials map[string]any
+	}{
+		{
+			name:        "official API key upstream",
+			accountType: service.AccountTypeAPIKey,
+			credentials: map[string]any{
+				"api_key":  "sk-official",
+				"base_url": "https://api.openai.com/v1",
+			},
+		},
+		{
+			name:        "OAuth account without access token",
+			accountType: service.AccountTypeOAuth,
+			credentials: map[string]any{},
+		},
+		{
+			name:        "API key account with invalid upstream",
+			accountType: service.AccountTypeAPIKey,
+			credentials: map[string]any{
+				"api_key":  "sk-invalid",
+				"base_url": "://invalid",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			groupID := int64(42)
+			accounts := []service.Account{
+				{
+					ID:          1,
+					Name:        "incapable",
+					Platform:    service.PlatformOpenAI,
+					Type:        tt.accountType,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Priority:    0,
+					Concurrency: 1,
+					Credentials: tt.credentials,
+				},
+				{
+					ID:          2,
+					Name:        "capable",
+					Platform:    service.PlatformOpenAI,
+					Type:        service.AccountTypeAPIKey,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Priority:    1,
+					Concurrency: 1,
+					Credentials: map[string]any{
+						"api_key":  "sk-capable",
+						"base_url": "https://capable.example/v1",
+					},
+				},
+			}
+			upstream := &codexModelsFailoverHTTPUpstream{}
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			gatewayService := service.NewOpenAIGatewayService(
+				codexModelsFailoverAccountRepo{accounts: accounts},
+				nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil,
+				upstream,
+				nil, nil, nil, nil, nil, nil, nil, nil,
+			)
+			handler := &OpenAIGatewayHandler{gatewayService: gatewayService, maxAccountSwitches: 1}
+
+			recorder := performCodexModelsRequest(t, handler, groupID)
+
+			if got, want := upstream.calls(), []int64{2}; !equalInt64Slices(got, want) {
+				t.Fatalf("upstream account calls: got %v, want %v", got, want)
+			}
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status: got %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestCodexModelsReturnsLastUpstreamErrorWhenAccountsAreExhausted(t *testing.T) {
 	handler, upstream, groupID := newCodexModelsFailoverTestHandler(http.StatusServiceUnavailable)
 	upstream.statuses = map[int64]int{

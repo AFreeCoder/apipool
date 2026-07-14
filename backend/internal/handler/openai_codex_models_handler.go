@@ -39,6 +39,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	switchCount := 0
 	var lastUpstreamErr error
+	var lastAccountErr error
 
 	for {
 		account, err := h.gatewayService.SelectAccountForModelWithExclusions(c.Request.Context(), apiKey.GroupID, "", "", failedAccountIDs)
@@ -50,6 +51,10 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 				h.errorResponse(c, infraerrors.Code(lastUpstreamErr), "upstream_error", infraerrors.Message(lastUpstreamErr))
 				return
 			}
+			if lastAccountErr != nil {
+				h.errorResponse(c, infraerrors.Code(lastAccountErr), "upstream_error", infraerrors.Message(lastAccountErr))
+				return
+			}
 			h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI accounts")
 			return
 		}
@@ -58,6 +63,11 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		if err != nil {
 			if c.Request.Context().Err() != nil {
 				return
+			}
+			if service.IsCodexModelsManifestAccountUnavailableError(err) {
+				failedAccountIDs[account.ID] = struct{}{}
+				lastAccountErr = err
+				continue
 			}
 			if service.IsRetryableCodexModelsManifestError(err) && switchCount < maxAccountSwitches {
 				failedAccountIDs[account.ID] = struct{}{}

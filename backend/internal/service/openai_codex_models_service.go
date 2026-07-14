@@ -46,9 +46,33 @@ type codexModelsManifestUpstreamError struct {
 	retryable bool
 }
 
+type codexModelsManifestAccountUnavailableError struct {
+	err error
+}
+
 func (e *codexModelsManifestUpstreamError) Error() string { return e.err.Error() }
 
 func (e *codexModelsManifestUpstreamError) Unwrap() error { return e.err }
+
+func (e *codexModelsManifestAccountUnavailableError) Error() string { return e.err.Error() }
+
+func (e *codexModelsManifestAccountUnavailableError) Unwrap() error { return e.err }
+
+func newCodexModelsManifestAccountUnavailableError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &codexModelsManifestAccountUnavailableError{err: err}
+}
+
+// IsCodexModelsManifestAccountUnavailableError reports whether the selected
+// account cannot serve a manifest because of account-local credentials or
+// upstream configuration. The handler may exclude that account and continue
+// without consuming the transient-upstream switch budget.
+func IsCodexModelsManifestAccountUnavailableError(err error) bool {
+	var accountErr *codexModelsManifestAccountUnavailableError
+	return errors.As(err, &accountErr)
+}
 
 // IsRetryableCodexModelsManifestError reports whether another selected account
 // may succeed without changing the request. Configuration and upstream 4xx
@@ -226,7 +250,9 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 	}
 	credAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)
 	if err != nil {
-		return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_CREDENTIALS_FAILED", "resolve credential account: %v", err)
+		return nil, newCodexModelsManifestAccountUnavailableError(
+			infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_CREDENTIALS_FAILED", "resolve credential account: %v", err),
+		)
 	}
 
 	clientVersion = strings.TrimSpace(clientVersion)
@@ -242,36 +268,48 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 	case credAccount.IsOpenAIOAuth():
 		authToken = strings.TrimSpace(credAccount.GetOpenAIAccessToken())
 		if authToken == "" {
-			return nil, infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_MODELS_TOKEN_MISSING", "account has no Codex backend access token")
+			return nil, newCodexModelsManifestAccountUnavailableError(
+				infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_MODELS_TOKEN_MISSING", "account has no Codex backend access token"),
+			)
 		}
 	case credAccount.IsOpenAIApiKey():
 		baseURL := strings.TrimSpace(credAccount.GetCredential("base_url"))
 		if baseURL == "" || isOfficialOpenAIModelsBaseURL(baseURL) {
-			return nil, infraerrors.New(
-				http.StatusBadGateway,
-				"OPENAI_CODEX_MODELS_API_KEY_UPSTREAM_UNSUPPORTED",
-				"Codex models manifest requires a custom API key upstream base URL",
+			return nil, newCodexModelsManifestAccountUnavailableError(
+				infraerrors.New(
+					http.StatusBadGateway,
+					"OPENAI_CODEX_MODELS_API_KEY_UPSTREAM_UNSUPPORTED",
+					"Codex models manifest requires a custom API key upstream base URL",
+				),
 			)
 		}
 		authToken = strings.TrimSpace(credAccount.GetOpenAIApiKey())
 		if authToken == "" {
-			return nil, infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_MODELS_API_KEY_MISSING", "account has no API key for the Codex models upstream")
+			return nil, newCodexModelsManifestAccountUnavailableError(
+				infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_MODELS_API_KEY_MISSING", "account has no API key for the Codex models upstream"),
+			)
 		}
 		normalizedBaseURL, validateErr := s.validateUpstreamBaseURL(baseURL)
 		if validateErr != nil {
-			return nil, infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_API_KEY_UPSTREAM_INVALID", "invalid Codex models upstream base URL: %v", validateErr)
+			return nil, newCodexModelsManifestAccountUnavailableError(
+				infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_API_KEY_UPSTREAM_INVALID", "invalid Codex models upstream base URL: %v", validateErr),
+			)
 		}
 		requestEndpoint = normalizedBaseURL
 		useAPIKeyUpstream = true
 		appendModelsPath = true
 	default:
-		return nil, infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_ACCOUNT_TYPE_UNSUPPORTED", "account type %q cannot fetch the Codex models manifest", credAccount.Type)
+		return nil, newCodexModelsManifestAccountUnavailableError(
+			infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_ACCOUNT_TYPE_UNSUPPORTED", "account type %q cannot fetch the Codex models manifest", credAccount.Type),
+		)
 	}
 
 	requestURL, err := buildCodexModelsManifestURL(requestEndpoint, appendModelsPath, clientVersion)
 	if err != nil {
 		if useAPIKeyUpstream {
-			return nil, infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_API_KEY_UPSTREAM_INVALID", "invalid Codex models upstream base URL: %v", err)
+			return nil, newCodexModelsManifestAccountUnavailableError(
+				infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_API_KEY_UPSTREAM_INVALID", "invalid Codex models upstream base URL: %v", err),
+			)
 		}
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_REQUEST_FAILED", "parse codex models request URL: %v", err)
 	}

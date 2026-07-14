@@ -4,6 +4,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,34 @@ type grokQuotaHandlerUpstream struct {
 	mu       sync.Mutex
 	requests []*http.Request
 	bodies   [][]byte
+}
+
+type grokRefreshProxyRepo struct {
+	service.ProxyRepository
+	err error
+}
+
+func (r *grokRefreshProxyRepo) GetByID(context.Context, int64) (*service.Proxy, error) {
+	return nil, r.err
+}
+
+type grokRefreshAdminService struct {
+	service.AdminService
+	err error
+}
+
+func (s *grokRefreshAdminService) GetProxy(context.Context, int64) (*service.Proxy, error) {
+	return nil, s.err
+}
+
+type grokRefreshOAuthClient struct {
+	service.GrokOAuthClient
+	refreshCalls int
+}
+
+func (c *grokRefreshOAuthClient) RefreshToken(context.Context, string, string, string) (*xai.TokenResponse, error) {
+	c.refreshCalls++
+	return &xai.TokenResponse{AccessToken: "access-token", ExpiresIn: 3600}, nil
 }
 
 func (u *grokQuotaHandlerUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -125,6 +154,32 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 		}
 	}
 	require.NotNil(t, repo.updates[42])
+}
+
+func TestGrokOAuthHandlerRefreshTokenFailsClosedWhenProxyLookupFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lookupErr := errors.New("proxy lookup failed")
+	proxyRepo := &grokRefreshProxyRepo{err: lookupErr}
+	adminService := &grokRefreshAdminService{err: lookupErr}
+	oauthClient := &grokRefreshOAuthClient{}
+	oauthService := service.NewGrokOAuthService(proxyRepo, oauthClient)
+	defer oauthService.Stop()
+	handler := NewGrokOAuthHandler(oauthService, adminService, nil)
+
+	router := gin.New()
+	router.POST("/api/v1/admin/grok/refresh", handler.RefreshToken)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/grok/refresh",
+		strings.NewReader(`{"refresh_token":"refresh-token","proxy_id":99}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "GROK_OAUTH_PROXY_NOT_FOUND")
+	require.Zero(t, oauthClient.refreshCalls)
 }
 
 func TestGrokOAuthHandlerResetQuotaReturnsUnsupported(t *testing.T) {

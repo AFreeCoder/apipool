@@ -167,6 +167,17 @@ func (s *GrokOAuthService) RefreshToken(ctx context.Context, refreshToken, proxy
 	return tokenInfo, nil
 }
 
+// RefreshTokenWithProxyID resolves an explicitly selected proxy before making
+// the refresh request. A configured proxy must never silently degrade to a
+// direct connection when lookup fails.
+func (s *GrokOAuthService) RefreshTokenWithProxyID(ctx context.Context, refreshToken string, proxyID *int64, clientID string) (*GrokTokenInfo, error) {
+	proxyURL, err := s.proxyURL(ctx, proxyID)
+	if err != nil {
+		return nil, err
+	}
+	return s.RefreshToken(ctx, refreshToken, proxyURL, clientID)
+}
+
 func (s *GrokOAuthService) ValidateRefreshToken(ctx context.Context, refreshToken string, proxyID *int64) (*GrokTokenInfo, error) {
 	proxyURL, err := s.proxyURL(ctx, proxyID)
 	if err != nil {
@@ -317,7 +328,7 @@ func (s *GrokOAuthService) proxyURL(ctx context.Context, proxyID *int64) (string
 		return "", infraerrors.Newf(http.StatusBadRequest, "GROK_OAUTH_PROXY_NOT_FOUND", "proxy not found: %v", err)
 	}
 	if proxy == nil {
-		return "", nil
+		return "", infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_PROXY_NOT_FOUND", "proxy not found")
 	}
 	return proxy.URL(), nil
 }
