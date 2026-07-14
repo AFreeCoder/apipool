@@ -1018,6 +1018,7 @@ export interface OpsRuntimeLogConfig {
 export interface OpsSystemLog {
   id: number
   created_at: string
+  host: string
   level: string
   component: string
   message: string
@@ -1039,6 +1040,7 @@ export interface OpsSystemLogQuery {
   time_range?: '5m' | '30m' | '1h' | '6h' | '24h' | '7d' | '30d'
   start_time?: string
   end_time?: string
+  host?: string
   level?: string
   component?: string
   request_id?: string
@@ -1054,6 +1056,7 @@ export interface OpsSystemLogQuery {
 export interface OpsSystemLogCleanupRequest {
   start_time?: string
   end_time?: string
+  host?: string
   level?: string
   component?: string
   request_id?: string
