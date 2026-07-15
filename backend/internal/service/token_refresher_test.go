@@ -266,3 +266,19 @@ func TestOpenAITokenRefresher_CanRefresh(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAITokenRefresherRejectsAgentIdentity(t *testing.T) {
+	refresher := &OpenAITokenRefresher{}
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"auth_mode":     OpenAIAuthModeAgentIdentity,
+			"refresh_token": "stale-refresh-token",
+			"expires_at":    time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+		},
+	}
+
+	require.False(t, refresher.CanRefresh(account))
+	require.False(t, refresher.NeedsRefresh(account, 30*time.Minute))
+}

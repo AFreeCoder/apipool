@@ -92,6 +92,9 @@ func (r *OpenAITokenRefresher) CacheKey(account *Account) string {
 
 // CanRefresh 检查是否能处理此账号
 func (r *OpenAITokenRefresher) CanRefresh(account *Account) bool {
+	if account == nil || account.IsOpenAIAgentIdentity() {
+		return false
+	}
 	if account.IsCredentialShadow() {
 		return false
 	}
@@ -101,6 +104,9 @@ func (r *OpenAITokenRefresher) CanRefresh(account *Account) bool {
 // NeedsRefresh 检查token是否需要刷新
 // expires_at 缺失且处于限流状态时需要刷新，防止限流期间 token 静默过期
 func (r *OpenAITokenRefresher) NeedsRefresh(account *Account, refreshWindow time.Duration) bool {
+	if account == nil || account.IsOpenAIAgentIdentity() {
+		return false
+	}
 	if account.IsOpenAIPersonalAccessToken() {
 		return false
 	}

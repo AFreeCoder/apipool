@@ -616,6 +616,49 @@ func TestChatCompletionsChunkToAnthropicEvents_ParallelToolCalls(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsChunkToAnthropicEvents_InterleavedParallelToolArgumentsKeepValidBlockLifecycle(t *testing.T) {
+	events := collectAnthropicStreamEvents(t, []string{
+		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"tool_a","arguments":"{\"a\":"}}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"tool_b","arguments":"{\"b\":"}}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"2}"}}]}}]}`,
+		`{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}`,
+	})
+
+	openBlocks := map[int]bool{}
+	toolNames := map[int]string{}
+	toolArguments := map[int]string{}
+	for _, event := range events {
+		if event.Index == nil {
+			continue
+		}
+		idx := *event.Index
+		switch event.Type {
+		case "content_block_start":
+			require.False(t, openBlocks[idx], "content block %d 不得重复打开", idx)
+			openBlocks[idx] = true
+			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
+				toolNames[idx] = event.ContentBlock.Name
+			}
+		case "content_block_delta":
+			require.True(t, openBlocks[idx], "content block %d 关闭后不得继续发送 delta", idx)
+			if event.Delta != nil && event.Delta.Type == "input_json_delta" {
+				toolArguments[idx] += event.Delta.PartialJSON
+			}
+		case "content_block_stop":
+			require.True(t, openBlocks[idx], "content block %d 必须先打开再关闭", idx)
+			openBlocks[idx] = false
+		}
+	}
+
+	require.Equal(t, map[int]string{0: "tool_a", 1: "tool_b"}, toolNames)
+	require.JSONEq(t, `{"a":1}`, toolArguments[0])
+	require.JSONEq(t, `{"b":2}`, toolArguments[1])
+	for idx, isOpen := range openBlocks {
+		require.False(t, isOpen, "content block %d 最终必须关闭", idx)
+	}
+}
+
 func TestFinalizeChatCompletionsAnthropicStream_NoOpAfterStop(t *testing.T) {
 	state := NewChatCompletionsToAnthropicStreamState("test")
 	state.MessageStopSent = true

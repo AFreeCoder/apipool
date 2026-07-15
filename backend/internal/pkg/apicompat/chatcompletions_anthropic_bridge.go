@@ -534,17 +534,12 @@ type ChatCompletionsToAnthropicStreamState struct {
 	CurrentToolHadDelta bool
 	HasToolCall         bool
 
-	// Tool calls keyed by the upstream tool_call index. The Anthropic block
-	// index is assigned when the tool block is announced (content_block_start),
-	// which is deferred until the tool's name has arrived. Argument fragments
-	// and the call ID seen before the name are buffered and flushed with the
-	// announcement; tools whose name never arrives are announced with an empty
-	// name at finalize so their arguments are not lost.
-	toolBlockIndex    map[int]int
+	// 工具调用按上游 tool_call index 缓存。并行工具的参数可能跨 chunk 交错，
+	// 必须等 finish_reason 或流结束后再按 index 串行输出 Anthropic block。
 	toolAnnounced     map[int]bool
 	toolName          map[int]string
 	pendingToolCallID map[int]string
-	pendingToolArgs   map[int]string
+	pendingToolArgs   map[int][]string
 
 	// Reasoning (DeepSeek-style): reasoning_content streamed before content.
 	// No separate reasoning block index — it uses ContentBlockIndex like the
@@ -569,11 +564,10 @@ func NewChatCompletionsToAnthropicStreamState(model string) *ChatCompletionsToAn
 		ResponseID:        generateResponsesID(),
 		Model:             model,
 		Created:           time.Now().Unix(),
-		toolBlockIndex:    make(map[int]int),
 		toolAnnounced:     make(map[int]bool),
 		toolName:          make(map[int]string),
 		pendingToolCallID: make(map[int]string),
-		pendingToolArgs:   make(map[int]string),
+		pendingToolArgs:   make(map[int][]string),
 	}
 }
 
@@ -636,6 +630,9 @@ func ChatCompletionsChunkToAnthropicEvents(
 			state.FinishReason = *choice.FinishReason
 		}
 	}
+	if state.FinishReason != "" {
+		events = append(events, flushCCAnthropicPendingTools(state)...)
+	}
 
 	return events
 }
@@ -652,23 +649,7 @@ func FinalizeChatCompletionsAnthropicStream(state *ChatCompletionsToAnthropicStr
 		events = append(events, ensureCCAnthropicMessageStart(state)...)
 	}
 
-	// Announce tools whose name never arrived so their buffered arguments are
-	// not silently dropped. The double-conversion path announced these
-	// immediately with an empty name; the deferred announcement keeps that data
-	// preservation while still delivering correct names when they do arrive.
-	if len(state.pendingToolCallID) > 0 {
-		idxs := make([]int, 0, len(state.pendingToolCallID))
-		for idx := range state.pendingToolCallID {
-			idxs = append(idxs, idx)
-		}
-		sort.Ints(idxs)
-		for _, idx := range idxs {
-			callID := state.pendingToolCallID[idx]
-			events = append(events, closeCCAnthropicBlock(state)...)
-			events = append(events, announceCCAnthropicToolBlock(state, idx, callID, "")...)
-		}
-	}
-
+	events = append(events, flushCCAnthropicPendingTools(state)...)
 	events = append(events, closeCCAnthropicBlock(state)...)
 
 	stopReason := ccFinishReasonToAnthropicStopReason(state.FinishReason, state.HasToolCall)
@@ -751,74 +732,64 @@ func ensureCCAnthropicTextBlock(state *ChatCompletionsToAnthropicStreamState) []
 	return events
 }
 
-// handleCCAnthropicToolCall processes one upstream tool_call delta. The
-// content_block_start for a tool is deferred until its name has arrived (some
-// upstreams stream id/arguments before the name); argument fragments seen
-// before the announcement are buffered and flushed with it, later fragments
-// stream as input_json_delta on the tool's block.
+// handleCCAnthropicToolCall 缓存一个上游 tool_call delta。OpenAI 兼容上游可交错
+// 发送多个并行工具的参数，而 Anthropic content block 必须按 start→delta→stop
+// 串行闭合，因此只能在 finish_reason 或流结束后按工具 index 顺序输出。
 func handleCCAnthropicToolCall(state *ChatCompletionsToAnthropicStreamState, toolCall *ChatToolCall) []AnthropicStreamEvent {
 	idx := 0
 	if toolCall.Index != nil {
 		idx = *toolCall.Index
 	}
+	if state.toolAnnounced[idx] {
+		// finish_reason 之后出现的同 index delta 属于非法上游序列，不能再向
+		// 已关闭的 Anthropic block 写入。
+		return nil
+	}
 
 	var events []AnthropicStreamEvent
-
-	if _, seen := state.toolAnnounced[idx]; !seen {
-		// New tool call: it ends whatever block is currently streaming.
+	if _, seen := state.pendingToolCallID[idx]; !seen {
 		events = append(events, closeCCAnthropicBlock(state)...)
 		state.HasToolCall = true
-
-		callID := toolCall.ID
-		if callID == "" {
-			callID = generateItemID()
-		}
-		if name := toolCall.Function.Name; name != "" {
-			events = append(events, announceCCAnthropicToolBlock(state, idx, callID, name)...)
-		} else {
-			state.toolAnnounced[idx] = false
-			state.pendingToolCallID[idx] = callID
-		}
-	} else if !state.toolAnnounced[idx] && toolCall.Function.Name != "" {
-		// Deferred announcement: the name has arrived.
-		callID := state.pendingToolCallID[idx]
-		if toolCall.ID != "" {
-			callID = toolCall.ID
-		}
-		events = append(events, closeCCAnthropicBlock(state)...)
-		events = append(events, announceCCAnthropicToolBlock(state, idx, callID, toolCall.Function.Name)...)
+		state.pendingToolCallID[idx] = generateItemID()
 	}
-
-	// Argument fragment → input_json_delta on the tool's block once announced,
-	// buffered until the deferred announcement otherwise.
+	if toolCall.ID != "" {
+		state.pendingToolCallID[idx] = toolCall.ID
+	}
+	if toolCall.Function.Name != "" {
+		state.toolName[idx] = toolCall.Function.Name
+	}
 	if toolCall.Function.Arguments != "" {
-		if state.toolAnnounced[idx] {
-			blockIdx := state.toolBlockIndex[idx]
-			if state.ContentBlockOpen && blockIdx == state.ContentBlockIndex {
-				state.CurrentToolHadDelta = true
-			}
-			events = append(events, AnthropicStreamEvent{
-				Type:  "content_block_delta",
-				Index: &blockIdx,
-				Delta: &AnthropicDelta{
-					Type:        "input_json_delta",
-					PartialJSON: toolCall.Function.Arguments,
-				},
-			})
-		} else {
-			state.pendingToolArgs[idx] += toolCall.Function.Arguments
-		}
+		state.pendingToolArgs[idx] = append(state.pendingToolArgs[idx], toolCall.Function.Arguments)
 	}
-
 	return events
 }
 
-// announceCCAnthropicToolBlock assigns the next Anthropic block index to the
-// tool, emits its content_block_start, and flushes any argument fragments
-// buffered while the announcement was deferred.
+// flushCCAnthropicPendingTools 将缓存的并行工具串行输出，确保每个 content
+// block 在 stop 后不再出现 delta。缺失名字的工具仍以空名字输出，避免丢参数。
+func flushCCAnthropicPendingTools(state *ChatCompletionsToAnthropicStreamState) []AnthropicStreamEvent {
+	if state == nil || len(state.pendingToolCallID) == 0 {
+		return nil
+	}
+
+	idxs := make([]int, 0, len(state.pendingToolCallID))
+	for idx := range state.pendingToolCallID {
+		idxs = append(idxs, idx)
+	}
+	sort.Ints(idxs)
+
+	events := closeCCAnthropicBlock(state)
+	for _, idx := range idxs {
+		callID := state.pendingToolCallID[idx]
+		events = append(events, announceCCAnthropicToolBlock(state, idx, callID, state.toolName[idx])...)
+		events = append(events, closeCCAnthropicBlock(state)...)
+	}
+	return events
+}
+
+// announceCCAnthropicToolBlock 为工具分配下一个 Anthropic block index，发送
+// content_block_start，并按原始分片顺序输出缓存的参数。
 func announceCCAnthropicToolBlock(state *ChatCompletionsToAnthropicStreamState, idx int, callID, name string) []AnthropicStreamEvent {
 	blockIdx := state.ContentBlockIndex
-	state.toolBlockIndex[idx] = blockIdx
 	state.toolAnnounced[idx] = true
 	state.toolName[idx] = name
 	state.CurrentToolName = name
@@ -837,17 +808,19 @@ func announceCCAnthropicToolBlock(state *ChatCompletionsToAnthropicStreamState, 
 			Input: json.RawMessage("{}"),
 		},
 	}}
-	if pending := state.pendingToolArgs[idx]; pending != "" {
+	if pending := state.pendingToolArgs[idx]; len(pending) > 0 {
 		delete(state.pendingToolArgs, idx)
 		state.CurrentToolHadDelta = true
-		events = append(events, AnthropicStreamEvent{
-			Type:  "content_block_delta",
-			Index: &blockIdx,
-			Delta: &AnthropicDelta{
-				Type:        "input_json_delta",
-				PartialJSON: pending,
-			},
-		})
+		for _, fragment := range pending {
+			events = append(events, AnthropicStreamEvent{
+				Type:  "content_block_delta",
+				Index: &blockIdx,
+				Delta: &AnthropicDelta{
+					Type:        "input_json_delta",
+					PartialJSON: fragment,
+				},
+			})
+		}
 	}
 	return events
 }
