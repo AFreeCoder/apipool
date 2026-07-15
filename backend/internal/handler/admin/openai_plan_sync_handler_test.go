@@ -126,7 +126,7 @@ func TestAccountHandler_Refresh_OpenAISyncsPlanTypeIntoResponse(t *testing.T) {
 			ExpiresIn:   int64(time.Hour.Seconds()),
 		},
 	})
-	handler := NewAccountHandler(adminSvc, nil, openaiSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(adminSvc, nil, openaiSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	router := gin.New()
 	router.POST("/api/v1/admin/accounts/:id/refresh", handler.Refresh)

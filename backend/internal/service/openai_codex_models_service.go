@@ -267,7 +267,7 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 	switch {
 	case credAccount.IsOpenAIOAuth():
 		authToken = strings.TrimSpace(credAccount.GetOpenAIAccessToken())
-		if authToken == "" {
+		if authToken == "" && !credAccount.IsOpenAIAgentIdentity() {
 			return nil, newCodexModelsManifestAccountUnavailableError(
 				infraerrors.New(http.StatusBadGateway, "OPENAI_CODEX_MODELS_TOKEN_MISSING", "account has no Codex backend access token"),
 			)
@@ -315,16 +315,25 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 	}
 
 	headers := make(http.Header)
-	headers.Set("Authorization", "Bearer "+authToken)
+	if useAPIKeyUpstream {
+		headers.Set("Authorization", "Bearer "+authToken)
+		credAccount.ApplyHeaderOverrides(headers)
+	} else {
+		authHeaders, authErr := s.buildOpenAIAuthenticationHeaders(ctx, credAccount, authToken)
+		if authErr != nil {
+			return nil, infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_AUTH_FAILED", "build Codex models authentication: %v", authErr)
+		}
+		for key, values := range authHeaders {
+			for _, value := range values {
+				headers.Add(key, value)
+			}
+		}
+		setOpenAIChatGPTAccountHeaders(headers, credAccount)
+	}
 	headers.Set("Accept", "application/json")
 	headers.Set("Originator", "codex_cli_rs")
 	headers.Set("Version", clientVersion)
 	headers.Set("User-Agent", codexCLIUserAgent)
-	if useAPIKeyUpstream {
-		credAccount.ApplyHeaderOverrides(headers)
-	} else {
-		setOpenAIChatGPTAccountHeaders(headers, credAccount)
-	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

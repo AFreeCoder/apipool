@@ -19,6 +19,14 @@ func (s *TokenRefreshService) maybeRunOpenAIPlanSync(ctx context.Context, accoun
 	if !s.lastOpenAIPlanSyncAt.IsZero() && now.Sub(s.lastOpenAIPlanSyncAt) < interval {
 		return
 	}
+	if accounts == nil {
+		var err error
+		accounts, err = s.accountRepo.ListActive(ctx)
+		if err != nil {
+			slog.Warn("openai_plan_type_sweep_list_accounts_failed", "error", err)
+			return
+		}
+	}
 	s.lastOpenAIPlanSyncAt = now
 
 	s.runOpenAIPlanSyncSweep(ctx, accounts, now.UTC())
