@@ -18,6 +18,7 @@ import { ref } from 'vue'
 const STEP_UP_REQUIRED = 'STEP_UP_REQUIRED'
 const STEP_UP_TOTP_NOT_ENABLED = 'STEP_UP_TOTP_NOT_ENABLED'
 const STEP_UP_ADMIN_API_KEY_FORBIDDEN = 'STEP_UP_ADMIN_API_KEY_FORBIDDEN'
+const STEP_UP_SESSION_REQUIRED = 'STEP_UP_SESSION_REQUIRED'
 
 /**
  * Thrown by run() when the user dismisses the TOTP dialog.
@@ -55,11 +56,22 @@ export function isStepUpRequired(err: unknown): boolean {
 
 export function isStepUpBlocked(err: unknown): boolean {
   const m = markerOf(err)
-  return m === STEP_UP_TOTP_NOT_ENABLED || m === STEP_UP_ADMIN_API_KEY_FORBIDDEN
+  return m === STEP_UP_TOTP_NOT_ENABLED || m === STEP_UP_ADMIN_API_KEY_FORBIDDEN || m === STEP_UP_SESSION_REQUIRED
 }
 
 export function stepUpBlockReason(err: unknown): string {
   return markerOf(err)
+}
+
+export function stepUpBlockMessageKey(err: unknown): string {
+  switch (markerOf(err)) {
+    case STEP_UP_ADMIN_API_KEY_FORBIDDEN:
+      return 'stepUp.adminApiKeyForbidden'
+    case STEP_UP_SESSION_REQUIRED:
+      return 'stepUp.sessionRequired'
+    default:
+      return 'stepUp.notEnabled'
+  }
 }
 
 export type StepUpController = ReturnType<typeof useStepUp>
@@ -91,7 +103,7 @@ export function useStepUp() {
 
   /**
    * Run a sensitive action. On STEP_UP_REQUIRED, prompt for a TOTP code and
-   * retry once. STEP_UP_TOTP_NOT_ENABLED / admin-api-key errors are surfaced
+   * retry once. Missing TOTP, admin-api-key, and legacy session errors are surfaced
    * to the caller (they cannot be resolved by entering a code). If the user
    * cancels the prompt, a StepUpCancelledError is thrown so callers can
    * distinguish "user changed their mind" from real failures.

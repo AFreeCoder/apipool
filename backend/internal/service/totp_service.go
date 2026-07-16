@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/pquerna/otp/totp"
@@ -15,14 +16,15 @@ import (
 )
 
 var (
-	ErrTotpNotEnabled      = infraerrors.BadRequest("TOTP_NOT_ENABLED", "totp feature is not enabled")
-	ErrTotpAlreadyEnabled  = infraerrors.BadRequest("TOTP_ALREADY_ENABLED", "totp is already enabled for this account")
-	ErrTotpNotSetup        = infraerrors.BadRequest("TOTP_NOT_SETUP", "totp is not set up for this account")
-	ErrTotpInvalidCode     = infraerrors.BadRequest("TOTP_INVALID_CODE", "invalid totp code")
-	ErrTotpSetupExpired    = infraerrors.BadRequest("TOTP_SETUP_EXPIRED", "totp setup session expired")
-	ErrTotpTooManyAttempts = infraerrors.TooManyRequests("TOTP_TOO_MANY_ATTEMPTS", "too many verification attempts, please try again later")
-	ErrVerifyCodeRequired  = infraerrors.BadRequest("VERIFY_CODE_REQUIRED", "email verification code is required")
-	ErrPasswordRequired    = infraerrors.BadRequest("PASSWORD_REQUIRED", "password is required")
+	ErrTotpNotEnabled        = infraerrors.BadRequest("TOTP_NOT_ENABLED", "totp feature is not enabled")
+	ErrTotpAlreadyEnabled    = infraerrors.BadRequest("TOTP_ALREADY_ENABLED", "totp is already enabled for this account")
+	ErrTotpNotSetup          = infraerrors.BadRequest("TOTP_NOT_SETUP", "totp is not set up for this account")
+	ErrTotpInvalidCode       = infraerrors.BadRequest("TOTP_INVALID_CODE", "invalid totp code")
+	ErrTotpSetupExpired      = infraerrors.BadRequest("TOTP_SETUP_EXPIRED", "totp setup session expired")
+	ErrTotpTooManyAttempts   = infraerrors.TooManyRequests("TOTP_TOO_MANY_ATTEMPTS", "too many verification attempts, please try again later")
+	ErrStepUpSessionRequired = infraerrors.Unauthorized("STEP_UP_SESSION_REQUIRED", "this session cannot receive step-up authorization; please login again")
+	ErrVerifyCodeRequired    = infraerrors.BadRequest("VERIFY_CODE_REQUIRED", "email verification code is required")
+	ErrPasswordRequired      = infraerrors.BadRequest("PASSWORD_REQUIRED", "password is required")
 )
 
 // TotpCache defines cache operations for TOTP service
@@ -406,6 +408,10 @@ const StepUpGrantTTL = 15 * time.Minute
 // VerifyStepUp 校验 TOTP 码并授予当前会话一段时间的 step-up 权限。
 // 返回授权有效期，供前端展示/设置提醒。
 func (s *TotpService) VerifyStepUp(ctx context.Context, userID int64, sessionKey, code string) (time.Duration, error) {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return 0, ErrStepUpSessionRequired
+	}
 	if err := s.VerifyCode(ctx, userID, code); err != nil {
 		return 0, err
 	}

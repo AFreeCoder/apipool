@@ -216,7 +216,7 @@ func (h *TotpHandler) StepUp(c *gin.Context) {
 		return
 	}
 
-	sessionKey := middleware2.StepUpSessionKey(c, subject.UserID)
+	sessionKey := middleware2.StepUpSessionKey(c)
 	ttl, err := h.totpService.VerifyStepUp(c.Request.Context(), subject.UserID, sessionKey, req.Code)
 	if err != nil {
 		response.ErrorFrom(c, err)

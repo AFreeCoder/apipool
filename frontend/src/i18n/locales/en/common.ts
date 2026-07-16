@@ -420,7 +420,8 @@ export default {
     hint: 'Enter the 6-digit code from your authenticator app to continue this sensitive operation.',
     verifyFailed: 'Verification failed, please try again',
     notEnabled: 'This operation requires two-factor authentication. Please enable TOTP in your profile first.',
-    adminApiKeyForbidden: 'Admin API keys cannot perform this operation. Use a two-factor verified admin session.'
+    adminApiKeyForbidden: 'Admin API keys cannot perform this operation. Use a two-factor verified admin session.',
+    sessionRequired: 'This session is too old for per-session verification. Sign in again, then retry the operation.'
   },
 
   // Dashboard

@@ -122,6 +122,40 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
 	return err
 }
 
+func (r *auditLogRepository) ClearAllWithTrace(ctx context.Context, trace *service.AuditLog) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, fmt.Errorf("nil audit log repository")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var deleted int64
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_logs").Scan(&deleted); err != nil {
+		return 0, fmt.Errorf("count audit logs: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "TRUNCATE TABLE audit_logs"); err != nil {
+		return 0, fmt.Errorf("truncate audit logs: %w", err)
+	}
+	if trace != nil {
+		if trace.Extra == nil {
+			trace.Extra = map[string]any{}
+		}
+		trace.Extra["deleted_rows"] = deleted
+		query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
+		if _, err := tx.ExecContext(ctx, query, auditLogInsertValues(trace)...); err != nil {
+			return 0, fmt.Errorf("insert audit clear trace: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit audit log clear: %w", err)
+	}
+	return deleted, nil
+}
+
 func buildAuditLogsWhere(filter *service.AuditLogFilter) (string, []any) {
 	clauses := make([]string, 0, 10)
 	args := make([]any, 0, 10)

@@ -105,3 +105,11 @@ func TestTotpDisableRegularUserStillRequiresEmailCode(t *testing.T) {
 	err := svc.Disable(context.Background(), user.ID, "", "whatever")
 	require.ErrorIs(t, err, ErrVerifyCodeRequired)
 }
+
+func TestVerifyStepUpRejectsMissingSessionBeforeCheckingCode(t *testing.T) {
+	svc := &TotpService{}
+
+	_, err := svc.VerifyStepUp(context.Background(), 1, "", "123456")
+
+	require.ErrorIs(t, err, ErrStepUpSessionRequired)
+}

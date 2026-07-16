@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 const defaultImageMaxDownloadBytes int64 = 32 << 20 // 32 MiB
@@ -53,7 +55,20 @@ func NewImageResultUploader(storage ImageStorage, prefix string, maxDownloadByte
 }
 
 func defaultImageDownloadHTTPClient() *http.Client {
-	return &http.Client{Timeout: 60 * time.Second}
+	client := newSSRFSafeHTTPClient(60 * time.Second)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if req == nil || req.URL == nil {
+			return errors.New("redirect URL is missing")
+		}
+		if _, err := validateImageSourceURL(req.URL.String()); err != nil {
+			return fmt.Errorf("unsafe image redirect: %w", err)
+		}
+		return nil
+	}
+	return client
 }
 
 // Rewrite 将 result（上游生图响应 JSON）里的每张图片转存到对象存储，
@@ -118,7 +133,11 @@ func (u *ImageResultUploader) fetchImageBytes(ctx context.Context, item map[stri
 				if err != nil {
 					return nil, "", fmt.Errorf("decode b64_json: %w", err)
 				}
-				return data, detectImageContentType(data), nil
+				contentType, err := detectImageContentType(data)
+				if err != nil {
+					return nil, "", err
+				}
+				return data, contentType, nil
 			}
 		}
 	}
@@ -134,7 +153,11 @@ func (u *ImageResultUploader) fetchImageBytes(ctx context.Context, item map[stri
 }
 
 func (u *ImageResultUploader) download(ctx context.Context, rawURL string) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	normalizedURL, err := validateImageSourceURL(rawURL)
+	if err != nil {
+		return nil, "", fmt.Errorf("image URL is not allowed: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizedURL, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("build download request: %w", err)
 	}
@@ -157,23 +180,36 @@ func (u *ImageResultUploader) download(ctx context.Context, rawURL string) ([]by
 	if int64(len(data)) > limit {
 		return nil, "", fmt.Errorf("downloaded image exceeds %d bytes", limit)
 	}
-	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
-	if !strings.HasPrefix(contentType, "image/") {
-		contentType = detectImageContentType(data)
+	contentType, err := detectImageContentType(data)
+	if err != nil {
+		return nil, "", err
 	}
 	return data, contentType, nil
+}
+
+func validateImageSourceURL(rawURL string) (string, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if _, err := urlvalidator.ValidateHTTPSURL(trimmed, urlvalidator.ValidationOptions{
+		AllowPrivate: false,
+	}); err != nil {
+		return "", err
+	}
+	// 校验只用于安全判断；保留原始 URL 的 path/query 编码，避免破坏签名链接。
+	return trimmed, nil
 }
 
 func (u *ImageResultUploader) buildKey(taskID string, index int, contentType string) string {
 	return u.prefix + taskID + "-" + strconv.Itoa(index) + extensionForContentType(contentType)
 }
 
-func detectImageContentType(data []byte) string {
+func detectImageContentType(data []byte) (string, error) {
 	ct := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
-	if strings.HasPrefix(ct, "image/") {
-		return ct
+	switch ct {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return ct, nil
+	default:
+		return "", fmt.Errorf("downloaded payload is not an image: detected %s", ct)
 	}
-	return "image/png"
 }
 
 func extensionForContentType(ct string) string {

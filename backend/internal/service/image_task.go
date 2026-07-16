@@ -21,6 +21,7 @@ const (
 
 	defaultImageTaskTTL              = 24 * time.Hour
 	defaultImageTaskExecutionTimeout = 30 * time.Minute
+	imageTaskStaleGrace              = 30 * time.Second
 )
 
 var (
@@ -147,7 +148,29 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 		// Do not reveal whether a random task ID exists for another caller.
 		return nil, ErrImageTaskNotFound
 	}
+	if task.Status == ImageTaskStatusProcessing && s.processingTaskIsStale(task) {
+		now := time.Now().UTC()
+		completedAt := now.Unix()
+		task.Status = ImageTaskStatusFailed
+		task.HTTPStatus = http.StatusGatewayTimeout
+		task.Result = nil
+		task.Error = imageTaskErrorJSON("timeout_error", "image generation task was interrupted before completion")
+		task.CompletedAt = &completedAt
+		task.ExpiresAt = now.Add(s.ttl).Unix()
+		if err := s.store.Save(ctx, task, s.ttl); err != nil {
+			return nil, ErrImageTaskUnavailable.WithCause(err)
+		}
+	}
 	return imageTaskToPublic(task), nil
+}
+
+func (s *ImageTaskService) processingTaskIsStale(task *ImageTaskRecord) bool {
+	if s == nil || task == nil || task.Status != ImageTaskStatusProcessing || task.CreatedAt <= 0 {
+		return false
+	}
+	// 给仍存活的执行 goroutine 留出完成失败态落库的短暂宽限，降低轮询与超时收尾竞争。
+	deadline := time.Unix(task.CreatedAt, 0).Add(s.ExecutionTimeout() + imageTaskStaleGrace)
+	return time.Now().UTC().After(deadline)
 }
 
 func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage) error {

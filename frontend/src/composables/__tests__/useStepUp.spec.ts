@@ -5,6 +5,7 @@ import {
   isStepUpBlocked,
   isStepUpCancelled,
   stepUpBlockReason,
+  stepUpBlockMessageKey,
   StepUpCancelledError
 } from '../useStepUp'
 
@@ -19,12 +20,19 @@ describe('useStepUp error classification', () => {
   it('detects blocked (non-retryable) step-up errors', () => {
     expect(isStepUpBlocked({ code: 'STEP_UP_TOTP_NOT_ENABLED' })).toBe(true)
     expect(isStepUpBlocked({ reason: 'STEP_UP_ADMIN_API_KEY_FORBIDDEN' })).toBe(true)
+    expect(isStepUpBlocked({ reason: 'STEP_UP_SESSION_REQUIRED' })).toBe(true)
     expect(isStepUpBlocked({ code: 'STEP_UP_REQUIRED' })).toBe(false)
   })
 
   it('surfaces the block reason marker', () => {
     expect(stepUpBlockReason({ reason: 'STEP_UP_ADMIN_API_KEY_FORBIDDEN' })).toBe('STEP_UP_ADMIN_API_KEY_FORBIDDEN')
     expect(stepUpBlockReason({ code: 'OTHER' })).toBe('')
+  })
+
+  it('maps blocked reasons to user-facing message keys', () => {
+    expect(stepUpBlockMessageKey({ code: 'STEP_UP_ADMIN_API_KEY_FORBIDDEN' })).toBe('stepUp.adminApiKeyForbidden')
+    expect(stepUpBlockMessageKey({ code: 'STEP_UP_SESSION_REQUIRED' })).toBe('stepUp.sessionRequired')
+    expect(stepUpBlockMessageKey({ code: 'STEP_UP_TOTP_NOT_ENABLED' })).toBe('stepUp.notEnabled')
   })
 })
 

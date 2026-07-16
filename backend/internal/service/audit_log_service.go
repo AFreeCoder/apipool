@@ -32,6 +32,10 @@ type AuditLogService struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	clearMu    sync.Mutex
+	writeMu    sync.Mutex
+	generation uint64
+
 	droppedCount uint64
 	writeFailed  uint64
 	writtenCount uint64
@@ -75,6 +79,7 @@ func (s *AuditLogService) Record(entry *AuditLog) {
 	if entry.CreatedAt.IsZero() {
 		entry.CreatedAt = time.Now().UTC()
 	}
+	entry.generation = atomic.LoadUint64(&s.generation)
 	select {
 	case <-s.ctx.Done():
 		return
@@ -102,14 +107,9 @@ func (s *AuditLogService) GetByID(ctx context.Context, id int64) (*AuditLog, err
 //  1. 统计并清空全表
 //  2. 同步写入一条 "audit_log.clear" 留痕记录（绕过异步队列，保证落库）
 func (s *AuditLogService) ClearAll(ctx context.Context, trace *AuditLog) (int64, error) {
-	deleted, err := s.repo.Count(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("count audit logs: %w", err)
+	if s == nil || s.repo == nil {
+		return 0, fmt.Errorf("audit log service is unavailable")
 	}
-	if err := s.repo.TruncateAll(ctx); err != nil {
-		return 0, fmt.Errorf("truncate audit logs: %w", err)
-	}
-
 	if trace != nil {
 		trace.Action = AuditActionAuditLogClear
 		if trace.CreatedAt.IsZero() {
@@ -118,11 +118,23 @@ func (s *AuditLogService) ClearAll(ctx context.Context, trace *AuditLog) (int64,
 		if trace.Extra == nil {
 			trace.Extra = map[string]any{}
 		}
-		trace.Extra["deleted_rows"] = deleted
-		if err := s.repo.Insert(ctx, trace); err != nil {
-			// 留痕失败必须显式暴露：清空已发生，但审计链断裂。
-			return deleted, fmt.Errorf("audit logs cleared (%d rows) but failed to persist clear-trace record: %w", deleted, err)
-		}
+	}
+
+	s.clearMu.Lock()
+	defer s.clearMu.Unlock()
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	// 持有 writer 锁后推进代际：此前已排队/已进入 batch 的记录会在下次 flush 时丢弃；
+	// 此后到达的记录属于新代际，应在清空事务完成后继续落库。
+	atomic.AddUint64(&s.generation, 1)
+
+	deleted, err := s.repo.ClearAllWithTrace(ctx, trace)
+	if err != nil {
+		// 数据库事务未发生清空时恢复旧代际，避免一次失败的清空请求丢弃排队审计。
+		atomic.AddUint64(&s.generation, ^uint64(0))
+		return 0, err
 	}
 	return deleted, nil
 }
@@ -138,17 +150,46 @@ func (s *AuditLogService) runWriter() {
 		if len(batch) == 0 {
 			return
 		}
+		s.writeMu.Lock()
+		defer s.writeMu.Unlock()
+
+		currentGeneration := atomic.LoadUint64(&s.generation)
+		pending := make([]*AuditLog, 0, len(batch))
+		for _, item := range batch {
+			if item != nil && item.generation >= currentGeneration {
+				pending = append(pending, item)
+			}
+		}
+		batch = batch[:0]
+		if len(pending) == 0 {
+			return
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		inserted, err := s.repo.BatchInsert(ctx, batch)
+		inserted, err := s.repo.BatchInsert(ctx, pending)
 		cancel()
 		if err != nil {
-			atomic.AddUint64(&s.writeFailed, uint64(len(batch)))
-			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log flush failed\" err=%v batch=%d\n",
-				time.Now().Format(time.RFC3339Nano), err, len(batch))
+			var recovered uint64
+			var failed uint64
+			for _, item := range pending {
+				itemCtx, itemCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				itemErr := s.repo.Insert(itemCtx, item)
+				itemCancel()
+				if itemErr != nil {
+					failed++
+					_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log individual insert failed\" err=%v action=%s\n",
+						time.Now().Format(time.RFC3339Nano), itemErr, item.Action)
+					continue
+				}
+				recovered++
+			}
+			atomic.AddUint64(&s.writtenCount, recovered)
+			atomic.AddUint64(&s.writeFailed, failed)
+			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log batch flush failed; individual fallback completed\" err=%v batch=%d recovered=%d failed=%d\n",
+				time.Now().Format(time.RFC3339Nano), err, len(pending), recovered, failed)
 		} else {
 			atomic.AddUint64(&s.writtenCount, uint64(inserted))
 		}
-		batch = batch[:0]
 	}
 
 	for {

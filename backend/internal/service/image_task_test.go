@@ -89,3 +89,26 @@ func TestImageTaskServiceMapsStoreFailures(t *testing.T) {
 	_, err := svc.Create(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2})
 	require.ErrorIs(t, err, ErrImageTaskUnavailable)
 }
+
+func TestImageTaskServiceMarksStaleProcessingTaskFailedOnPoll(t *testing.T) {
+	now := time.Now().UTC()
+	store := &imageTaskMemoryStore{
+		task: &ImageTaskRecord{
+			ID:        "imgtask_stale",
+			UserID:    7,
+			APIKeyID:  9,
+			Status:    ImageTaskStatusProcessing,
+			CreatedAt: now.Add(-2 * time.Minute).Unix(),
+			ExpiresAt: now.Add(time.Hour).Unix(),
+		},
+	}
+	svc := NewImageTaskServiceWithOptions(store, time.Hour, time.Minute)
+
+	task, err := svc.Get(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9}, "imgtask_stale")
+
+	require.NoError(t, err)
+	require.Equal(t, ImageTaskStatusFailed, task.Status)
+	require.Equal(t, http.StatusGatewayTimeout, task.HTTPStatus)
+	require.Contains(t, string(task.Error), "interrupted")
+	require.NotNil(t, task.CompletedAt)
+}

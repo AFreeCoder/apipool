@@ -276,7 +276,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
 import type { BackupS3Config, BackupScheduleConfig, BackupRecord } from '@/api/admin/backup'
-import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
+import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockMessageKey } from '@/composables/useStepUp'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 
 const { t } = useI18n()
@@ -286,11 +286,7 @@ const backupStepUp = useStepUp()
 // 敏感操作被 2FA 门控拦截时的统一提示。
 function reportStepUpBlocked(error: unknown): boolean {
   if (!isStepUpBlocked(error)) return false
-  appStore.showError(
-    stepUpBlockReason(error) === 'STEP_UP_ADMIN_API_KEY_FORBIDDEN'
-      ? t('stepUp.adminApiKeyForbidden')
-      : t('stepUp.notEnabled')
-  )
+  appStore.showError(t(stepUpBlockMessageKey(error)))
   return true
 }
 

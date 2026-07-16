@@ -57,6 +57,7 @@ type AuditLog struct {
 	StatusCode       int            `json:"status_code"`
 	LatencyMs        int64          `json:"latency_ms"`
 	Extra            map[string]any `json:"extra,omitempty"`
+	generation       uint64
 }
 
 // AuditLogFilter 审计日志列表查询条件。
@@ -94,9 +95,8 @@ type AuditLogRepository interface {
 	Insert(ctx context.Context, log *AuditLog) error
 	List(ctx context.Context, filter *AuditLogFilter) (*AuditLogList, error)
 	GetByID(ctx context.Context, id int64) (*AuditLog, error)
-	Count(ctx context.Context) (int64, error)
-	// TruncateAll 全量清空（TRUNCATE），返回前需调用方自行 Count 记录行数。
-	TruncateAll(ctx context.Context) error
+	// ClearAllWithTrace 在单个数据库事务中统计、清空并写入清空留痕。
+	ClearAllWithTrace(ctx context.Context, trace *AuditLog) (int64, error)
 	// DeleteBefore 按保留期批量删除，返回本批删除行数（幂等，可多实例并发）。
 	DeleteBefore(ctx context.Context, cutoff time.Time, batchSize int) (int64, error)
 }
@@ -200,9 +200,44 @@ func RedactAuditBody(raw []byte, contentType string) string {
 	}
 	out := string(encoded)
 	if len(out) > auditRequestBodyMaxBytes {
-		out = out[:auditRequestBodyMaxBytes] + "...<truncated>"
+		out = truncateAuditJSON(encoded, auditRequestBodyMaxBytes)
 	}
 	return out
+}
+
+func truncateAuditJSON(encoded []byte, maxBytes int) string {
+	if len(encoded) <= maxBytes {
+		return string(encoded)
+	}
+	type truncatedAuditBody struct {
+		Truncated bool   `json:"_truncated"`
+		Preview   string `json:"preview"`
+	}
+
+	best, _ := json.Marshal(truncatedAuditBody{Truncated: true})
+	low, high := 0, maxBytes
+	if high > len(encoded) {
+		high = len(encoded)
+	}
+	for low <= high {
+		mid := low + (high-low)/2
+		preview := truncateUTF8(string(encoded), mid)
+		candidate, err := json.Marshal(truncatedAuditBody{
+			Truncated: true,
+			Preview:   preview,
+		})
+		if err != nil {
+			high = mid - 1
+			continue
+		}
+		if len(candidate) <= maxBytes {
+			best = candidate
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+	return string(best)
 }
 
 const auditRedactMaxDepth = 24

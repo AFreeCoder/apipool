@@ -419,7 +419,8 @@ export default {
     hint: '请输入身份验证器应用中的 6 位验证码以继续此敏感操作。',
     verifyFailed: '验证失败，请重试',
     notEnabled: '此操作需要开启二次验证，请先在个人资料中启用 TOTP。',
-    adminApiKeyForbidden: '管理 API Key 无法执行此操作，请使用已通过二次验证的管理员会话。'
+    adminApiKeyForbidden: '管理 API Key 无法执行此操作，请使用已通过二次验证的管理员会话。',
+    sessionRequired: '当前会话版本过旧，无法绑定本次二次验证。请重新登录后再执行此操作。'
   },
 
   // Dashboard

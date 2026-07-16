@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestMaskAuditCredential(t *testing.T) {
@@ -134,6 +135,27 @@ func TestRedactAuditBody_NonJSONOmitted(t *testing.T) {
 func TestRedactAuditBody_Empty(t *testing.T) {
 	if got := RedactAuditBody(nil, "application/json"); got != "" {
 		t.Fatalf("expected empty for nil body, got %q", got)
+	}
+}
+
+func TestRedactAuditBody_TruncationKeepsValidUTF8AndJSON(t *testing.T) {
+	raw, err := json.Marshal(map[string]string{
+		"message": strings.Repeat("测", auditRequestBodyMaxBytes),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := RedactAuditBody(raw, "application/json")
+
+	if !utf8.ValidString(out) {
+		t.Fatalf("truncated audit body must remain valid UTF-8")
+	}
+	if !json.Valid([]byte(out)) {
+		t.Fatalf("truncated audit body must remain valid JSON: %q", out[len(out)-64:])
+	}
+	if len(out) > auditRequestBodyMaxBytes {
+		t.Fatalf("truncated audit body length = %d, want <= %d", len(out), auditRequestBodyMaxBytes)
 	}
 }
 
