@@ -28,7 +28,7 @@ func TestNormalizeCodexImportEntryAcceptsAgentIdentityAuthJSON(t *testing.T) {
 	require.Equal(t, "user-import", item.Credentials["chatgpt_user_id"])
 	require.NotContains(t, item.Credentials, "access_token")
 	require.NotContains(t, item.Credentials, "refresh_token")
-	require.NotEmpty(t, item.WarningTexts)
+	require.Empty(t, item.WarningTexts)
 }
 
 func TestImportCodexSessionsCreatesAgentIdentityWithoutExpiry(t *testing.T) {
@@ -47,6 +47,8 @@ func TestImportCodexSessionsCreatesAgentIdentityWithoutExpiry(t *testing.T) {
 	require.Nil(t, svc.createdAccounts[0].ExpiresAt)
 	require.Nil(t, svc.createdAccounts[0].AutoPauseOnExpired)
 	require.Equal(t, service.OpenAIAuthModeAgentIdentity, svc.createdAccounts[0].Credentials["auth_mode"])
+	require.NotContains(t, svc.createdAccounts[0].Credentials, "access_token")
+	require.NotContains(t, svc.createdAccounts[0].Credentials, "refresh_token")
 }
 
 func TestResolveCodexImportExpiryForAgentIdentityKeepsExplicitAccountExpiry(t *testing.T) {
@@ -121,6 +123,7 @@ func buildCodexAgentIdentityImportValue(t *testing.T, accountID, userID string) 
 		"agent_identity": map[string]any{
 			"agent_runtime_id":           "runtime-import",
 			"agent_private_key":          base64.StdEncoding.EncodeToString(der),
+			"task_id":                    "task-import",
 			"account_id":                 accountID,
 			"chatgpt_user_id":            userID,
 			"email":                      "agent@example.invalid",
