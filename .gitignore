@@ -122,6 +122,7 @@ tests
 !deploy/tests/**
 CLAUDE.md
 .claude
+/.agents/
 scripts
 !scripts/
 scripts/*
