@@ -18,7 +18,8 @@ services:
         soft: 100000
         hard: 100000
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
+      # 生产实例只允许宿主机 Caddy 访问，禁止绕过 TLS、限流与代理信任边界直连应用端口。
+      - "127.0.0.1:${SERVER_PORT:-8080}:8080"
     volumes:
       - sub2api_data:/app/data
     environment:

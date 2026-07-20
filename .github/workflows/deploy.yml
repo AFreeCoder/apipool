@@ -298,6 +298,11 @@ jobs:
             docker tag "$DEPLOY_IMAGE" deploy-sub2api:latest
             echo "已更新本地部署镜像别名: deploy-sub2api:latest (${DEPLOY_COMMIT})"
             docker compose -f docker-compose.deploy.yml config -q
+            if ! docker compose -f docker-compose.deploy.yml config --format json \
+              | grep -Eq '"host_ip"[[:space:]]*:[[:space:]]*"127\.0\.0\.1"'; then
+              echo "主站应用端口未绑定到 127.0.0.1，停止部署" >&2
+              exit 1
+            fi
 
             # 清理之前部署失败遗留的重命名容器（格式: <hash>_sub2api*）
             # Docker Compose recreate 先 rename 旧容器再创建新容器，如果中途失败，
@@ -311,6 +316,13 @@ jobs:
             wait_for_health sub2api-postgres 180
             wait_for_health sub2api-redis 180
             wait_for_health sub2api 300
+            case "$(docker port sub2api 8080/tcp 2>/dev/null || true)" in
+              127.0.0.1:*) ;;
+              *)
+                echo "主站应用端口运行时绑定异常，停止部署" >&2
+                exit 1
+                ;;
+            esac
 
             # 清理悬空镜像
             docker image prune -f

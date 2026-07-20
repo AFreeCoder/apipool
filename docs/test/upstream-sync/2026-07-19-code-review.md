@@ -17,7 +17,7 @@
 
 | 发现 | 评审来源 | 核验结论 | 处置 |
 | --- | --- | --- | --- |
-| 兼容迁移会把旧数据库中的 `false` 自动改为 `true`，随后安全路径直接读取 `CF-Connecting-IP`、`X-Real-IP`、`X-Forwarded-For` 或自定义头 | requesting | 有效，Critical；可伪造 IP 会进入 API Key ACL、会话绑定和安全审计 | 保留已存 `false`；开启时仅使用 Gin `server.trusted_proxies`，关闭时只使用 TCP 直连对端；原始头仅保留访问日志兼容用途 |
+| 兼容迁移会把旧数据库中的 `false` 自动改为 `true`，随后安全路径直接读取 `CF-Connecting-IP`、`X-Real-IP`、`X-Forwarded-For` 或自定义头；生产 Compose 默认把应用端口发布到 `0.0.0.0` | requesting | 有效，Critical；可伪造 IP 会进入 API Key ACL、会话绑定和安全审计，公网直连还会绕过 Caddy | 保留已存 `false`；开启时仅使用 Gin `server.trusted_proxies`，关闭时只使用 TCP 直连对端；原始头仅保留非安全元数据用途；生产端口固定绑定 `127.0.0.1` 并在部署前后断言 |
 | `step_up_enabled` 缺失、读取失败或默认关闭时，账号/代理导出、备份创建/下载及存储配置等既有固定高风险路由全部放行 | requesting | 有效，Critical；同步前这些路由始终门控 | 固定路由中间件改回无条件 fail-closed；开关只控制新增的管理员创建/提权附加门控 |
 | 鉴权缓存 outbox 触发器未覆盖配额、余额、并发、组费率、模型路由和媒体权限等快照字段，服务层失效失败又被忽略 | gstack | 有效，P2；当前单实例仍有进程内失效，跨实例/Redis 故障窗口需独立设计 | 不扩大本次同步修复范围，转入 `issues.md` |
 | Prompt Audit 把完整提示词明文写入 PostgreSQL，未发现自动 TTL、字段加密或保留策略 | gstack | 有效，P2；功能默认关闭时不影响当前生产 | 转入 `issues.md`；完成隐私与保留策略前，部署门禁要求生产保持关闭 |
@@ -57,6 +57,7 @@
 - `GOTOOLCHAIN=go1.26.4 make build`：通过，后端版本 `0.1.161` 与前端生产构建成功。
 - `bash deploy/tests/apple-container-test.sh`：通过，覆盖创建、启动、停止、重建与持久卷清理。
 - 主站和企业版生产 Compose 均通过 `docker compose config --quiet`。
+- 主站生产 Compose 渲染结果的 `host_ip` 为 `127.0.0.1`，部署工作流同时校验渲染结果与运行时端口绑定。
 - `bash deploy/tests/install-github-token-test.sh`：本机 Bash 3.2 按预期明确跳过；Linux Bash 4+ CI 保留完整检查。
 - `git diff --check`：通过。
 - `bash deploy/version_resolver.sh resolve .`、最新上游 tag 和 `backend/cmd/server/VERSION` 均为 `0.1.161`。
