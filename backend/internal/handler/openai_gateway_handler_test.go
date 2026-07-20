@@ -218,7 +218,7 @@ func TestOpenAIHandleStreamingAwareErrorWithCode_SSE(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 
 	h := &OpenAIGatewayHandler{}
-	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "model_not_supported_in_group", "Model gpt-5.4 is not supported in this group", true)
+	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "model_not_supported_in_group", "Model gpt-5.4 is not supported in this group", true, false)
 
 	body := w.Body.String()
 	assert.True(t, strings.HasPrefix(body, "event: error\n"))
@@ -245,7 +245,7 @@ func TestOpenAIHandleStreamingAwareErrorWithCode_NonStreaming(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 
 	h := &OpenAIGatewayHandler{}
-	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "no_available_accounts", "No available accounts", false)
+	h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", "no_available_accounts", "No available accounts", false, false)
 
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 

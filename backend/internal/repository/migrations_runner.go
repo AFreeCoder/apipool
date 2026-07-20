@@ -331,7 +331,7 @@ func dropInvalidIndexIfPresent(ctx context.Context, db migrationConnection, inde
 	return nil
 }
 
-func prepareAccountGroupSchedulerIndexesMigration(ctx context.Context, db *sql.DB) error {
+func prepareAccountGroupSchedulerIndexesMigration(ctx context.Context, db migrationConnection) error {
 	for _, indexName := range accountGroupSchedulerIndexes {
 		invalid, err := indexIsInvalid(ctx, db, indexName)
 		if err != nil {

@@ -1055,7 +1055,7 @@ func TestAPIKeyAuthIPRestrictionDoesNotTrustForwardedClientIPWhenProxyNotTrusted
 	}
 
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	cfg.SetTrustForwardedIPForAPIKeyACL(true)
+	cfg.SetTrustForwardedIPForAPIKeyACL(false)
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
 	router := gin.New()
 	require.NoError(t, router.SetTrustedProxies(nil))

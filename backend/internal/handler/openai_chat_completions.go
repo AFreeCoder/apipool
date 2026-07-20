@@ -176,10 +176,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
 				if cls.ModelNotFound {
-					h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted)
+					h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted, false)
 				} else {
 					publicErr := publicOpenAIAccountSelectionError(err, attemptedModel)
-					h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
+					h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted, false)
 				}
 				return
 			} else {
@@ -197,10 +197,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				markOpsRoutingCapacityLimited(c)
 			}
 			if cls.ModelNotFound {
-				h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted)
+				h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted, false)
 			} else {
 				publicErr := publicOpenAIAccountSelectionError(service.ErrNoAvailableAccounts, attemptedModel)
-				h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
+				h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted, false)
 			}
 			return
 		}

@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if ((BASH_VERSINFO[0] < 4)); then
+    echo "跳过 install GitHub token 检查：该测试与安装器均要求 Bash 4+"
+    exit 0
+fi
+
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 TEMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_DIR"' EXIT
@@ -23,7 +28,7 @@ EOF
 run_api_curl() {
     CURL_ARGS_LOG="$1" HOME="$TEMP_DIR/home" PATH="$TEMP_DIR:$PATH" UPDATE_GITHUB_TOKEN="${2:-}" \
         GITHUB_TOKEN="github-fallback" GH_TOKEN="gh-fallback" \
-        bash -c 'source <(head -n -1 "$1"); github_api_curl -s "$2"' bash \
+        bash -c 'source <(sed -e "\$d" "$1"); github_api_curl -s "$2"' bash \
         "$ROOT_DIR/deploy/install.sh" "https://api.github.com/repos/Wei-Shaw/sub2api/releases/latest"
 }
 
@@ -70,7 +75,7 @@ assert_unsafe_invocation_rejected() {
     shift
     rm -f "$TEMP_DIR/$name" "$TEMP_DIR/$name.stdin"
     if CURL_ARGS_LOG="$TEMP_DIR/$name" PATH="$TEMP_DIR:$PATH" UPDATE_GITHUB_TOKEN="update-secret" \
-        bash -c 'source <(head -n -1 "$1"); shift; github_api_curl "$@"' bash \
+        bash -c 'source <(sed -e "\$d" "$1"); shift; github_api_curl "$@"' bash \
         "$ROOT_DIR/deploy/install.sh" "$@" 2>/dev/null; then
         echo "installer accepted unsafe curl invocation: $name" >&2
         exit 1

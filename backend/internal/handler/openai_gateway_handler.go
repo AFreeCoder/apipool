@@ -432,10 +432,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
 				if cls.ModelNotFound {
-					h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted)
+					h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted, false)
 				} else {
 					publicErr := publicOpenAIAccountSelectionError(err, reqModel)
-					h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
+					h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted, false)
 				}
 				return
 			}
@@ -452,10 +452,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				markOpsRoutingCapacityLimited(c)
 			}
 			if cls.ModelNotFound {
-				h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted)
+				h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted, false)
 			} else {
 				publicErr := publicOpenAIAccountSelectionError(service.ErrNoAvailableAccounts, reqModel)
-				h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted)
+				h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "api_error", publicErr.Code, publicErr.Message, streamStarted, false)
 			}
 			return
 		}
@@ -2341,14 +2341,10 @@ func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, st
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
-	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted)
+	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted, false)
 }
 
-func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, errCode, message string, streamStarted bool) {
-	h.handleStreamingAwareErrorWithCodeAndSLA(c, status, errType, errCode, message, streamStarted, false)
-}
-
-func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCodeAndSLA(
+func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 	c *gin.Context,
 	status int,
 	errType string,
@@ -2406,7 +2402,7 @@ func (h *OpenAIGatewayHandler) ensureOpenAIStreamReadErrorResponse(c *gin.Contex
 	if c.Writer.Written() {
 		streamStarted = true
 	}
-	h.handleStreamingAwareErrorWithCodeAndSLA(
+	h.handleStreamingAwareErrorWithCode(
 		c, http.StatusBadGateway, "upstream_error", code, message, streamStarted, true,
 	)
 	return true
