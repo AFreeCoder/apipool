@@ -27,46 +27,25 @@ legitimately occupy it for many minutes. Apply connection and unauthenticated
 request controls at the edge; authenticated user/API-key concurrency remains
 the application's responsibility.
 
-## Trusted client IPs
+## 可信客户端 IP
 
-`security.trust_forwarded_ip_for_api_key_acl` is enabled by default for upgrade
-compatibility. While enabled, raw forwarding headers take over client-IP
-resolution for logs and security-sensitive paths. Custom headers from
-`security.forwarded_client_ip_headers` are checked in configured order before
-the built-in `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` fallback.
-Header names are case-insensitive, normalized when loaded, de-duplicated, and
-limited to 16 unique valid HTTP field names. Header values must contain IP
-literals; comma-separated values are supported, invalid entries are skipped,
-and public addresses are preferred over private fallback addresses.
+`security.trust_forwarded_ip_for_api_key_acl` 控制安全敏感路径是否允许使用
+Gin 的 `server.trusted_proxies` 可信代理链。开启时，仅当 TCP 直连对端命中
+显式配置的可信代理 CIDR/IP，Gin 才会解析其转发链；未配置可信代理或对端不受信时
+仍返回直连对端。关闭时始终使用 TCP 直连对端。API Key IP 白/黑名单、会话绑定
+和安全审计绝不直接读取 `CF-Connecting-IP`、`X-Real-IP`、
+`X-Forwarded-For` 或自定义原始请求头。
 
-The list can be supplied in YAML or with the comma-separated environment
-variable `SECURITY_FORWARDED_CLIENT_IP_HEADERS`; an explicitly empty environment
-value clears YAML values. It is also editable from the admin security settings
-and updates at runtime without a restart. A request snapshots the switch and
-header list together, so one request cannot mix old and new settings. Custom
-headers are ignored completely when the switch is disabled. In that mode Gin's
-`server.trusted_proxies` chain is authoritative: configure only the exact
-CIDR/IP addresses that connect directly to Sub2API. An explicit empty list
-trusts no forwarded client IPs.
+`server.trusted_proxies` 只应填写直接连接 Sub2API 的精确代理地址。空列表表示不信任
+任何代理。数据库中已保存的 `false` 在升级时保持不变，不会为了兼容性自动改成
+`true`；设置读取失败时同样按关闭处理，确保 fail-closed。
 
-On the first upgrade to this mode, a legacy `false` value is changed to `true`
-only when `server.trusted_proxies` was not explicitly configured; explicit
-proxy policies remain in secure mode. New installations persist the configured
-custom header list during database initialization. Existing installations
-backfill a missing database value from the YAML configuration. A hidden
-migration marker prevents later administrator changes from being overwritten.
-If settings cannot be read or the persisted custom-header list is malformed,
-the process fails closed to trusted-proxy mode with no custom headers. If a
-migration write fails, the computed mode remains active for the current process
-and startup records a warning.
+`security.forwarded_client_ip_headers` 仅供非安全日志和请求元数据兼容解析使用，
+不参与 ACL、会话绑定或安全审计。请求头名称会被规范化、去重并限制为最多 16 个合法 HTTP 头名。
+该列表可通过 YAML、逗号分隔的 `SECURITY_FORWARDED_CLIENT_IP_HEADERS` 环境变量
+或管理后台更新。原始请求头可能被客户端伪造，不能把其中的客户端 IP 当成安全身份依据。
 
-Compatibility takeover accepts forwarded headers without validating the direct
-peer, including any configured custom header. Protect the origin from direct
-access while it is enabled. A CDN deployment must firewall the origin so only
-the CDN or load balancer can reach it, and that proxy must overwrite every
-trusted client-IP header rather than append an untrusted client value.
-
-Example for a proxy on the same host:
+同机反向代理示例：
 
 ```yaml
 server:

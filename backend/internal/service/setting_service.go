@@ -261,12 +261,6 @@ func (s *SettingService) LoadForwardedClientIPSettings(ctx context.Context) erro
 	}
 	if values[settingKeyForwardedClientIPModeV2] != "true" {
 		updates[settingKeyForwardedClientIPModeV2] = "true"
-		// Before this migration, new installations persisted false by default.
-		// Restore compatibility only when no trusted-proxy policy was configured.
-		if headersErr == nil && hasStoredValue && !enabled && !s.cfg.Server.TrustedProxiesConfigured {
-			enabled = true
-			updates[SettingKeyAPIKeyACLTrustForwardedIP] = "true"
-		}
 	}
 	if len(updates) > 0 {
 		if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {

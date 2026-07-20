@@ -705,8 +705,8 @@ type SecurityConfig struct {
 	CSP             CSPConfig            `mapstructure:"csp"`
 	ProxyFallback   ProxyFallbackConfig  `mapstructure:"proxy_fallback"`
 	ProxyProbe      ProxyProbeConfig     `mapstructure:"proxy_probe"`
-	// TrustForwardedIPForAPIKeyACL enables legacy raw forwarded-header takeover.
-	// When disabled, server.trusted_proxies is authoritative for all client-IP consumers.
+	// TrustForwardedIPForAPIKeyACL 仅允许安全路径使用 server.trusted_proxies 解析结果。
+	// 关闭时安全路径只使用 TCP 直连对端；原始转发头不参与安全判断。
 	TrustForwardedIPForAPIKeyACL  bool                                       `mapstructure:"trust_forwarded_ip_for_api_key_acl"`
 	ForwardedClientIPHeaders      []string                                   `mapstructure:"forwarded_client_ip_headers" json:"forwarded_client_ip_headers" yaml:"forwarded_client_ip_headers"`
 	forwardedClientIPSettingsLive *atomic.Pointer[ForwardedClientIPSettings] `mapstructure:"-" json:"-" yaml:"-"`
@@ -764,8 +764,7 @@ func (c *Config) TrustForwardedIPForAPIKeyACL() bool {
 	return c.ForwardedClientIPSettings().TrustForwardedIP
 }
 
-// ForwardedClientIPTrustEnabled reports whether the legacy forwarded-header
-// compatibility mode currently overrides server.trusted_proxies.
+// ForwardedClientIPTrustEnabled 返回安全路径是否启用 server.trusted_proxies 可信代理链。
 func (c *Config) ForwardedClientIPTrustEnabled() bool {
 	return c != nil && c.TrustForwardedIPForAPIKeyACL()
 }

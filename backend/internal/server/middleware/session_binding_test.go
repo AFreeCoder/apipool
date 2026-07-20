@@ -24,9 +24,10 @@ func TestSessionBindingContextFollowsForwardedIPSwitch(t *testing.T) {
 		trustedProxies []string
 		wantIP         string
 	}{
-		{name: "enabled switch takes over raw headers", trustForwarded: true, wantIP: "1.2.3.4"},
+		{name: "enabled switch without trusted proxy uses direct peer", trustForwarded: true, wantIP: "127.0.0.1"},
 		{name: "disabled switch ignores untrusted headers", trustForwarded: false, wantIP: "127.0.0.1"},
-		{name: "disabled switch uses configured Gin proxy", trustForwarded: false, trustedProxies: []string{"127.0.0.1"}, wantIP: "1.2.3.4"},
+		{name: "enabled switch uses configured Gin proxy", trustForwarded: true, trustedProxies: []string{"127.0.0.1"}, wantIP: "1.2.3.4"},
+		{name: "disabled switch ignores configured Gin proxy", trustForwarded: false, trustedProxies: []string{"127.0.0.1"}, wantIP: "127.0.0.1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{}
@@ -63,7 +64,7 @@ func TestSessionBindingContextSnapshotsForwardedModeAndHeaders(t *testing.T) {
 	cfg.SetForwardedClientIPSettings(true, []string{"X-Initial-IP"})
 
 	r := gin.New()
-	require.NoError(t, r.SetTrustedProxies(nil))
+	require.NoError(t, r.SetTrustedProxies([]string{"9.9.9.9"}))
 	r.Use(SessionBindingContext(cfg))
 	r.GET("/t", func(c *gin.Context) {
 		binding := service.SessionBindingFromContext(c.Request.Context())
@@ -78,6 +79,7 @@ func TestSessionBindingContextSnapshotsForwardedModeAndHeaders(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/t", nil)
 	req.RemoteAddr = "9.9.9.9:12345"
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
 	req.Header.Set("X-Initial-IP", "1.2.3.4")
 	req.Header.Set("X-Changed-IP", "4.4.4.4")
 	req.Header.Set("X-Real-IP", "8.8.8.8")

@@ -127,8 +127,8 @@ export default {
           '请先在环境变量中配置 TOTP_ENCRYPTION_KEY。使用命令 openssl rand -hex 32 生成密钥。'
       },
       security: {
-        stepUp: '敏感操作二次验证 (step-up 2FA)',
-        stepUpHint: '开启后，账号/代理导出、备份创建与下载、S3 配置修改、提升管理员等敏感操作需要先完成 TOTP 二次验证（15 分钟内有效）。开启前需本人已启用 2FA；关闭该开关本身也需要二次验证。',
+        stepUp: '管理员提权二次验证 (step-up 2FA)',
+        stepUpHint: '开启后，创建管理员或把普通用户提升为管理员需要先完成 TOTP 二次验证（15 分钟内有效）。账号/代理导出、备份创建与下载、存储配置修改等固定高风险路由始终要求二次验证，不受此开关影响。开启前需本人已启用 2FA；关闭该开关本身也需要二次验证。',
         stepUpEnableRequiresTotp: '开启敏感操作二次验证前，请先在个人资料中为当前账号启用 2FA (TOTP)。',
         sessionBinding: '会话 IP/UA 绑定',
         sessionBindingHint: '将登录会话与客户端 IP 和 User-Agent 绑定，任一变化即强制该会话失效并需重新登录（提升被盗凭证的利用门槛）。',
@@ -152,11 +152,11 @@ export default {
         description: '控制 API Key 白/黑名单、操作审计日志与会话 IP/UA 绑定使用哪个客户端 IP 判断',
         trustForwardedIp: '信任反代传递的客户端 IP',
         trustForwardedIpHint:
-          '为保证升级兼容默认开启。开启后 CF-Connecting-IP、X-Real-IP 或 X-Forwarded-For 会直接接管客户端 IP 解析并覆盖 server.trusted_proxies；关闭后严格使用 server.trusted_proxies 配置的 Gin 可信代理链。仅在源站无法被直接访问时开启接管模式。切换会改变现有会话的 IP 指纹。',
+          '开启后，安全路径仅使用 server.trusted_proxies 配置的 Gin 可信代理链；未配置可信代理时仍使用直连对端。关闭后始终只使用 TCP 直连对端。原始转发头不会直接进入 API Key IP ACL、会话绑定或安全审计。切换会改变现有会话的 IP 指纹。',
         forwardedClientIpHeaders: '自定义客户端 IP 请求头',
-        forwardedClientIpHeadersHint: '添加 CDN 或反代请求头名称，解析时优先于内置请求头。',
+        forwardedClientIpHeadersHint: '添加仅供非安全日志和请求元数据兼容解析使用的 CDN 或反代请求头名称。',
         forwardedClientIpHeadersPlaceholder: 'X-Client-IP',
-        forwardedClientIpHeadersRiskHint: '源站可被直接访问时，这些原始请求头可被伪造；请先限制源站访问再信任它们。',
+        forwardedClientIpHeadersRiskHint: '这些原始请求头可能被伪造，因此不会用于 API Key IP ACL、会话绑定或安全审计。',
         forwardedClientIpHeaderInvalid: '请输入有效的 HTTP 请求头名称。',
         forwardedClientIpHeadersLimit: '自定义客户端 IP 请求头最多允许 {max} 个。',
         removeForwardedClientIpHeader: '移除 {header}'

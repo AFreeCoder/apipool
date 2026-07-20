@@ -95,16 +95,12 @@ cors:
 # 安全配置
 # =============================================================================
 security:
-  # Legacy compatibility switch. When true, raw forwarded headers take over
-  # server.trusted_proxies. Set false to enforce the trusted proxy chain above.
-  # 旧版兼容开关。开启时原始转发头会接管 server.trusted_proxies；关闭后严格
-  # 使用上方配置的可信代理链。示例配置采用高安全模式。
+  # 安全客户端 IP 信任开关。开启时仅使用 server.trusted_proxies 配置的 Gin
+  # 可信代理链；未配置可信代理时仍退化为 TCP 直连对端。关闭时始终只使用
+  # TCP 直连对端。原始转发头不会直接参与 ACL、会话绑定或安全审计。
   trust_forwarded_ip_for_api_key_acl: false
-  # Optional client-IP headers for third-party CDNs, checked in list order before
-  # CF-Connecting-IP, X-Real-IP, and X-Forwarded-For. Valid only while the legacy
-  # compatibility switch above is true; maximum 16 unique HTTP header names.
-  # 第三方 CDN 的可选客户端 IP 请求头，按列表顺序优先于内置请求头解析。
-  # 仅在上方旧版兼容开关为 true 时生效；最多配置 16 个不重复的合法 HTTP 头名。
+  # 第三方 CDN 的可选客户端 IP 请求头，仅供非安全日志和请求元数据兼容解析，按列表顺序
+  # 优先于内置请求头；最多配置 16 个不重复的合法 HTTP 头名。
   # Environment / 环境变量: SECURITY_FORWARDED_CLIENT_IP_HEADERS=True-Client-IP,X-CDN-Client-IP
   forwarded_client_ip_headers: []
   # Example / 示例:

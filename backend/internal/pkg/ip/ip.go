@@ -164,18 +164,18 @@ func GetDirectClientIP(c *gin.Context) string {
 	return GetTrustedClientIP(c)
 }
 
-// GetSecurityClientIP returns the address used by security-sensitive paths.
-// When legacy forwarded-IP trust is enabled, raw forwarding headers take over
-// client-IP resolution. When disabled, Gin's server.trusted_proxies chain is
-// authoritative.
+// GetSecurityClientIP 返回安全敏感路径使用的客户端地址。
+// 开启时只使用 Gin 的 server.trusted_proxies 可信代理链；关闭时只使用 TCP
+// 直连对端。原始转发头及自定义 CDN 头仅用于非安全日志和请求元数据兼容，
+// 绝不能直接进入 ACL、会话绑定或安全审计。
 func GetSecurityClientIP(c *gin.Context, trustForwarded bool) string {
 	if requestSettings, ok := requestForwardedIPSettings(c); ok {
 		trustForwarded = requestSettings.trustForwarded
 	}
 	if trustForwarded {
-		return GetClientIP(c)
+		return GetTrustedClientIP(c)
 	}
-	return GetTrustedClientIP(c)
+	return GetDirectClientIP(c)
 }
 
 // normalizeIP 规范化 IP 地址，去除端口号和空格。

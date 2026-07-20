@@ -1004,7 +1004,7 @@ func TestAPIKeyAuthIPRestrictionUsesConfiguredTrustedProxy(t *testing.T) {
 	}
 
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	cfg.SetTrustForwardedIPForAPIKeyACL(false)
+	cfg.SetTrustForwardedIPForAPIKeyACL(true)
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
 	router := gin.New()
 	require.NoError(t, router.SetTrustedProxies([]string{"192.0.2.1"}))
@@ -1055,7 +1055,7 @@ func TestAPIKeyAuthIPRestrictionDoesNotTrustForwardedClientIPWhenProxyNotTrusted
 	}
 
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	cfg.SetTrustForwardedIPForAPIKeyACL(false)
+	cfg.SetTrustForwardedIPForAPIKeyACL(true)
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
 	router := gin.New()
 	require.NoError(t, router.SetTrustedProxies(nil))
@@ -1107,7 +1107,7 @@ func TestAPIKeyAuthIPRestrictionUsesForwardedClientIPInDenialWhenTrusted(t *test
 	}
 
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	cfg.SetTrustForwardedIPForAPIKeyACL(false)
+	cfg.SetTrustForwardedIPForAPIKeyACL(true)
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
 	router := gin.New()
 	require.NoError(t, router.SetTrustedProxies([]string{"192.0.2.1"}))

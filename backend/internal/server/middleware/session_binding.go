@@ -13,8 +13,8 @@ import (
 // SessionBindingContext 全局中间件：将请求的客户端 IP 与 User-Agent 注入
 // request context，供 token 签发路径（登录 / 刷新 / OAuth 回调）读取并写入会话绑定，
 // 同时作为审计日志、会话绑定校验的统一客户端 IP 来源。
-// IP 取值与 API Key IP 限制共用转发 IP 开关：开启时旧版原始转发头逻辑
-// 接管解析，关闭时使用 Gin 的 server.trusted_proxies 可信代理链。
+// IP 取值与 API Key IP 限制共用转发 IP 开关：开启时使用 Gin 的
+// server.trusted_proxies 可信代理链，关闭时只使用 TCP 直连对端。
 func SessionBindingContext(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		forwardedIPSettings := cfg.ForwardedClientIPSettings()

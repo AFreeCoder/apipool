@@ -156,6 +156,23 @@ func TestEnforceStepUpDisabledSkipsAllChecks(t *testing.T) {
 	})
 }
 
+// 固定挂载在高风险路由上的中间件不得受可选功能开关影响；否则旧数据库缺少开关时会静默放行。
+func TestProtectedRouteStepUpIgnoresDisabledSetting(t *testing.T) {
+	disabled := stubStepUpSettingReader{enabled: false}
+	c, rec := newStepUpTestContext(t)
+	c.Set("auth_method", service.AuditAuthMethodAdminAPIKey)
+
+	stepUpAuth(
+		stubStepUpGrantChecker{granted: true},
+		stubStepUpUserReader{user: &service.User{TotpEnabled: true}},
+		disabled,
+	)(c)
+
+	require.True(t, c.IsAborted())
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Contains(t, rec.Body.String(), "STEP_UP_ADMIN_API_KEY_FORBIDDEN")
+}
+
 // settings 为 nil 时保持门控（fail-closed），避免装配缺陷静默关闭安全控制。
 func TestEnforceStepUpNilSettingsFailsClosed(t *testing.T) {
 	c, rec := newStepUpTestContext(t)

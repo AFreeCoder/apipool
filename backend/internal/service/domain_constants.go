@@ -176,7 +176,7 @@ const (
 	SettingKeySessionBindingEnabled = "session_binding_enabled" // 会话 IP/UA 绑定（变更即失效），默认关闭
 
 	// 敏感操作 step-up 2FA 设置
-	SettingKeyStepUpEnabled = "step_up_enabled" // 敏感操作（导出/备份/S3配置/提升管理员等）要求 step-up 2FA，默认关闭
+	SettingKeyStepUpEnabled = "step_up_enabled" // 管理员创建/提权额外要求 step-up 2FA，默认关闭；固定高风险路由始终门控
 
 	// 操作审计日志设置
 	SettingKeyAuditLogRetentionDays = "audit_log_retention_days" // 审计日志保留天数（<=0 永久保留），默认 180

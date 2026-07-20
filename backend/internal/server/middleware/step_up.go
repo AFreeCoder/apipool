@@ -35,8 +35,8 @@ func StepUpSessionKey(c *gin.Context) string {
 
 // NewStepUpAuthMiddleware 创建敏感操作 step-up 2FA 门控中间件。
 //
-// 功能开关 step_up_enabled（默认关闭）关闭时中间件直接放行，行为与门控引入前一致。
-// 开启时的通过条件（全部满足）：
+// 固定挂载在高风险路由上的门控始终生效，不受 step_up_enabled 可选功能开关影响。
+// 通过条件（全部满足）：
 //  1. 必须是 JWT 认证的真人会话——admin API key（机器凭证）一律拒绝
 //  2. 当前用户已启用 TOTP（未启用则拒绝并提示先启用 2FA）
 //  3. 当前会话在有效期内完成过 TOTP step-up 验证（POST /api/v1/user/totp/step-up）
@@ -59,9 +59,9 @@ func stepUpSettingsOrNil(settingService *service.SettingService) stepUpSettingRe
 	return settingService
 }
 
-func stepUpAuth(grantChecker stepUpGrantChecker, userReader stepUpUserReader, settings stepUpSettingReader) gin.HandlerFunc {
+func stepUpAuth(grantChecker stepUpGrantChecker, userReader stepUpUserReader, _ stepUpSettingReader) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !enforceStepUp(c, grantChecker, userReader, settings) {
+		if !enforceStepUp(c, grantChecker, userReader, nil) {
 			return
 		}
 		c.Next()

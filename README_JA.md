@@ -569,8 +569,8 @@ default:
 - `security.response_headers.enabled` - 設定可能なレスポンスヘッダーフィルタリングを有効化（無効時はデフォルトの許可リストを使用）
 - `security.csp` - Content-Security-Policy ヘッダーの制御
 - `billing.circuit_breaker` - 課金エラー時にフェイルクローズ
-- `security.trust_forwarded_ip_for_api_key_acl` - 従来の生転送ヘッダーによる上書きを制御（アップグレード互換性のため既定で有効）。無効にすると `server.trusted_proxies` を厳格に使用し、Sub2API に直接接続するプロキシの正確な CIDR のみを指定
-- `security.forwarded_client_ip_headers` - サードパーティ CDN のクライアント IP ヘッダーを最大 16 個指定。従来モードが有効な場合のみ、設定順で組み込みヘッダーより先に評価
+- `security.trust_forwarded_ip_for_api_key_acl`：开启时仅允许安全路径使用 `server.trusted_proxies` 可信代理链，关闭时只使用 TCP 直连对端；原始转发头不会直接参与安全判断
+- `security.forwarded_client_ip_headers`：最多配置 16 个第三方 CDN 客户端 IP 请求头，仅供非安全日志和请求元数据兼容解析使用
 - `turnstile.required` - リリースモードでの Turnstile 必須化
 
 カスタムクライアント IP ヘッダーは YAML またはカンマ区切りの環境変数で設定できます:
@@ -579,7 +579,7 @@ default:
 SECURITY_FORWARDED_CLIENT_IP_HEADERS=True-Client-IP,X-CDN-Client-IP
 ```
 
-ヘッダー名は検証、正規化、大小文字を区別しない重複排除が行われます。管理画面のセキュリティ設定から再起動せずに更新でき、新規インストールでは YAML/環境変数の既定値を保存し、既存環境ではデータベース値がない場合に補完します。従来モードを無効にするとカスタムおよび組み込みの生転送ヘッダーはすべて無視され、`server.trusted_proxies` のみを使用します。有効にする場合はオリジンへの接続元を CDN/プロキシに制限し、エッジで信頼する全クライアント IP ヘッダーを上書きしてください。移行規則と信頼境界の詳細は [`deploy/EDGE_SECURITY.md`](deploy/EDGE_SECURITY.md) を参照してください。
+请求头名称会经过合法性校验、规范化和大小写无关去重。管理员可在安全设置中动态更新列表，无需重启；新安装会持久化 YAML/环境变量默认值，旧安装缺少数据库字段时会自动回填。自定义头和内置原始转发头只用于非安全日志和请求元数据兼容，不进入 API Key IP ACL、会话绑定或安全审计。`server.trusted_proxies` 只应填写直接连接 Sub2API 的精确代理 CIDR/IP。完整信任边界见 [`deploy/EDGE_SECURITY.md`](deploy/EDGE_SECURITY.md)。
 
 **⚠️ セキュリティ警告: HTTP URL 設定**
 
