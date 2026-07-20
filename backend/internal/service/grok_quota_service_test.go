@@ -45,6 +45,18 @@ func (r *grokQuotaAccountRepo) UpdateExtra(_ context.Context, id int64, updates 
 		r.updates = make(map[int64]map[string]any)
 	}
 	r.updates[id] = updates
+	if r.mockAccountRepoForPlatform != nil {
+		account := r.accountsByID[id]
+		if account == nil {
+			return nil
+		}
+		if account.Extra == nil {
+			account.Extra = make(map[string]any)
+		}
+		for key, value := range updates {
+			account.Extra[key] = value
+		}
+	}
 	return nil
 }
 
@@ -101,18 +113,20 @@ func (r *grokQuotaUsageLogRepo) GetAccountTodayStats(context.Context, int64) (*u
 
 type grokHybridUpstream struct {
 	httpUpstreamRecorder
-	mu                 sync.Mutex
-	requests           []*http.Request
-	bodies             [][]byte
-	weeklyUsagePercent *float64
-	monthlyLimitCents  *float64
-	activeStatus       int
-	activeHeaders      http.Header
-	billingStarted     chan struct{}
-	billingRelease     <-chan struct{}
-	billingStartOnce   sync.Once
-	billingStatus      int
-	billingHeaders     http.Header
+	mu                   sync.Mutex
+	requests             []*http.Request
+	bodies               [][]byte
+	weeklyUsagePercent   *float64
+	monthlyLimitCents    *float64
+	activeStatus         int
+	activeHeaders        http.Header
+	billingStarted       chan struct{}
+	billingRelease       <-chan struct{}
+	billingStartOnce     sync.Once
+	billingStatus        int
+	weeklyBillingStatus  int
+	monthlyBillingStatus int
+	billingHeaders       http.Header
 }
 
 func (u *grokHybridUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -149,9 +163,16 @@ func (u *grokHybridUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*h
 			return nil, req.Context().Err()
 		}
 	}
-	if u.billingStatus != 0 && u.billingStatus != http.StatusOK {
+	billingStatus := u.billingStatus
+	if req.URL.RawQuery == "format=credits" && u.weeklyBillingStatus != 0 {
+		billingStatus = u.weeklyBillingStatus
+	}
+	if req.URL.RawQuery != "format=credits" && u.monthlyBillingStatus != 0 {
+		billingStatus = u.monthlyBillingStatus
+	}
+	if billingStatus != 0 && billingStatus != http.StatusOK {
 		return &http.Response{
-			StatusCode: u.billingStatus,
+			StatusCode: billingStatus,
 			Header:     u.billingHeaders,
 			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"billing limited"}}`)),
 		}, nil
@@ -250,9 +271,12 @@ func TestGrokQuotaServiceProbeUsageStoresHeaders(t *testing.T) {
 	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, grokCLIVersion, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
+	require.Equal(t, "application/json, text/event-stream", upstream.lastReq.Header.Get("Accept"))
 	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.Contains(t, string(upstream.lastBody), `"max_output_tokens":1`)
-	require.Contains(t, string(upstream.lastBody), `"store":false`)
+	require.Equal(t, grokQuotaProbeInput, gjson.GetBytes(upstream.lastBody, "input").String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_output_tokens").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "store").Exists())
 	require.NotNil(t, repo.updates[42][grokQuotaSnapshotExtraKey])
 }
 
@@ -562,8 +586,12 @@ func TestGrokQuotaServiceQueryQuotaFreeFallsBackToGrok45(t *testing.T) {
 		}
 		responseCalls++
 		require.Equal(t, http.MethodPost, req.Method)
+		require.Equal(t, "application/json, text/event-stream", req.Header.Get("Accept"))
 		require.Equal(t, "grok-4.5", gjson.GetBytes(bodies[i], "model").String())
-		require.EqualValues(t, 1, gjson.GetBytes(bodies[i], "max_output_tokens").Int())
+		require.Equal(t, grokQuotaProbeInput, gjson.GetBytes(bodies[i], "input").String())
+		require.True(t, gjson.GetBytes(bodies[i], "stream").Bool())
+		require.False(t, gjson.GetBytes(bodies[i], "max_output_tokens").Exists())
+		require.False(t, gjson.GetBytes(bodies[i], "store").Exists())
 	}
 	require.Equal(t, 1, responseCalls)
 }
@@ -838,6 +866,135 @@ func TestGrokQuotaServiceBilling429DoesNotPauseModelScheduling(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.Zero(t, repo.rateLimitedCalls)
+}
+
+func TestGrokQuotaServiceBilling403PersistsMediaEligibilitySignal(t *testing.T) {
+	t.Parallel()
+
+	account := healthyGrokQuotaOAuthAccount(58)
+	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+		accountsByID: map[int64]*Account{account.ID: account},
+	}}
+	upstream := &grokHybridUpstream{billingStatus: http.StatusForbidden}
+	svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream, nil)
+
+	result, err := svc.ProbeBilling(context.Background(), account.ID)
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1, repo.updateCalls)
+	raw := repo.updates[account.ID][grokBillingExtraKey]
+	billing, ok := raw.(*xai.BillingSummary)
+	require.True(t, ok)
+	require.Equal(t, http.StatusForbidden, billing.StatusCode)
+	require.Equal(t, http.StatusForbidden, billing.WeeklyStatusCode)
+	require.Equal(t, http.StatusForbidden, billing.MonthlyStatusCode)
+	require.True(t, billing.Partial)
+
+	account.Extra = map[string]any{grokBillingExtraKey: billing}
+	eligible, reason := account.GrokMediaGenerationEligibility()
+	require.False(t, eligible)
+	require.Equal(t, "billing_forbidden", reason)
+}
+
+func TestGrokQuotaServicePartialBilling403PersistsMediaEligibilitySignal(t *testing.T) {
+	t.Parallel()
+
+	account := healthyGrokQuotaOAuthAccount(59)
+	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+		accountsByID: map[int64]*Account{account.ID: account},
+	}}
+	upstream := &grokHybridUpstream{
+		weeklyBillingStatus:  http.StatusForbidden,
+		monthlyBillingStatus: http.StatusOK,
+	}
+	svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream, nil)
+
+	result, err := svc.ProbeBilling(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Billing)
+	require.Equal(t, http.StatusOK, result.StatusCode)
+	require.Equal(t, http.StatusForbidden, result.Billing.WeeklyStatusCode)
+	require.Equal(t, http.StatusOK, result.Billing.MonthlyStatusCode)
+	require.True(t, result.Billing.Partial)
+	require.Contains(t, result.Billing.FailedWindows, "weekly")
+	require.Equal(t, 1, repo.updateCalls)
+
+	account.Extra = map[string]any{grokBillingExtraKey: result.Billing}
+	eligible, reason := account.GrokMediaGenerationEligibility()
+	require.False(t, eligible)
+	require.Equal(t, "billing_forbidden", reason)
+}
+
+func TestGrokQuotaServiceProbeMediaEligibility(t *testing.T) {
+	t.Run("positive paid evidence enables media", func(t *testing.T) {
+		usagePercent := 10.0
+		monthlyLimit := 15_000.0
+		account := healthyGrokQuotaOAuthAccount(60)
+		repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+			accountsByID: map[int64]*Account{account.ID: account},
+		}}
+		upstream := &grokHybridUpstream{weeklyUsagePercent: &usagePercent, monthlyLimitCents: &monthlyLimit}
+		svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream, nil)
+
+		eligible, reason, err := svc.ProbeMediaEligibility(context.Background(), account.ID)
+
+		require.NoError(t, err)
+		require.True(t, eligible)
+		require.Equal(t, "eligible", reason)
+	})
+
+	t.Run("successful empty billing identifies free account", func(t *testing.T) {
+		account := healthyGrokQuotaOAuthAccount(61)
+		repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+			accountsByID: map[int64]*Account{account.ID: account},
+		}}
+		svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), &grokHybridUpstream{}, nil)
+
+		eligible, reason, err := svc.ProbeMediaEligibility(context.Background(), account.ID)
+
+		require.NoError(t, err)
+		require.False(t, eligible)
+		require.Equal(t, "billing_free_tier", reason)
+	})
+
+	t.Run("forbidden billing is deterministic ineligibility", func(t *testing.T) {
+		account := healthyGrokQuotaOAuthAccount(62)
+		repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+			accountsByID: map[int64]*Account{account.ID: account},
+		}}
+		svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), &grokHybridUpstream{billingStatus: http.StatusForbidden}, nil)
+
+		eligible, reason, err := svc.ProbeMediaEligibility(context.Background(), account.ID)
+
+		require.NoError(t, err)
+		require.False(t, eligible)
+		require.Equal(t, "billing_forbidden", reason)
+	})
+}
+
+func TestPreferBillingObservationStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		weeklyStatus  int
+		monthlyStatus int
+		want          int
+	}{
+		{name: "weekly forbidden wins", weeklyStatus: http.StatusForbidden, monthlyStatus: http.StatusBadGateway, want: http.StatusForbidden},
+		{name: "monthly forbidden wins", weeklyStatus: http.StatusBadGateway, monthlyStatus: http.StatusForbidden, want: http.StatusForbidden},
+		{name: "weekly observation otherwise wins", weeklyStatus: http.StatusTooManyRequests, monthlyStatus: http.StatusBadGateway, want: http.StatusTooManyRequests},
+		{name: "monthly observation is fallback", monthlyStatus: http.StatusBadGateway, want: http.StatusBadGateway},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, preferBillingObservationStatus(tt.weeklyStatus, tt.monthlyStatus))
+		})
+	}
 }
 
 func TestGrokQuotaServiceQueryQuotaFree429PersistsLimitAndKeepsBilling(t *testing.T) {

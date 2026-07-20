@@ -9,7 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-func TestGetOpsAdvancedSettings_DefaultHidesOpenAITokenStats(t *testing.T) {
+func TestGetOpsAdvancedSettings_DefaultSnapshotHidesOpenAITokenStats(t *testing.T) {
 	repo := newRuntimeSettingRepoStub()
 	svc := &OpsService{settingRepo: repo}
 
@@ -26,8 +26,8 @@ func TestGetOpsAdvancedSettings_DefaultHidesOpenAITokenStats(t *testing.T) {
 	if len(cfg.IgnoredErrorCodes) != 0 {
 		t.Fatalf("IgnoredErrorCodes = %v, want empty by default", cfg.IgnoredErrorCodes)
 	}
-	if repo.setCalls != 1 {
-		t.Fatalf("expected defaults to be persisted once, got %d", repo.setCalls)
+	if repo.getValueCalls != 0 || repo.getMultipleCalls != 0 {
+		t.Fatalf("hot-path snapshot read touched repository: get=%d get_multiple=%d", repo.getValueCalls, repo.getMultipleCalls)
 	}
 }
 
@@ -53,6 +53,7 @@ func TestUpdateOpsAdvancedSettings_PersistsOpenAITokenStatsVisibility(t *testing
 	if len(updated.IgnoredErrorCodes) != 2 {
 		t.Fatalf("IgnoredErrorCodes len = %d, want 2", len(updated.IgnoredErrorCodes))
 	}
+	readsAfterUpdate := repo.getValueCalls + repo.getMultipleCalls
 
 	reloaded, err := svc.GetOpsAdvancedSettings(context.Background())
 	if err != nil {
@@ -69,6 +70,9 @@ func TestUpdateOpsAdvancedSettings_PersistsOpenAITokenStatsVisibility(t *testing
 	}
 	if reloaded.IgnoredErrorCodes[0] != "API_KEY_QUOTA_EXHAUSTED" || reloaded.IgnoredErrorCodes[1] != "INVALID_API_KEY" {
 		t.Fatalf("reloaded IgnoredErrorCodes = %v, want persisted values", reloaded.IgnoredErrorCodes)
+	}
+	if got := repo.getValueCalls + repo.getMultipleCalls; got != readsAfterUpdate {
+		t.Fatalf("snapshot reload performed repository read: before=%d after=%d", readsAfterUpdate, got)
 	}
 }
 
@@ -90,7 +94,7 @@ func TestGetOpsAdvancedSettings_BackfillsNewDisplayFlagsFromDefaults(t *testing.
 		"ignore_count_tokens_errors":    true,
 		"ignore_context_canceled":       true,
 		"ignore_no_available_accounts":  false,
-		"ignore_invalid_api_key_errors": false,
+		"ignore_invalid_api_key_errors": true,
 		"auto_refresh_enabled":          false,
 		"auto_refresh_interval_seconds": 30,
 	}
