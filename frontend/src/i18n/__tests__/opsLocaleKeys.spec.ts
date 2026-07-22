@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
@@ -27,6 +29,29 @@ describe('ops locale key completeness', () => {
     it(`en locale has ${key}`, () => {
       const enKeys = flattenKeys(en)
       expect(enKeys).toContain(key)
+    })
+  }
+})
+
+describe('request log locale key completeness', () => {
+  const sources = [
+    resolve(process.cwd(), 'src/components/admin/user/UserRequestLogDialog.vue'),
+    resolve(process.cwd(), 'src/views/admin/UsersView.vue'),
+  ]
+  const requestLogKeys = new Set(
+    sources.flatMap((source) => (
+      readFileSync(source, 'utf8').match(/admin\.ops\.requestLog(?:\.[A-Za-z0-9_]+)+/g) ?? []
+    ))
+  )
+
+  it('finds request log translation keys in their call sites', () => {
+    expect(requestLogKeys.size).toBeGreaterThan(0)
+  })
+
+  for (const key of requestLogKeys) {
+    it(`en and zh locales both have ${key}`, () => {
+      expect(flattenKeys(en)).toContain(key)
+      expect(flattenKeys(zh)).toContain(key)
     })
   }
 })
