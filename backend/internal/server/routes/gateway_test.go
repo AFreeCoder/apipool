@@ -1,14 +1,17 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/reqlog"
 	servermiddleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -20,8 +23,23 @@ func newGatewayRoutesTestRouter(platform ...string) *gin.Engine {
 }
 
 func newGatewayRoutesTestRouterWithConfig(cfg *config.Config, platform ...string) *gin.Engine {
+	return newGatewayRoutesTestRouterWithConfigAndReqLog(cfg, nil, platform...)
+}
+
+func newGatewayRoutesTestRouterWithConfigAndReqLog(
+	cfg *config.Config,
+	reqLogService servermiddleware.ReqLogCaptureService,
+	platform ...string,
+) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	effectiveCfg := *cfg
+	if effectiveCfg.RunMode == "" {
+		effectiveCfg.RunMode = config.RunModeSimple
+	}
+	if effectiveCfg.Gateway.TextMaxBodySize <= 0 && effectiveCfg.Gateway.MaxBodySize > 0 {
+		effectiveCfg.Gateway.TextMaxBodySize = effectiveCfg.Gateway.MaxBodySize
+	}
 
 	groupPlatform := service.PlatformOpenAI
 	if len(platform) > 0 && platform[0] != "" {
@@ -32,26 +50,48 @@ func newGatewayRoutesTestRouterWithConfig(cfg *config.Config, platform ...string
 		router,
 		&handler.Handlers{
 			Gateway:       &handler.GatewayHandler{},
-			OpenAIGateway: &handler.OpenAIGatewayHandler{},
+			OpenAIGateway: handler.NewOpenAIGatewayHandler(nil, nil, nil, nil, nil, nil, nil, nil, &effectiveCfg),
 			AsyncImage:    handler.NewAsyncImageHandler(nil, nil),
 		},
 		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
 			groupID := int64(1)
 			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
+				ID:      7,
 				GroupID: &groupID,
 				Group:   &service.Group{Platform: groupPlatform},
+				User:    &service.User{ID: 9},
 			})
+			c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 9, Concurrency: 1})
 			c.Next()
 		}),
 		nil,
 		nil,
 		nil,
+		reqLogService,
 		nil,
-		nil,
-		cfg,
+		&effectiveCfg,
 	)
 
 	return router
+}
+
+type gatewayReqLogCaptureStub struct {
+	entries []*reqlog.ReqLogEntry
+}
+
+func (s *gatewayReqLogCaptureStub) GetCaptureState(context.Context, int64, time.Time) (*reqlog.CaptureState, bool) {
+	return &reqlog.CaptureState{
+		UserID:            9,
+		SessionID:         "rl_count_tokens",
+		ExpiresAt:         time.Now().Add(time.Minute),
+		SingleRequestCap:  1024,
+		SingleResponseCap: 1024,
+	}, true
+}
+
+func (s *gatewayReqLogCaptureStub) Submit(entry *reqlog.ReqLogEntry) bool {
+	s.entries = append(s.entries, entry)
+	return true
 }
 
 func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
@@ -270,4 +310,52 @@ func TestGatewayRoutesOpenAICountTokensPathIsRegistered(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code)
+}
+
+func TestGatewayRoutesGrokCountTokensCapturesReqLogForBothPaths(t *testing.T) {
+	body := `{"model":"grok","messages":[{"role":"user","content":"hi"}]}`
+
+	for _, path := range []string{"/v1/messages/count_tokens", "/messages/count_tokens"} {
+		t.Run(path, func(t *testing.T) {
+			capture := &gatewayReqLogCaptureStub{}
+			router := newGatewayRoutesTestRouterWithConfigAndReqLog(&config.Config{
+				Gateway: config.GatewayConfig{
+					MaxBodySize:     1024,
+					TextMaxBodySize: 1024,
+				},
+			}, capture, service.PlatformGrok)
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Len(t, capture.entries, 1)
+			require.Equal(t, path, capture.entries[0].Path)
+			require.Equal(t, "grok", capture.entries[0].Model)
+			require.JSONEq(t, body, string(capture.entries[0].ReqBody))
+		})
+	}
+}
+
+func TestGatewayRoutesGrokCountTokensUsesTextBodyLimitForBothPaths(t *testing.T) {
+	router := newGatewayRoutesTestRouterWithConfig(&config.Config{
+		Gateway: config.GatewayConfig{
+			MaxBodySize:     1024,
+			TextMaxBodySize: 64,
+		},
+	}, service.PlatformGrok)
+	body := `{"model":"grok","messages":[{"role":"user","content":"` + strings.Repeat("x", 128) + `"}]}`
+
+	for _, path := range []string{"/v1/messages/count_tokens", "/messages/count_tokens"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusRequestEntityTooLarge, w.Code, "path=%s", path)
+		require.Contains(t, w.Body.String(), "64B", "path=%s", path)
+	}
 }

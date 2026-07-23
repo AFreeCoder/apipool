@@ -31,7 +31,7 @@ import (
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
 	gatewayService             *service.OpenAIGatewayService
-	billingCacheService        *service.BillingCacheService
+	billingCacheService        billingEligibilityChecker
 	apiKeyService              *service.APIKeyService
 	usageRecordWorkerPool      *service.UsageRecordWorkerPool
 	errorPassthroughService    *service.ErrorPassthroughService
@@ -47,6 +47,17 @@ type OpenAIGatewayHandler struct {
 
 type grokMediaEligibilityProber interface {
 	ProbeMediaEligibility(ctx context.Context, accountID int64) (bool, string, error)
+}
+
+type billingEligibilityChecker interface {
+	CheckBillingEligibility(
+		ctx context.Context,
+		user *service.User,
+		apiKey *service.APIKey,
+		group *service.Group,
+		subscription *service.UserSubscription,
+		platform string,
+	) error
 }
 
 const maxOpenAIFirstOutputTimeoutSwitches = 1

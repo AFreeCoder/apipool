@@ -381,7 +381,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		logger.L().Info("openai messages: retrying after stripping invalid Grok encrypted_content",
 			zap.Int64("account_id", account.ID),
 			zap.Bool("cache_identity_present", strings.TrimSpace(grokCacheIdentity) != ""),
-			zap.String("upstream_error_preview", truncateOpenAIWSLogValue(string(respBody), 240)),
+			zap.Int("upstream_error_body_len", len(respBody)),
+			zap.String("upstream_error_body_sha256", hashSensitiveValueForLog(string(respBody))),
 		)
 	}
 	defer func() { _ = resp.Body.Close() }()

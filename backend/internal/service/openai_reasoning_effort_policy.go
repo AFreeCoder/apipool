@@ -178,6 +178,10 @@ func ApplyOpenAIReasoningEffortPolicy(body []byte, maxEffort string, mappings []
 			if hasMax && currentRank > maxRank {
 				effective = NormalizeMaxReasoningEffort(maxEffort)
 			}
+		} else if hasMax {
+			// 已配置的上限属于成本和资源策略，未来新增值或供应商特有值不能绕过它。
+			// 对显式字符串值保守钳制；省略字段或非字符串字段仍保持不变。
+			effective = NormalizeMaxReasoningEffort(maxEffort)
 		}
 		if effective == original {
 			continue

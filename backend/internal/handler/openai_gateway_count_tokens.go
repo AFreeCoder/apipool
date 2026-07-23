@@ -5,7 +5,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/reqlog"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -13,10 +15,75 @@ import (
 	"go.uber.org/zap"
 )
 
-// GrokCountTokens handles Anthropic-compatible count_tokens requests locally.
-// The route middleware already authenticates the API key and resolves the
-// group; this handler intentionally does not select an account or check billing.
+// GrokCountTokens 在本地处理兼容 Anthropic 的 count_tokens 请求。
+// 路由中间件已经完成 API Key 鉴权和分组解析。本地估算不选择账号、也不记录用量，
+// 但仍进入统一资格检查和用户并发槽位，使余额、API Key 限额、RPM 与并发限制
+// 都能保护这个 CPU 密集端点。
 func (h *OpenAIGatewayHandler) GrokCountTokens(c *gin.Context) {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		h.anthropicErrorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+		return
+	}
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		h.anthropicErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+		return
+	}
+	reqLogger := requestLogger(
+		c,
+		"handler.openai_gateway.grok_count_tokens",
+		zap.Int64("user_id", subject.UserID),
+		zap.Int64("api_key_id", apiKey.ID),
+		zap.Any("group_id", apiKey.GroupID),
+	)
+
+	// 为保持此端点的简易模式语义，simple 模式继续跳过计费、RPM 和并发检查。
+	// standard 模式缺少依赖属于部署错误，必须关闭失败，避免暴露无限制的本地分词器。
+	if h == nil || h.cfg == nil || h.cfg.RunMode != config.RunModeSimple {
+		if h == nil || h.billingCacheService == nil || h.concurrencyHelper == nil || h.concurrencyHelper.concurrencyService == nil {
+			reqLogger.Error("grok_count_tokens.dependencies_missing")
+			h.anthropicErrorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
+			return
+		}
+		userRelease, acquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKey(
+			c.Request.Context(),
+			subject.UserID,
+			subject.Concurrency,
+			apiKey.ID,
+		)
+		if err != nil {
+			reqLogger.Warn("grok_count_tokens.user_slot_acquire_failed", zap.Error(err))
+			h.anthropicErrorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
+			return
+		}
+		if !acquired {
+			h.anthropicErrorResponse(c, http.StatusTooManyRequests, "rate_limit_error", "Too many concurrent requests, please retry later")
+			return
+		}
+		if userRelease != nil {
+			defer userRelease()
+		}
+
+		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+		if err := h.billingCacheService.CheckBillingEligibility(
+			c.Request.Context(),
+			apiKey.User,
+			apiKey,
+			apiKey.Group,
+			subscription,
+			service.QuotaPlatform(c.Request.Context(), apiKey),
+		); err != nil {
+			reqLogger.Info("grok_count_tokens.billing_eligibility_check_failed", zap.Error(err))
+			status, code, message, retryAfter := billingErrorDetails(err)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.anthropicErrorResponse(c, status, code, message)
+			return
+		}
+	}
+
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
 		if maxErr, ok := extractMaxBytesError(err); ok {
@@ -30,11 +97,12 @@ func (h *OpenAIGatewayHandler) GrokCountTokens(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	reqlog.MaybeCaptureRequestBody(c, body, c.ContentType())
 
 	bodyRef := service.NewRequestBodyRef(body)
 	parsedReq, err := service.ParseGatewayRequest(bodyRef, domain.PlatformAnthropic)
 	if err != nil {
-		logRequestBodyParseFailure(requestLogger(c, "handler.openai_gateway.grok_count_tokens"), body, err)
+		logRequestBodyParseFailure(reqLogger, body, err)
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
@@ -101,6 +169,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	reqlog.MaybeCaptureRequestBody(c, body, c.ContentType())
 
 	bodyRef := service.NewRequestBodyRef(body)
 	parsedReq, err := service.ParseGatewayRequest(bodyRef, domain.PlatformAnthropic)
