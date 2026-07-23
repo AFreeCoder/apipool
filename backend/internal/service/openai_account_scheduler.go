@@ -596,51 +596,6 @@ type openAIAccountCandidateScore struct {
 	hasTTFT   bool
 }
 
-type openAISelectionFailureStats struct {
-	Total                 int
-	Eligible              int
-	Excluded              int
-	Unschedulable         int
-	TransportIncompatible int
-	ModelUnsupported      int
-}
-
-func (s openAISelectionFailureStats) summary() string {
-	return fmt.Sprintf(
-		"total=%d eligible=%d excluded=%d unschedulable=%d transport_incompatible=%d model_unsupported=%d",
-		s.Total,
-		s.Eligible,
-		s.Excluded,
-		s.Unschedulable,
-		s.TransportIncompatible,
-		s.ModelUnsupported,
-	)
-}
-
-func (s openAISelectionFailureStats) modelUnsupportedOnly() bool {
-	if s.Total == 0 {
-		return false
-	}
-	considered := s.Total - s.Excluded
-	if considered <= 0 || s.ModelUnsupported == 0 {
-		return false
-	}
-	return s.ModelUnsupported == considered &&
-		s.Unschedulable == 0 &&
-		s.TransportIncompatible == 0 &&
-		s.Eligible == 0
-}
-
-func buildOpenAISelectionFailureError(requestedModel string, stats openAISelectionFailureStats) error {
-	if strings.TrimSpace(requestedModel) != "" && stats.modelUnsupportedOnly() {
-		return fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, stats.summary())
-	}
-	if stats.Total == 0 {
-		return ErrNoAvailableAccounts
-	}
-	return fmt.Errorf("%w (%s)", ErrNoAvailableAccounts, stats.summary())
-}
-
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
 
 func (h openAIAccountCandidateHeap) Len() int {
@@ -1315,6 +1270,84 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 	return nil, nil
 }
 
+// openAISelectionFilterStats counts why candidates were dropped by the
+// selectByLoadBalance initial filter. Historically these exclusions were
+// silent (debug logs at best), so a "no available accounts" failure with
+// excluded_account_count=0 was undiagnosable from the error alone (#4599).
+// The reasons map is lazily allocated: on the happy path (nothing filtered
+// out, or an account is eventually selected) no extra allocation happens.
+type openAISelectionFilterStats struct {
+	pool    int
+	reasons map[string]int
+}
+
+func (s *openAISelectionFilterStats) exclude(reason string) {
+	if s.reasons == nil {
+		s.reasons = make(map[string]int, 4)
+	}
+	s.reasons[reason]++
+}
+
+// summary renders deterministic exclusion statistics for scheduling error
+// messages, e.g. "pool=3, filtered: model_not_supported=2 quota_auto_pause_7d=1".
+// Reasons are sorted lexicographically so the output is stable for tests and
+// log aggregation. extra, when non-empty, is appended as a trailing marker.
+func (s openAISelectionFilterStats) summary(extra string) string {
+	var b strings.Builder
+	_, _ = b.WriteString("pool=")
+	_, _ = b.WriteString(strconv.Itoa(s.pool))
+	if len(s.reasons) > 0 {
+		reasons := make([]string, 0, len(s.reasons))
+		for reason := range s.reasons {
+			reasons = append(reasons, reason)
+		}
+		sort.Strings(reasons)
+		_, _ = b.WriteString(", filtered:")
+		for _, reason := range reasons {
+			_, _ = b.WriteString(" ")
+			_, _ = b.WriteString(reason)
+			_, _ = b.WriteString("=")
+			_, _ = b.WriteString(strconv.Itoa(s.reasons[reason]))
+		}
+	}
+	if extra != "" {
+		_, _ = b.WriteString(", ")
+		_, _ = b.WriteString(extra)
+	}
+	return b.String()
+}
+
+func (s openAISelectionFilterStats) modelUnsupportedOnly() bool {
+	if s.pool <= 0 {
+		return false
+	}
+	excluded := s.reasons["excluded"]
+	unsupported := s.reasons["model_unsupported"]
+	considered := s.pool - excluded
+	if considered <= 0 || unsupported != considered {
+		return false
+	}
+	for reason, count := range s.reasons {
+		if count > 0 && reason != "excluded" && reason != "model_unsupported" {
+			return false
+		}
+	}
+	return true
+}
+
+func noAvailableOpenAISelectionFilterError(
+	requestedModel string,
+	compactBlocked bool,
+	stats openAISelectionFilterStats,
+	extra string,
+) error {
+	model := ""
+	if stats.modelUnsupportedOnly() {
+		model = requestedModel
+	}
+	return noAvailableOpenAISelectionError(model, compactBlocked, stats.summary(extra))
+}
+
 func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
@@ -1325,7 +1358,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		return nil, 0, 0, 0, err
 	}
 	if len(accounts) == 0 {
-		return nil, 0, 0, 0, buildOpenAISelectionFailureError(req.RequestedModel, openAISelectionFailureStats{})
+		return nil, 0, 0, 0, noAvailableOpenAISelectionFilterError(req.RequestedModel, false, openAISelectionFilterStats{}, "")
 	}
 
 	// require_privacy_set: 获取分组信息
@@ -1334,22 +1367,27 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID)
 	}
 
+	filterStats := openAISelectionFilterStats{pool: len(accounts)}
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
-	stats := openAISelectionFailureStats{Total: len(accounts)}
 	for i := range accounts {
 		account := &accounts[i]
 		if req.ExcludedIDs != nil {
 			if _, excluded := req.ExcludedIDs[account.ID]; excluded {
-				stats.Excluded++
+				filterStats.exclude("excluded")
 				continue
 			}
 		}
-		if !account.IsSchedulable() || account.Platform != normalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
-			stats.Unschedulable++
+		if !account.IsSchedulable() {
+			filterStats.exclude("not_schedulable")
+			continue
+		}
+		if account.Platform != normalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
+			filterStats.exclude("platform_mismatch")
 			continue
 		}
 		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
+			filterStats.exclude("runtime_blocked")
 			continue
 		}
 		// require_privacy_set: 跳过 privacy 未设置的账号并标记异常
@@ -1357,19 +1395,17 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			s.service.BlockAccountScheduling(account, time.Time{}, "privacy_not_set")
 			_ = s.service.accountRepo.SetError(ctx, account.ID,
 				fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
+			filterStats.exclude("privacy_not_set")
 			continue
 		}
-		if !s.isAccountRequestCompatible(ctx, account, req) {
-			if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
-				stats.ModelUnsupported++
-			}
+		if compatible, reason := s.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
+			filterStats.exclude(reason)
 			continue
 		}
 		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-			stats.TransportIncompatible++
+			filterStats.exclude("transport_incompatible")
 			continue
 		}
-		stats.Eligible++
 		filtered = append(filtered, account)
 		loadReq = append(loadReq, AccountWithConcurrency{
 			ID:             account.ID,
@@ -1377,7 +1413,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		})
 	}
 	if len(filtered) == 0 {
-		return nil, 0, 0, 0, buildOpenAISelectionFailureError(req.RequestedModel, stats)
+		return nil, 0, 0, 0, noAvailableOpenAISelectionFilterError(req.RequestedModel, false, filterStats, "")
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
@@ -1409,7 +1445,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 				candidateCount, topK, loadSkew := regularAttempt.candidateCount, regularAttempt.topK, regularAttempt.loadSkew
 				fallbackErr := regularAttempt.err
 				if regularAttempt.err == nil {
-					result, candidateCount, topK, loadSkew, fallbackErr = s.finishLoadBalanceSelectionFallback(ctx, req, regularAttempt, budget)
+					result, candidateCount, topK, loadSkew, fallbackErr = s.finishLoadBalanceSelectionFallback(ctx, req, regularAttempt, budget, filterStats)
 					if fallbackErr == nil && result != nil {
 						return result, candidateCount, topK, loadSkew, nil
 					}
@@ -1417,13 +1453,13 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 				// 常规池既无法获取也无法排队（含仅剩不支持 compact 的候选）时，
 				// 回退到订阅池的等待计划：busy-but-waitable 的订阅账号不应因常规池存在
 				// 而被丢弃，否则开启订阅优先反而让本可排队成功的请求硬失败。
-				subResult, subCandidateCount, subTopK, subLoadSkew, subErr := s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget)
+				subResult, subCandidateCount, subTopK, subLoadSkew, subErr := s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget, filterStats)
 				if subErr == nil && subResult != nil {
 					return subResult, subCandidateCount, subTopK, subLoadSkew, nil
 				}
 				return result, candidateCount, topK, loadSkew, fallbackErr
 			}
-			return s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget)
+			return s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget, filterStats)
 		}
 	}
 
@@ -1434,7 +1470,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	if attempt.result != nil {
 		return attempt.result, attempt.candidateCount, attempt.topK, attempt.loadSkew, nil
 	}
-	return s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget)
+	return s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget, filterStats)
 }
 
 func partitionOpenAIChatGPTSubscriptionAccounts(accounts []*Account) ([]*Account, []*Account) {
@@ -1564,13 +1600,14 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 	req OpenAIAccountScheduleRequest,
 	attempt openAIAccountLoadSelectionAttempt,
 	budget *openAISelectionProbeBudget,
+	filterStats openAISelectionFilterStats,
 ) (*AccountSelectionResult, int, int, float64, error) {
 	candidateCount := attempt.candidateCount
 	topK := attempt.topK
 	loadSkew := attempt.loadSkew
 
 	if len(attempt.selectionOrder) == 0 {
-		return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, attempt.compactBlocked)
+		return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionFilterError(req.RequestedModel, attempt.compactBlocked, filterStats, "selection_order_empty")
 	}
 
 	if stickyFallback, stickyErr := s.tryFallbackToWeightedSticky(ctx, req); stickyErr != nil {
@@ -1605,7 +1642,7 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 				continue
 			}
 			if !s.consumeOpenAISelectionDBRecheck(budget) {
-				return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
+				return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionFilterError(req.RequestedModel, compactBlocked, filterStats, "selection_order_exhausted")
 			}
 			fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
 			if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
@@ -1627,7 +1664,7 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 		}
 	}
 
-	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
+	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionFilterError(req.RequestedModel, compactBlocked, filterStats, "selection_order_exhausted")
 }
 
 func (s *defaultOpenAIAccountScheduler) isAccountTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport) bool {
@@ -1657,18 +1694,31 @@ func (s *defaultOpenAIAccountScheduler) lookupShadowParentAccount(ctx context.Co
 }
 
 func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.Context, account *Account, req OpenAIAccountScheduleRequest) bool {
+	compatible, _ := s.isAccountRequestCompatibleReason(ctx, account, req)
+	return compatible
+}
+
+// isAccountRequestCompatibleReason reports whether the account can serve the
+// request, and when it cannot, names the veto point. The reason feeds
+// openAISelectionFilterStats so that "no available accounts" errors state why
+// each candidate was dropped instead of failing silently (#4599).
+func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx context.Context, account *Account, req OpenAIAccountScheduleRequest) (bool, string) {
 	if account == nil {
-		return false
+		return false, "account_nil"
 	}
 	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
-		return false
+		return false, "runtime_blocked"
 	}
 	// Quota auto-pause must be evaluated during the initial filter too. Without it the
 	// TopK candidate pool can be filled with paused accounts and the later fresh/DB
 	// rechecks won't reach healthy accounts that fell outside TopK — manifesting as
 	// "no available accounts" even though healthy ones exist.
-	if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
-		return false
+	if paused, decision := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
+		reason := "quota_auto_pause"
+		if decision.window != "" {
+			reason += "_" + decision.window
+		}
+		return false, reason
 	}
 	// 母账号健康联动：影子账号的凭据来自母账号，母账号不可调度时影子也不应被选中。
 	// Parent-health gate: shadow borrows the parent's credentials; an unschedulable
@@ -1676,17 +1726,20 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.C
 	if !parentHealthyForShadow(account, func(id int64) *Account {
 		return s.lookupShadowParentAccount(ctx, id)
 	}) {
-		return false
+		return false, "shadow_parent_unhealthy"
 	}
 	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
-		return false
+		return false, "model_unsupported"
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&
 		s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&
 		s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
-		return false
+		return false, "channel_upstream_restricted"
 	}
-	return accountSupportsOpenAICapabilities(account, req.RequiredCapability, req.RequiredImageCapability)
+	if !accountSupportsOpenAICapabilities(account, req.RequiredCapability, req.RequiredImageCapability) {
+		return false, "capability_mismatch"
+	}
+	return true, ""
 }
 
 func (s *defaultOpenAIAccountScheduler) ReportResult(accountID int64, success bool, firstTokenMs *int) {

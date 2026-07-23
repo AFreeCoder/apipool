@@ -46,6 +46,7 @@ func buildRedisOptions(cfg *config.Config) *redis.Options {
 func buildRedisOptionsFromRedisConfig(cfg config.RedisConfig) *redis.Options {
 	return &redis.Options{
 		Addr:         cfg.Address(),
+		Username:     cfg.Username,
 		Password:     cfg.Password,
 		DB:           cfg.DB,
 		DialTimeout:  time.Duration(cfg.DialTimeoutSeconds) * time.Second,

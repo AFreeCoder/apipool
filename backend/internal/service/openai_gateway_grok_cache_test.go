@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -137,6 +138,146 @@ func TestResolveGrokCacheIdentityExplicitHeaderPriority(t *testing.T) {
 	want := resolveGrokCacheIdentity(onlySession, []byte(`{"model":"grok","input":"unrelated"}`), "", "grok-4.5")
 
 	require.Equal(t, want, got)
+}
+
+func TestResolveGrokCacheIdentityIDEHeaderPriority(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"grok","prompt_cache_key":"body-key","input":"hi"}`)
+	headers := []struct {
+		name  string
+		value string
+	}{
+		{name: openCodeSessionAffinityHeader, value: "opencode-affinity"},
+		{name: openCodeSessionIDHeader, value: "opencode-session-id"},
+		{name: openCodeNativeSessionHeader, value: "opencode-native-session"},
+		{name: codeBuddyConversationHeader, value: "codebuddy-conversation"},
+		{name: grokConversationIDHeader, value: "grok-conversation"},
+	}
+
+	c := newGrokCacheTestContext(402)
+	for _, header := range headers {
+		c.Request.Header.Set(header.name, header.value)
+	}
+	for _, header := range headers {
+		got := resolveGrokCacheIdentity(c, body, "explicit-argument", "grok-4.5")
+		onlyCurrent := newGrokCacheTestContext(402)
+		onlyCurrent.Request.Header.Set(header.name, header.value)
+		want := resolveGrokCacheIdentity(onlyCurrent, []byte(`{"model":"grok","input":"unrelated"}`), "", "grok-4.5")
+		require.Equal(t, want, got, header.name)
+		c.Request.Header.Del(header.name)
+	}
+}
+
+func TestExplicitGrokCacheSeedPriority(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c := newGrokCacheTestContext(403)
+	headers := []struct {
+		name  string
+		value string
+	}{
+		{name: claudeCodeSessionHeader, value: "claude-session"},
+		{name: "session_id", value: "generic-session"},
+		{name: "conversation_id", value: "generic-conversation"},
+		{name: openCodeSessionAffinityHeader, value: "opencode-affinity"},
+		{name: openCodeSessionIDHeader, value: "opencode-session-id"},
+		{name: openCodeNativeSessionHeader, value: "opencode-native-session"},
+		{name: codeBuddyConversationHeader, value: "codebuddy-conversation"},
+		{name: grokConversationIDHeader, value: "grok-conversation"},
+	}
+	for _, header := range headers {
+		c.Request.Header.Set(header.name, header.value)
+	}
+
+	body := []byte(`{"model":"grok","prompt_cache_key":"body-key","input":"hi"}`)
+	for _, header := range headers {
+		require.Equal(t, header.value, explicitGrokCacheSeed(c, body, "explicit-argument"), header.name)
+		c.Request.Header.Del(header.name)
+	}
+	require.Equal(t, "body-key", explicitGrokCacheSeed(c, body, "explicit-argument"))
+	require.Equal(t, "explicit-argument", explicitGrokCacheSeed(c, []byte(`{"model":"grok"}`), "explicit-argument"))
+}
+
+func TestResolveGrokCacheIdentityIDEHeadersAreStableIsolatedAndOpaque(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name   string
+		header string
+	}{
+		{name: "OpenCode affinity", header: openCodeSessionAffinityHeader},
+		{name: "OpenCode session ID", header: openCodeSessionIDHeader},
+		{name: "OpenCode native session", header: openCodeNativeSessionHeader},
+		{name: "CodeBuddy conversation", header: codeBuddyConversationHeader},
+	}
+
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rawSession := "raw-ide-session-" + tt.name
+			apiKeyID := int64(800 + index)
+			c := newGrokCacheTestContext(apiKeyID)
+			c.Request.Header.Set(tt.header, rawSession)
+			firstBody := []byte(`{"model":"grok","prompt_cache_key":"turn-one-body-key","input":"first turn"}`)
+			secondBody := []byte(`{"model":"grok","prompt_cache_key":"turn-two-body-key","input":"different second turn"}`)
+
+			first := resolveGrokCacheIdentity(c, firstBody, "first-explicit-key", "grok-4.5")
+			second := resolveGrokCacheIdentity(c, secondBody, "second-explicit-key", "grok-4.5")
+			require.NotEmpty(t, first)
+			require.Equal(t, first, second)
+			require.NotEqual(t, rawSession, first)
+			require.NotContains(t, first, rawSession)
+
+			otherTenant := newGrokCacheTestContext(apiKeyID + 100)
+			otherTenant.Request.Header.Set(tt.header, rawSession)
+			require.NotEqual(t, first, resolveGrokCacheIdentity(otherTenant, firstBody, "", "grok-4.5"))
+			require.NotEqual(t, first, resolveGrokCacheIdentity(c, firstBody, "", "grok-4.3"))
+		})
+	}
+}
+
+func TestOpenCodeResponsesHeaderAndBodyCacheSignalsConverge(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const rawSession = "opencode-session-42"
+	c := newGrokCacheTestContext(901)
+	c.Request.Header.Set(openCodeSessionAffinityHeader, rawSession)
+	c.Request.Header.Set(openCodeSessionIDHeader, rawSession)
+	firstBody := []byte(`{"model":"grok","prompt_cache_key":"opencode-session-42","input":"first turn"}`)
+	secondBody := []byte(`{"model":"grok","prompt_cache_key":"opencode-session-42","input":"different second turn"}`)
+
+	first := resolveGrokCacheIdentity(c, firstBody, "", "grok-4.5")
+	second := resolveGrokCacheIdentity(c, secondBody, "", "grok-4.5")
+	bodyOnly := resolveGrokCacheIdentity(newGrokCacheTestContext(901), secondBody, "", "grok-4.5")
+	require.NotEmpty(t, first)
+	require.Equal(t, first, second)
+	require.Equal(t, first, bodyOnly)
+
+	patched, err := applyGrokResponsesCacheIdentity(secondBody, secondBody, second, false)
+	require.NoError(t, err)
+	require.Equal(t, second, gjson.GetBytes(patched, "prompt_cache_key").String())
+	headers := make(http.Header)
+	applyGrokCacheHeaders(headers, second)
+	require.Equal(t, second, headers.Get(grokConversationIDHeader))
+	require.NotContains(t, string(patched), rawSession)
+}
+
+func TestResolveGrokCacheIdentityPrefersClaudeCodeSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c := newGrokCacheTestContext(701)
+	c.Request.Header.Set(claudeCodeSessionHeader, "cc-session-abc")
+	c.Request.Header.Set("session_id", "session-key")
+	body1 := []byte(`{"model":"grok","input":"turn-1"}`)
+	body2 := []byte(`{"model":"grok","input":"turn-2-different-user-text"}`)
+
+	first := resolveGrokCacheIdentity(c, body1, "", "grok-4.5")
+	second := resolveGrokCacheIdentity(c, body2, "unrelated-explicit", "grok-4.5")
+	require.NotEmpty(t, first)
+	require.Equal(t, first, second, "same Claude Code session must keep stable Grok cache identity across turns")
+
+	// metadata.user_id JSON form used by Claude Code clients
+	metaBody := []byte(`{"model":"grok","metadata":{"user_id":"{\"session_id\":\"meta-session-xyz\"}"},"input":"hi"}`)
+	metaOnly := newGrokCacheTestContext(702)
+	metaID := resolveGrokCacheIdentity(metaOnly, metaBody, "", "grok-4.5")
+	require.NotEmpty(t, metaID)
+	metaBody2 := []byte(`{"model":"grok","metadata":{"user_id":"{\"session_id\":\"meta-session-xyz\"}"},"input":"later turn"}`)
+	require.Equal(t, metaID, resolveGrokCacheIdentity(metaOnly, metaBody2, "", "grok-4.5"))
 }
 
 func TestResolveGrokCacheIdentityFailsClosedWithoutAPIKeyContext(t *testing.T) {
@@ -677,7 +818,19 @@ func TestGrokFreeMessagesFunctionToolCacheRouteRequiresKnownFreeTier(t *testing.
 				a := healthyGrokOAuthGatewayTestAccount(9112, "access-token")
 				a.Extra = map[string]any{grokQuotaSnapshotExtraKey: map[string]any{
 					"headers_observed": true,
-					"tokens":           map[string]any{"limit": grokFreeRolling24hTokenLimit},
+					"tokens":           map[string]any{"limit": xai.GrokFreeRolling24hTokenLimit},
+				}}
+				return a
+			}(),
+			wantMix: true,
+		},
+		{
+			name: "legacy free rolling token quota",
+			account: func() *Account {
+				a := healthyGrokOAuthGatewayTestAccount(9113, "access-token")
+				a.Extra = map[string]any{grokQuotaSnapshotExtraKey: map[string]any{
+					"headers_observed": true,
+					"tokens":           map[string]any{"limit": int64(2_000_000)},
 				}}
 				return a
 			}(),
@@ -699,7 +852,7 @@ func TestGrokFreeMessagesFunctionToolCacheRouteRequiresKnownFreeTier(t *testing.
 					grokBillingExtraKey: map[string]any{"plan": "SuperGrok", "status_code": http.StatusOK},
 					grokQuotaSnapshotExtraKey: map[string]any{
 						"headers_observed": true,
-						"tokens":           map[string]any{"limit": grokFreeRolling24hTokenLimit},
+						"tokens":           map[string]any{"limit": int64(2_000_000)},
 					},
 				}
 				return a
