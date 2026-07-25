@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/reqlog"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -21,17 +23,26 @@ func TestParseLiveCallRequestMultipartPreservesSession(t *testing.T) {
 	require.NoError(t, writer.WriteField("sdp", "v=0\r\n"))
 	require.NoError(t, writer.WriteField("session", session))
 	require.NoError(t, writer.Close())
+	rawBody := append([]byte(nil), body.Bytes()...)
 
 	request := httptest.NewRequest("POST", "/v1/live", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	context, _ := gin.CreateTestContext(httptest.NewRecorder())
 	context.Request = request
+	reqlog.SetCaptureState(context, &reqlog.CaptureState{
+		ExpiresAt:        time.Now().Add(time.Minute),
+		SingleRequestCap: 1024,
+	})
 
 	parsed, err := parseLiveCallRequest(context)
 	require.NoError(t, err)
 	require.Equal(t, "v=0\r\n", parsed.SDP)
 	require.JSONEq(t, session, string(parsed.Session))
 	require.Equal(t, "client", jsonPathString(t, parsed.Session, "delegation", "type"))
+	snapshot, ok := reqlog.RequestBodySnapshot(context)
+	require.True(t, ok)
+	require.Equal(t, reqlog.BodyKindBinary, snapshot.Kind)
+	require.Equal(t, len(rawBody), snapshot.OriginalSize)
 }
 
 func TestParseLiveCallRequestJSONPreservesSessionWithoutDelegation(t *testing.T) {
@@ -41,11 +52,19 @@ func TestParseLiveCallRequestJSONPreservesSessionWithoutDelegation(t *testing.T)
 	request.Header.Set("Content-Type", "application/json")
 	context, _ := gin.CreateTestContext(httptest.NewRecorder())
 	context.Request = request
+	reqlog.SetCaptureState(context, &reqlog.CaptureState{
+		ExpiresAt:        time.Now().Add(time.Minute),
+		SingleRequestCap: 1024,
+	})
 
 	parsed, err := parseLiveCallRequest(context)
 	require.NoError(t, err)
 	require.NotContains(t, string(parsed.Session), "delegation")
 	require.Equal(t, "standalone", jsonPathString(t, parsed.Session, "instructions"))
+	snapshot, ok := reqlog.RequestBodySnapshot(context)
+	require.True(t, ok)
+	require.Equal(t, reqlog.BodyKindText, snapshot.Kind)
+	require.JSONEq(t, body, string(snapshot.Body))
 }
 
 func TestParseLiveCallRequestRejectsInvalidJSONShape(t *testing.T) {

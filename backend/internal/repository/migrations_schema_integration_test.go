@@ -45,6 +45,7 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// users: columns required by repository queries
 	requireColumn(t, tx, "users", "username", "character varying", 100, false)
 	requireColumn(t, tx, "users", "notes", "text", 0, false)
+	requireUsableIndex(t, tx, "users", "idx_users_email_dot_stripped")
 
 	// accounts: schedulable and rate-limit fields
 	requireColumn(t, tx, "accounts", "notes", "text", 0, true)
@@ -206,6 +207,28 @@ SELECT EXISTS (
 `, table, index).Scan(&exists)
 	require.NoError(t, err, "query pg_indexes for %s.%s", table, index)
 	require.True(t, exists, "expected index %s on %s", index, table)
+}
+
+func requireUsableIndex(t *testing.T, tx *sql.Tx, table, index string) {
+	t.Helper()
+
+	var (
+		valid bool
+		ready bool
+	)
+	err := tx.QueryRowContext(context.Background(), `
+SELECT i.indisvalid, i.indisready
+FROM pg_index AS i
+JOIN pg_class AS idx ON idx.oid = i.indexrelid
+JOIN pg_class AS tbl ON tbl.oid = i.indrelid
+JOIN pg_namespace AS ns ON ns.oid = tbl.relnamespace
+WHERE ns.nspname = 'public'
+  AND tbl.relname = $1
+  AND idx.relname = $2
+`, table, index).Scan(&valid, &ready)
+	require.NoError(t, err, "query pg_index for %s.%s", table, index)
+	require.True(t, valid, "expected index %s on %s to be valid", index, table)
+	require.True(t, ready, "expected index %s on %s to be ready", index, table)
 }
 
 func requireIndexAbsent(t *testing.T, tx *sql.Tx, table, index string) {

@@ -239,3 +239,13 @@ func TestMigration173AllowsCyberBlockedUsageRequestType(t *testing.T) {
 	require.Contains(t, sql, "ADD CONSTRAINT usage_logs_request_type_check")
 	require.Contains(t, sql, "CHECK (request_type IN (0, 1, 2, 3, 4)) NOT VALID")
 }
+
+func TestMigration191InvalidatesAuthCacheWhenLivePermissionChanges(t *testing.T) {
+	content, err := FS.ReadFile("191_group_auth_cache_live.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "CREATE OR REPLACE FUNCTION enqueue_group_auth_cache_invalidation()")
+	require.Contains(t, sql, "OLD.allow_live IS NOT DISTINCT FROM NEW.allow_live")
+	require.Contains(t, sql, "auth_cache_invalidation_outbox")
+}

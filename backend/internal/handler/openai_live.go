@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,7 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/reqlog"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	coderws "github.com/coder/websocket"
@@ -110,8 +113,17 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 }
 
 func parseLiveCallRequest(c *gin.Context) (*service.LiveCallRequest, error) {
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	if err != nil {
+		return nil, errors.New("request body must be readable")
+	}
+	reqlog.MaybeCaptureRequestBody(c, body, c.GetHeader("Content-Type"))
+
 	contentType := strings.ToLower(c.GetHeader("Content-Type"))
 	if strings.HasPrefix(contentType, "multipart/form-data") {
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		c.Request.ContentLength = int64(len(body))
+		c.Request.Header.Set("Content-Length", strconv.Itoa(len(body)))
 		sdp := c.PostForm("sdp")
 		session := json.RawMessage(c.PostForm("session"))
 		request := &service.LiveCallRequest{SDP: sdp, Session: session}
@@ -121,7 +133,7 @@ func parseLiveCallRequest(c *gin.Context) (*service.LiveCallRequest, error) {
 		return request, nil
 	}
 	var request service.LiveCallRequest
-	decoder := json.NewDecoder(c.Request.Body)
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	if err := decoder.Decode(&request); err != nil {
 		return nil, errors.New("request body must be valid JSON")
 	}

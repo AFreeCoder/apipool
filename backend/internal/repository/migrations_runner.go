@@ -60,6 +60,8 @@ const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_de
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
 const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index_notx.sql"
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
+const usersEmailAliasIndexMigration = "190_add_users_email_alias_dedup_index_notx.sql"
+const usersEmailAliasIndex = "idx_users_email_dot_stripped"
 
 var accountGroupSchedulerIndexes = []string{
 	"idx_account_groups_group_priority_account",
@@ -295,6 +297,8 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxPendingDedupKeyIndex)
 	case latestAPIKeyIPIndexMigration:
 		return dropInvalidIndexIfPresent(ctx, db, latestAPIKeyIPIndex)
+	case usersEmailAliasIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, usersEmailAliasIndex)
 	default:
 		return nil
 	}

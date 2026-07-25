@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,6 +37,15 @@ func newGatewayRoutesTestRouterWithConfigAndReqLog(
 	reqLogService servermiddleware.ReqLogCaptureService,
 	platform ...string,
 ) *gin.Engine {
+	return newGatewayRoutesTestRouterWithConfigReqLogAndCompositeResolver(cfg, reqLogService, nil, platform...)
+}
+
+func newGatewayRoutesTestRouterWithConfigReqLogAndCompositeResolver(
+	cfg *config.Config,
+	reqLogService servermiddleware.ReqLogCaptureService,
+	compositeResolver *service.CompositeRouteResolver,
+	platform ...string,
+) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	effectiveCfg := *cfg
@@ -62,7 +72,7 @@ func newGatewayRoutesTestRouterWithConfigAndReqLog(
 			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
 				ID:      7,
 				GroupID: &groupID,
-				Group:   &service.Group{Platform: groupPlatform},
+				Group:   &service.Group{ID: groupID, Platform: groupPlatform},
 				User:    &service.User{ID: 9},
 			})
 			c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 9, Concurrency: 1})
@@ -73,7 +83,7 @@ func newGatewayRoutesTestRouterWithConfigAndReqLog(
 		nil,
 		reqLogService,
 		nil,
-		nil,
+		compositeResolver,
 		&effectiveCfg,
 	)
 
@@ -97,6 +107,14 @@ func (s *gatewayReqLogCaptureStub) GetCaptureState(context.Context, int64, time.
 func (s *gatewayReqLogCaptureStub) Submit(entry *reqlog.ReqLogEntry) bool {
 	s.entries = append(s.entries, entry)
 	return true
+}
+
+type failingCompositeRouteRepo struct {
+	compositeRouteRepoStub
+}
+
+func (failingCompositeRouteRepo) ListByGroup(context.Context, int64, bool) ([]service.CompositeModelRoute, error) {
+	return nil, errors.New("composite route repository unavailable")
 }
 
 func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
@@ -431,4 +449,45 @@ func TestGatewayRoutesGrokCountTokensUsesTextBodyLimitForBothPaths(t *testing.T)
 		require.Equal(t, http.StatusRequestEntityTooLarge, w.Code, "path=%s", path)
 		require.Contains(t, w.Body.String(), "64B", "path=%s", path)
 	}
+}
+
+func TestGatewayRoutesCompositeResolverErrorCapturesReqLog(t *testing.T) {
+	capture := &gatewayReqLogCaptureStub{}
+	resolver := service.NewCompositeRouteResolver(failingCompositeRouteRepo{})
+	router := newGatewayRoutesTestRouterWithConfigReqLogAndCompositeResolver(&config.Config{
+		Gateway: config.GatewayConfig{
+			MaxBodySize:     1024,
+			TextMaxBodySize: 1024,
+		},
+	}, capture, resolver, service.PlatformComposite)
+	body := `{"model":"gpt-5","messages":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Len(t, capture.entries, 1)
+	require.Equal(t, http.StatusInternalServerError, capture.entries[0].StatusCode)
+}
+
+func TestGatewayRoutesCompositeBodyLimitErrorCapturesReqLog(t *testing.T) {
+	capture := &gatewayReqLogCaptureStub{}
+	router := newGatewayRoutesTestRouterWithConfigAndReqLog(&config.Config{
+		Gateway: config.GatewayConfig{
+			MaxBodySize:     64,
+			TextMaxBodySize: 64,
+		},
+	}, capture, service.PlatformComposite)
+	body := `{"model":"gpt-5","messages":[{"role":"user","content":"` + strings.Repeat("x", 128) + `"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	require.Len(t, capture.entries, 1)
+	require.Equal(t, http.StatusRequestEntityTooLarge, capture.entries[0].StatusCode)
 }
