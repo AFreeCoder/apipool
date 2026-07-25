@@ -647,6 +647,9 @@ func normalizeOpenAIPassthroughOAuthInput(body []byte) ([]byte, bool, error) {
 func buildNormalizedOpenAIPassthroughOAuthInput(input gjson.Result) ([]byte, bool, error) {
 	switch {
 	case input.Type == gjson.String:
+		if strings.TrimSpace(input.String()) == "" {
+			return []byte("[]"), true, nil
+		}
 		contentRaw, err := marshalOpenAIPassthroughOAuthTextContent(input.String())
 		if err != nil {
 			return nil, false, fmt.Errorf("marshal passthrough oauth input text: %w", err)

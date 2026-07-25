@@ -25,6 +25,8 @@ API 端点：**https://api.apipool.dev**（推荐，国内直连无需代理）
 - **限速策略** - 可配置的请求与 Token 限速
 - **支付能力** - 已合入上游内建支付相关能力，同时保留当前项目通过 iframe 接入外部充值页的方式
 - **管理后台** - Web 界面进行监控与管理
+- **复合分组** - 将一个请求模型映射到具体供应商，支持跨平台组合路由（见 [docs/COMPOSITE_GROUPS.md](docs/COMPOSITE_GROUPS.md)）
+- **OpenAI Live** - 支持 Live 会话与 sideband 控制端点
 - **外部系统集成** - 可通过 iframe 嵌入支付、工单等外部系统扩展后台能力
 - **Grok / xAI OAuth** - 支持 Grok 订阅账号接入和 OpenAI-compatible / Anthropic-compatible 转发
 - **Antigravity** - 支持专用 Claude / Gemini 网关入口
