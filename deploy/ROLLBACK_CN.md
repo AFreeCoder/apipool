@@ -2,7 +2,7 @@
 
 本文档基于当前实际部署环境整理：
 
-- 服务器：`digitalocean`
+- 服务器：`apipool_vps`
 - 部署目录：`/opt/sub2api`
 - 部署方式：GitHub Actions 构建并推送 GHCR 镜像，服务器 `docker pull` 后用 `docker compose -f docker-compose.deploy.yml up -d`
 - 应用容器：`sub2api`
@@ -54,7 +54,7 @@
 如果本次不是走 GitHub Actions，而是手工 SSH 到服务器执行部署，必须先做一次 prep：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh prep'
+ssh apipool_vps 'cd /opt/sub2api/deploy && ./rollback.sh prep'
 ```
 
 这条命令会同时完成：
@@ -65,7 +65,7 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh prep'
 如果线上启用了本地 Sora 存储，或者依赖 `/app/data` 中的本地配置 / 媒体 / 日志，还应额外备份 `sub2api_data` 卷：
 
 ```bash
-ssh digitalocean '
+ssh apipool_vps '
   mkdir -p /opt/sub2api/backups &&
   docker run --rm \
     -v sub2api_data:/data \
@@ -77,20 +77,20 @@ ssh digitalocean '
 如果只想单独做其中一步：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh tag-current'
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh backup-db'
+ssh apipool_vps 'cd /opt/sub2api/deploy && ./rollback.sh tag-current'
+ssh apipool_vps 'cd /opt/sub2api/deploy && ./rollback.sh backup-db'
 ```
 
 查看当前回退镜像 tag：
 
 ```bash
-ssh digitalocean 'docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}" | grep "^deploy-sub2api"'
+ssh apipool_vps 'docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}" | grep "^deploy-sub2api"'
 ```
 
 查看最近一次自动记录的回退镜像信息：
 
 ```bash
-ssh digitalocean 'cat /opt/sub2api/backups/last-rollback-image.txt'
+ssh apipool_vps 'cat /opt/sub2api/backups/last-rollback-image.txt'
 ```
 
 ## 2. 最快回退：镜像热回退
@@ -106,13 +106,13 @@ ssh digitalocean 'cat /opt/sub2api/backups/last-rollback-image.txt'
 默认直接回退到 `deploy-sub2api:rollback-latest`：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh image'
+ssh apipool_vps 'cd /opt/sub2api/deploy && ./rollback.sh image'
 ```
 
 如果要回退到某个特定历史镜像 tag：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh image deploy-sub2api:rollback-YYYYmmdd_HHMMSS-<commit>'
+ssh apipool_vps 'cd /opt/sub2api/deploy && ./rollback.sh image deploy-sub2api:rollback-YYYYmmdd_HHMMSS-<commit>'
 ```
 
 注意：
@@ -121,27 +121,23 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh image deploy-sub2api:r
 - 不要先停 `postgres` 和 `redis`
 - `--no-deps --force-recreate` 比单纯 `up -d sub2api` 更稳
 
-## 3. 紧急路径：源码回退后重建
+## 3. 没有回退镜像时
 
 适用场景：
 
 - 部署前没有打镜像回退 tag
 - 回退 tag 被清理或找不到
-- 需要明确回到某个 git commit
 
-注意：这条路径会在服务器上重新构建应用镜像，会重新占用服务器 CPU、内存和磁盘资源。当前常规部署已经改为 GitHub Actions 构建镜像后由服务器拉取，源码回退只作为没有可用回退镜像时的兜底手段。
+`apipool_vps` 标准目录只保存 root-owned 部署件，不保存完整 Git checkout，因此不要在
+目标机运行 `rollback.sh source`。应在 GitHub：
 
-```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh source <commit>'
-```
+1. 将坏提交 `git revert`，或提交修复；
+2. 通过正式 `main` 发布链重新构建不可变镜像；
+3. 若线上已不可用且没有本地回退镜像，owner 可从 GHCR 拉取一个已知稳定的完整
+   `sha-<40位commit>` 镜像，核对 digest 后手工标记为 `deploy-sub2api:latest`，
+   再只重建应用容器。
 
-如果本次需要回到“部署前的稳定点”，先从服务器记录里拿到部署前 commit，再执行源码回退：
-
-```bash
-ssh digitalocean 'cat /opt/sub2api/backups/last-rollback-image.txt'
-ssh digitalocean 'cd /opt/sub2api && git reflog --date=iso --max-count=20'
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh source <部署前稳定commit>'
-```
+手工 GHCR 路径必须先备份数据库，且不得改动 PostgreSQL、Redis 或卷。
 
 ## 4. 数据库恢复：最后手段
 
@@ -166,37 +162,32 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh source <部署前稳�
    优先使用镜像回退：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-image'
+ssh apipool_vps 'cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-image'
 ```
 
 如果要恢复后直接切到某个指定回退镜像：
 
 ```bash
-ssh digitalocean "cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-image --image-tag deploy-sub2api:rollback-YYYYmmdd_HHMMSS-<commit>"
-```
-
-如果没有可用回退镜像，而是必须回到某个 git commit：
-
-```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-source <commit>'
+ssh apipool_vps "cd /opt/sub2api/deploy && ./rollback.sh db-restore --with-image --image-tag deploy-sub2api:rollback-YYYYmmdd_HHMMSS-<commit>"
 ```
 
 如果你已经确认“当前应用版本本身没问题，只需要恢复数据库”，才允许显式使用：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore --allow-current-app'
+ssh apipool_vps 'cd /opt/sub2api/deploy && ./rollback.sh db-restore --allow-current-app'
 ```
 
 如果要恢复指定备份文件，把备份路径放在命令里即可：
 
 ```bash
-ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore /opt/sub2api/backups/pre-deploy-YYYYmmdd_HHMMSS.sql.gz --with-image'
+ssh apipool_vps 'cd /opt/sub2api/deploy && ./rollback.sh db-restore /opt/sub2api/backups/pre-deploy-YYYYmmdd_HHMMSS.sql.gz --with-image'
 ```
 
 注意：
 
 - `db-restore` 现在要求显式声明恢复后的应用策略，防止数据库恢复完又把当前坏版本重新拉起。
-- 如果问题来自代码或配置，不要只做 `db-restore`；应优先用 `image` 回退应用，只有没有可用回退镜像时才考虑 `source`。
+- 如果问题来自代码或配置，不要只做 `db-restore`；应优先用 `image` 回退应用。
+- 目标标准环境不使用 `--with-source`；数据库恢复前必须确保对应稳定镜像已经存在。
 - 数据库恢复过程中必须保持应用停止状态，避免继续写入。
 - 如果线上依赖 `/app/data` 本地数据，数据库回退前后要一并考虑卷级快照和恢复。
 - 恢复完成后优先检查 `sub2api` 健康状态、登录、网关转发、管理后台查询。
@@ -231,7 +222,7 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore /opt/sub2ap
 动作：
 
 - 先检查是否还有更早的 `deploy-sub2api:rollback-*` 镜像 tag 可用
-- 如果没有可用回退镜像，再走第 3 节“源码回退后重建”紧急路径
+- 如果没有可用回退镜像，再走第 3 节的“已知稳定 GHCR SHA”紧急路径
 - 同时查看最近 migration、配置变更、环境变量变更
 
 ### 5.4 明确是数据库问题
@@ -257,7 +248,7 @@ ssh digitalocean 'cd /opt/sub2api/deploy && ./rollback.sh db-restore /opt/sub2ap
 查看当前运行状态：
 
 ```bash
-ssh digitalocean '
+ssh apipool_vps '
   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
 '
 ```
@@ -265,21 +256,20 @@ ssh digitalocean '
 查看应用日志：
 
 ```bash
-ssh digitalocean 'docker logs --tail 200 -f sub2api'
+ssh apipool_vps 'docker logs --tail 200 -f sub2api'
 ```
 
-查看当前线上代码版本：
+查看当前线上发布版本和镜像：
 
 ```bash
-ssh digitalocean '
-  cd /opt/sub2api
-  git rev-parse HEAD
-  git log --oneline -1
+ssh apipool_vps '
+  cat /opt/sub2api/deploy/release.env
+  docker inspect --format "image_id={{.Image}}" sub2api
 '
 ```
 
 查看已执行迁移：
 
 ```bash
-ssh digitalocean "docker exec sub2api-postgres psql -U sub2api -d sub2api -Atc 'select filename from schema_migrations order by filename desc limit 10;'"
+ssh apipool_vps "docker exec sub2api-postgres psql -U sub2api -d sub2api -Atc 'select filename from schema_migrations order by filename desc limit 10;'"
 ```

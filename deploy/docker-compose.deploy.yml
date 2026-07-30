@@ -1,3 +1,5 @@
+name: sub2api
+
 # =============================================================================
 # Sub2API Docker Compose - 自建部署版本
 # =============================================================================
@@ -11,8 +13,9 @@ services:
     container_name: sub2api
     restart: unless-stopped
     stop_grace_period: 30s
-    mem_limit: 1g
-    memswap_limit: 1g
+    # 旧机 1GiB cgroup 曾触发 11 次 OOM；目标 8GiB 主机为应用预留 2GiB。
+    mem_limit: 2g
+    memswap_limit: 2560m
     ulimits:
       nofile:
         soft: 100000
@@ -98,11 +101,12 @@ services:
       start_period: 30s
 
   postgres:
-    image: postgres:18-alpine
+    # 物理复制迁移要求与源机使用完全相同的 PostgreSQL 18 amd64 镜像。
+    image: postgres:18-alpine@sha256:aa6eb304ddb6dd26df23d05db4e5cb05af8951cda3e0dc57731b771e0ef4ab29
     container_name: sub2api-postgres
     restart: unless-stopped
-    mem_limit: 1536m
-    memswap_limit: 1536m
+    mem_limit: 2g
+    memswap_limit: 2560m
     ulimits:
       nofile:
         soft: 100000
@@ -126,7 +130,7 @@ services:
       start_period: 10s
 
   redis:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:4eec4565e45aa0b3966554c866bc73211e281b0b3d89fe9a33c982e6faca809d
     container_name: sub2api-redis
     restart: unless-stopped
     mem_limit: 512m

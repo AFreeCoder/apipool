@@ -288,7 +288,9 @@ restore_db() {
   esac
 
   log "开始恢复数据库: $backup_file"
-  gunzip -c "$backup_file" | docker exec -i "$POSTGRES_CONTAINER" psql -U "$db_user" -d "$db_name"
+  gunzip -c "$backup_file" \
+    | docker exec -i "$POSTGRES_CONTAINER" \
+        psql --set=ON_ERROR_STOP=1 -U "$db_user" -d "$db_name"
   log "数据库恢复完成"
 
   case "$restore_mode" in

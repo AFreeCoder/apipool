@@ -1,4 +1,4 @@
-name: Deploy to DigitalOcean
+name: Deploy to apipool_vps
 
 on:
   push:
@@ -10,12 +10,16 @@ permissions:
   packages: write
 
 concurrency:
-  group: deploy-production
-  cancel-in-progress: true
+  group: sub2api-production-deploy
+  # 生产发布必须排队；取消已进入目标机的发布会留下不可判定的中间状态。
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.image.outputs.image_tag }}
+      deploy_image: ${{ steps.image.outputs.deploy_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -24,12 +28,13 @@ jobs:
 
       - name: Set image metadata
         id: image
+        shell: bash
         run: |
-          APP_COMMIT="${GITHUB_SHA::12}"
+          set -Eeuo pipefail
           APP_VERSION="$(tr -d '\r\n' < backend/cmd/server/VERSION)"
           APP_BUILD_DATE="$(git log -1 --format=%cI HEAD)"
           IMAGE_REPO="ghcr.io/afreecoder/apipool"
-          IMAGE_TAG="sha-${APP_COMMIT}"
+          IMAGE_TAG="sha-${GITHUB_SHA}"
 
           if [ -z "$APP_VERSION" ]; then
             echo "backend/cmd/server/VERSION 为空，停止构建" >&2
@@ -37,7 +42,6 @@ jobs:
           fi
 
           {
-            echo "app_commit=${APP_COMMIT}"
             echo "app_version=${APP_VERSION}"
             echo "app_build_date=${APP_BUILD_DATE}"
             echo "image_repo=${IMAGE_REPO}"
@@ -64,7 +68,7 @@ jobs:
           push: true
           build-args: |
             VERSION=${{ steps.image.outputs.app_version }}
-            COMMIT=${{ steps.image.outputs.app_commit }}
+            COMMIT=${{ github.sha }}
             DATE=${{ steps.image.outputs.app_build_date }}
           tags: |
             ${{ steps.image.outputs.deploy_image }}
@@ -73,278 +77,37 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        env:
-          DEPLOY_IMAGE: ${{ steps.image.outputs.deploy_image }}
-          DEPLOY_COMMIT: ${{ steps.image.outputs.app_commit }}
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: [self-hosted, linux, x64, sub2api-prod-deploy]
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      GHCR_USER: ${{ github.repository_owner }}
+    steps:
+      - name: Checkout exact release
+        uses: actions/checkout@v6
         with:
-          host: ${{ secrets.DO_HOST }}
-          username: root
-          key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
-          command_timeout: 30m
-          envs: DEPLOY_IMAGE,DEPLOY_COMMIT
-          script: |
-            set -e
-            set -o pipefail
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.sha }}
 
-            APP_DIR="/opt/sub2api"
-            DEPLOY_DIR="$APP_DIR/deploy"
-            BACKUP_DIR="/opt/sub2api/backups"
-            REPO_URL="https://github.com/AFreeCoder/apipool.git"
-            PREDEPLOY_BACKUP_RETENTION_HOURS="168"
-            ROLLBACK_TAGS_TO_KEEP="8"
-
-            require_command() {
-              command -v "$1" >/dev/null 2>&1 || {
-                echo "缺少命令: $1" >&2
-                exit 1
-              }
-            }
-
-            tag_current_image_for_rollback() {
-              current_commit="$1"
-              rollback_ts="$(date +%Y%m%d_%H%M%S)"
-              rollback_tag="deploy-sub2api:rollback-${rollback_ts}-${current_commit}"
-
-              if docker image inspect deploy-sub2api:latest >/dev/null 2>&1; then
-                docker tag deploy-sub2api:latest "$rollback_tag"
-                docker tag deploy-sub2api:latest deploy-sub2api:rollback-latest
-                {
-                  echo "created_at=$rollback_ts"
-                  echo "source_commit=$current_commit"
-                  echo "rollback_tag=$rollback_tag"
-                  echo "rollback_alias=deploy-sub2api:rollback-latest"
-                } > "$BACKUP_DIR/last-rollback-image.txt"
-                echo "已创建回退镜像标签: $rollback_tag"
-                echo "已更新回退镜像别名: deploy-sub2api:rollback-latest"
-              else
-                echo "未发现 deploy-sub2api:latest，跳过回退镜像打标"
-              fi
-            }
-
-            load_deploy_env() {
-              if [ -f "$DEPLOY_DIR/.env" ]; then
-                set -a
-                . "$DEPLOY_DIR/.env"
-                set +a
-              fi
-
-              PREDEPLOY_BACKUP_RETENTION_HOURS="${PREDEPLOY_BACKUP_RETENTION_HOURS:-168}"
-              ROLLBACK_TAGS_TO_KEEP="${ROLLBACK_TAGS_TO_KEEP:-8}"
-            }
-
-            wait_for_health() {
-              name="$1"
-              timeout="${2:-180}"
-              elapsed=0
-              while [ "$elapsed" -lt "$timeout" ]; do
-                state="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$name" 2>/dev/null || true)"
-                case "$state" in
-                  healthy|running)
-                    echo "$name 状态正常: $state"
-                    return 0
-                    ;;
-                  unhealthy|exited|dead)
-                    echo "$name 状态异常: $state" >&2
-                    docker logs --tail 200 "$name" || true
-                    return 1
-                    ;;
-                esac
-                sleep 5
-                elapsed=$((elapsed + 5))
-              done
-
-              echo "等待 $name 健康检查超时" >&2
-              docker logs --tail 200 "$name" || true
-              return 1
-            }
-
-            prune_old_rollback_tags() {
-              keep="${ROLLBACK_TAGS_TO_KEEP:-8}"
-              idx=0
-              docker images --format '{{.Repository}}:{{.Tag}}' \
-                | grep '^deploy-sub2api:rollback-' \
-                | grep -v ':rollback-latest$' \
-                | sort -r \
-                | while IFS= read -r stale_tag; do
-                    idx=$((idx + 1))
-                    if [ "$idx" -le "$keep" ]; then
-                      continue
-                    fi
-                    docker rmi "$stale_tag" >/dev/null 2>&1 || true
-                  done
-            }
-
-            require_command git
-            require_command docker
-            require_command gzip
-            load_deploy_env
-
-            FREE_KB="$(df -Pk /opt | awk 'NR==2 {print $4}')"
-            if [ -z "$FREE_KB" ] || [ "$FREE_KB" -lt $((5 * 1024 * 1024)) ]; then
-              echo "/opt 可用磁盘不足 5GB，停止部署" >&2
-              exit 1
-            fi
-
-            # ============================================================
-            # 部署前备份（必须在代码更新和 compose up 之前执行）
-            # 首次部署时 postgres 容器不存在，跳过备份
-            # ============================================================
-            mkdir -p "$BACKUP_DIR"
-            if docker ps --filter "name=^sub2api-postgres$" --format '{{.Names}}' | grep -q .; then
-              DB_USER="$(docker exec sub2api-postgres printenv POSTGRES_USER)"
-              DB_NAME="$(docker exec sub2api-postgres printenv POSTGRES_DB)"
-              if [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
-                echo "无法从 postgres 容器读取 POSTGRES_USER / POSTGRES_DB，停止部署" >&2
-                exit 1
-              fi
-
-              BACKUP_FILE="${BACKUP_DIR}/pre-deploy-$(date +%Y%m%d_%H%M%S).sql.gz"
-              echo "开始部署前备份..."
-              docker exec sub2api-postgres pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists \
-                | gzip > "$BACKUP_FILE"
-              if [ -s "$BACKUP_FILE" ] && gzip -t "$BACKUP_FILE"; then
-                echo "备份成功: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
-                find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pre-deploy-*.sql.gz' -mmin "+$((PREDEPLOY_BACKUP_RETENTION_HOURS * 60))" -delete
-              else
-                echo "备份失败，中止部署！" >&2
-                rm -f "$BACKUP_FILE"
-                exit 1
-              fi
-            else
-              echo "首次部署，跳过数据库备份"
-            fi
-
-            # ============================================================
-            # 企业版数据库预备份（必须在主站 compose --remove-orphans 之前执行）
-            # 主站 compose 会把不在 docker-compose.deploy.yml 中的 sub2api-biz 当作 orphan 移除。
-            # 因此只要企业版容器正在运行，就必须先完成 biz DB 备份再继续部署。
-            # ============================================================
-            BIZ_COMPOSE="$DEPLOY_DIR/docker-compose.biz.yml"
-            BIZ_ENV="$DEPLOY_DIR/.env.biz"
-            if [ -f "$BIZ_ENV" ]; then
-              if docker ps --filter "name=^sub2api-biz$" --format '{{.Names}}' | grep -q .; then
-                if ! docker ps --filter "name=^sub2api-postgres$" --format '{{.Names}}' | grep -q .; then
-                  echo "检测到企业版容器但 postgres 未运行，无法备份企业版数据库，停止部署" >&2
-                  exit 1
-                fi
-
-                BIZ_DB_USER="$(docker exec sub2api-postgres printenv POSTGRES_USER)"
-                BIZ_DB_NAME="$(grep '^BIZ_POSTGRES_DB=' "$BIZ_ENV" | cut -d= -f2- || true)"
-                BIZ_DB_NAME="${BIZ_DB_NAME:-sub2api_biz}"
-                if [ -z "$BIZ_DB_USER" ] || [ -z "$BIZ_DB_NAME" ]; then
-                  echo "无法读取企业版数据库用户或库名，停止部署" >&2
-                  exit 1
-                fi
-
-                BIZ_BACKUP_FILE="${BACKUP_DIR}/pre-deploy-biz-$(date +%Y%m%d_%H%M%S).sql.gz"
-                echo "开始企业版部署前备份: $BIZ_DB_NAME"
-                if docker exec sub2api-postgres pg_dump -U "$BIZ_DB_USER" -d "$BIZ_DB_NAME" --clean --if-exists \
-                  | gzip > "$BIZ_BACKUP_FILE"; then
-                  if [ -s "$BIZ_BACKUP_FILE" ] && gzip -t "$BIZ_BACKUP_FILE"; then
-                    echo "企业版备份成功: $BIZ_BACKUP_FILE ($(du -h "$BIZ_BACKUP_FILE" | cut -f1))"
-                    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pre-deploy-biz-*.sql.gz' -mmin "+$((PREDEPLOY_BACKUP_RETENTION_HOURS * 60))" -delete
-                  else
-                    echo "企业版备份文件校验失败，中止部署！" >&2
-                    rm -f "$BIZ_BACKUP_FILE"
-                    exit 1
-                  fi
-                else
-                  echo "企业版备份失败，中止部署！" >&2
-                  rm -f "$BIZ_BACKUP_FILE"
-                  exit 1
-                fi
-              else
-                echo "未检测到运行中的企业版容器，跳过企业版数据库预备份"
-              fi
-            else
-              echo "未检测到 $BIZ_ENV，跳过企业版数据库预备份"
-            fi
-
-            # 首次部署：克隆仓库
-            if [ ! -d "$APP_DIR/.git" ]; then
-              git clone "$REPO_URL" "$APP_DIR"
-            fi
-
-            cd "$APP_DIR"
-
-            CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
-            if [ "$CURRENT_REMOTE" != "$REPO_URL" ]; then
-              git remote set-url origin "$REPO_URL"
-            fi
-
-            CURRENT_DEPLOY_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
-            tag_current_image_for_rollback "$CURRENT_DEPLOY_COMMIT"
-
-            if [ -z "${DEPLOY_IMAGE:-}" ] || [ -z "${DEPLOY_COMMIT:-}" ]; then
-              echo "缺少 DEPLOY_IMAGE / DEPLOY_COMMIT，停止部署" >&2
-              exit 1
-            fi
-
-            # 拉取本次镜像对应的部署文件，避免并发推送导致镜像与 compose 不一致
-            git fetch --tags origin main
-            git reset --hard "$DEPLOY_COMMIT"
-
-            # 拉取并重启服务（镜像由 GitHub Actions 构建并推送到 GHCR）
-            cd "$DEPLOY_DIR"
-            if [ ! -f .env ]; then
-              echo "缺少 $DEPLOY_DIR/.env，停止部署" >&2
-              exit 1
-            fi
-
-            echo "拉取部署镜像: ${DEPLOY_IMAGE}"
-            docker pull "$DEPLOY_IMAGE"
-            docker tag "$DEPLOY_IMAGE" deploy-sub2api:latest
-            echo "已更新本地部署镜像别名: deploy-sub2api:latest (${DEPLOY_COMMIT})"
-            docker compose -f docker-compose.deploy.yml config -q
-            if ! docker compose -f docker-compose.deploy.yml config --format json \
-              | grep -Eq '"host_ip"[[:space:]]*:[[:space:]]*"127\.0\.0\.1"'; then
-              echo "主站应用端口未绑定到 127.0.0.1，停止部署" >&2
-              exit 1
-            fi
-
-            # 清理之前部署失败遗留的重命名容器（格式: <hash>_sub2api*）
-            # Docker Compose recreate 先 rename 旧容器再创建新容器，如果中途失败，
-            # 下次 recreate 会因为重命名目标已存在而报 Conflict 错误。
-            for stale in $(docker ps -a --format '{{.Names}}' | grep -E '^[0-9a-f]+_sub2api'); do
-              echo "清理残留容器: $stale"
-              docker rm -f "$stale" 2>/dev/null || true
-            done
-
-            docker compose -f docker-compose.deploy.yml up -d --remove-orphans
-            wait_for_health sub2api-postgres 180
-            wait_for_health sub2api-redis 180
-            wait_for_health sub2api 300
-            case "$(docker port sub2api 8080/tcp 2>/dev/null || true)" in
-              127.0.0.1:*) ;;
-              *)
-                echo "主站应用端口运行时绑定异常，停止部署" >&2
-                exit 1
-                ;;
-            esac
-
-            # 清理悬空镜像
-            docker image prune -f
-
-            # ============================================================
-            # 企业版实例：如果已部署则同步更新（使用新镜像重启）
-            # ============================================================
-            if [ -f "$BIZ_COMPOSE" ] && [ -f "$BIZ_ENV" ]; then
-              echo "检测到企业版实例配置，同步更新..."
-              echo "企业版数据库预备份已在主站 compose 前完成"
-              # BIZ compose 仅声明 sub2api-biz，若带 --remove-orphans 会误删同 project 下的主站容器。
-              # 旧的 sub2api-biz 不是总能被当前 compose 项目接管，先显式删除可避免同名冲突。
-              if docker ps -a --filter "name=^sub2api-biz$" --format '{{.Names}}' | grep -q .; then
-                docker rm -f sub2api-biz >/dev/null 2>&1 || true
-              fi
-              docker compose -f "$BIZ_COMPOSE" --env-file "$BIZ_ENV" up -d
-              wait_for_health sub2api-biz 180
-              echo "企业版实例更新完成"
-            else
-              echo "未检测到企业版实例配置，跳过"
-            fi
-
-            prune_old_rollback_tags
-
-            echo "部署完成！"
+      - name: Deploy on apipool_vps
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$GHCR_TOKEN"
+          test "$GITHUB_REF" = refs/heads/main
+          test "$IMAGE_TAG" = "sha-${GITHUB_SHA}"
+          printf '%s\n' "$GHCR_TOKEN" | sudo /usr/local/sbin/sub2api-runner-deploy \
+            "$GITHUB_WORKSPACE" \
+            "$IMAGE_TAG" \
+            "$GHCR_USER"

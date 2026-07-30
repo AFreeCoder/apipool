@@ -15,7 +15,16 @@ jobs:
       - name: Check deployment scripts
         run: |
           /bin/bash -n deploy/apple-container.sh
+          /bin/bash -n \
+            deploy/backup-postgres.sh \
+            deploy/configure-caddy.sh \
+            deploy/install-github-runner.sh \
+            deploy/install-production-tooling.sh \
+            deploy/rollback.sh \
+            deploy/runner-deploy.sh \
+            deploy/target-deploy.sh
           /bin/bash deploy/tests/apple-container-test.sh
+          /bin/bash deploy/tests/target-deploy-test.sh
 
   test:
     runs-on: ubuntu-latest

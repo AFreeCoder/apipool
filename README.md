@@ -43,13 +43,15 @@ API 端点：**https://api.apipool.dev**（推荐，国内直连无需代理）
 
 ## 部署
 
-部署在 **DigitalOcean** 服务器上，通过 GitHub Actions 自动部署（push to `main` 触发）。
+部署在 **apipool_vps** 服务器上，通过 GitHub Actions 自动部署（push to `main` 触发）。
 
 当前生产部署特征：
 
-- 单实例 Docker Compose 部署
+- 单实例 Docker Compose 部署，与 APIPool_v2 共用宿主机、独立 project/卷/网络
+- 仓库级 `sub2api-prod-deploy` Runner 只调用 root-owned 固定部署入口
 - 发布前自动做数据库备份
 - 发布前自动给当前线上镜像打回退 tag
+- 完整 SHA 镜像不可变；同 SHA 已健康运行时幂等跳过
 - 应用进程支持优雅退出，容器设置了 `stop_grace_period`
 - 但 **不是零中断滚动发布**；发布或重启时会重建单个 `sub2api` 容器，通常只有短暂中断窗口
 
@@ -64,7 +66,7 @@ underscores_in_headers on;
 否则 Nginx 会默认丢弃带下划线的请求头，导致粘性会话和多账号路由异常。
 
 ```bash
-ssh digitalocean               # 登录服务器
+ssh apipool_vps                # 登录服务器
 cd /opt/sub2api/deploy
 
 # 常用运维命令
@@ -97,7 +99,10 @@ docker compose -f docker-compose.deploy.yml restart      # 重启服务
 
 上游内建支付功能的配置文档见 [docs/PAYMENT.md](docs/PAYMENT.md) 与 [docs/PAYMENT_CN.md](docs/PAYMENT_CN.md)。当前 APIPool 仍保留通过系统设置配置 iframe 充值页的本地方案，两种能力并存，合入上游时不要默认互相替换。
 
-Apple Silicon + macOS 26 的本地运维实验流程见 [deploy/APPLE_CONTAINER.md](deploy/APPLE_CONTAINER.md)；该流程不替代当前 DigitalOcean + Docker Compose 生产部署。
+完整生产拓扑、Runner 所有权、Caddy 共存、迁移和跨数据主端回滚边界见
+[docs/deployment.md](docs/deployment.md)。
+
+Apple Silicon + macOS 26 的本地运维实验流程见 [deploy/APPLE_CONTAINER.md](deploy/APPLE_CONTAINER.md)；该流程不替代当前 apipool_vps + Docker Compose 生产部署。
 
 ## Simple Mode
 
@@ -230,7 +235,7 @@ npm run dev
 
 | Workflow | 触发条件 | 内容 |
 |----------|----------|------|
-| deploy.yml | push to main | SSH 部署到 DigitalOcean |
+| deploy.yml | push to main | 构建精确 SHA 镜像并由目标仓库级 Runner 部署到 apipool_vps |
 | backend-ci.yml | push, PR | 单元测试 + 集成测试 + golangci-lint v2.10.1 |
 | security-scan.yml | push, PR, 每周一 | govulncheck + gosec + pnpm audit |
 | release.yml | tag `v*` | 构建发布 |
