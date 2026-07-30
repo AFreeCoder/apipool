@@ -33,6 +33,9 @@ tooling_installer="deploy/install-production-tooling.sh"
 
 assert_contains "$workflow" 'name: Deploy to apipool_vps'
 assert_contains "$workflow" 'sha-\$\{GITHUB_SHA\}'
+assert_contains "$workflow" 'image_tags<<EOF'
+assert_contains "$workflow" 'if \[ "\$GITHUB_REF" = "refs/heads/main" \]'
+assert_contains "$workflow" 'tags: \$\{\{ steps\.image\.outputs\.image_tags \}\}'
 assert_contains "$workflow" 'sub2api-prod-deploy'
 assert_contains "$workflow" 'cancel-in-progress: false'
 assert_contains "$workflow" "if: github.ref == 'refs/heads/main'"
