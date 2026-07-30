@@ -15,7 +15,7 @@ LOCK_FILE="${SUB2API_CADDY_LOCK:-/run/apipool-caddy.lock}"
   exit 77
 }
 
-for command_name in caddy cp flock grep install mktemp realpath rm sed stat systemctl; do
+for command_name in caddy cp flock getent grep install mktemp realpath rm runuser sed stat systemctl; do
   command -v "$command_name" >/dev/null 2>&1 || {
     echo "configure-caddy.sh: 缺少命令 $command_name" >&2
     exit 69
@@ -39,6 +39,17 @@ set +a
 cert_file="${APIPOOL_CADDY_CERT_FILE:-/etc/caddy/certs/apipool.dev.crt}"
 key_file="${APIPOOL_CADDY_KEY_FILE:-/etc/caddy/certs/apipool.dev.key}"
 upstream="${APIPOOL_CADDY_UPSTREAM:-127.0.0.1:8080}"
+CADDY_RUNTIME_USER="${SUB2API_CADDY_RUNTIME_USER:-caddy}"
+CADDY_RUNTIME_GROUP="${SUB2API_CADDY_RUNTIME_GROUP:-caddy}"
+
+getent passwd "$CADDY_RUNTIME_USER" >/dev/null || {
+  echo "configure-caddy.sh: Caddy 运行用户不存在: $CADDY_RUNTIME_USER" >&2
+  exit 77
+}
+getent group "$CADDY_RUNTIME_GROUP" >/dev/null || {
+  echo "configure-caddy.sh: Caddy 运行组不存在: $CADDY_RUNTIME_GROUP" >&2
+  exit 77
+}
 
 for secret_file in "$cert_file" "$key_file"; do
   [ -f "$secret_file" ] || {
@@ -54,11 +65,22 @@ for secret_file in "$cert_file" "$key_file"; do
     exit 77
   }
 done
+key_group="$(stat -c '%G' "$key_file")"
+[ "$key_group" = "$CADDY_RUNTIME_GROUP" ] || {
+  echo "configure-caddy.sh: TLS 私钥组必须为 $CADDY_RUNTIME_GROUP" >&2
+  exit 77
+}
 key_mode="$(stat -c '%a' "$key_file")"
-if (( (8#$key_mode & 8#077) != 0 )); then
-  echo "configure-caddy.sh: TLS 私钥必须仅允许 root 访问" >&2
+if [ "$key_mode" != 640 ]; then
+  echo "configure-caddy.sh: TLS 私钥权限必须为 0640" >&2
   exit 77
 fi
+for secret_file in "$cert_file" "$key_file"; do
+  if ! runuser -u "$CADDY_RUNTIME_USER" -- test -r "$secret_file"; then
+    echo "configure-caddy.sh: Caddy 运行用户无法读取 TLS 文件: $secret_file" >&2
+    exit 77
+  fi
+done
 
 if ! grep -Fq 'import /etc/caddy/sites-enabled/*.caddy' "$CADDY_ROOT"; then
   echo "configure-caddy.sh: 根 Caddyfile 未启用 sites-enabled 分片" >&2

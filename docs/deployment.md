@@ -100,8 +100,9 @@ import /etc/caddy/sites-enabled/*.caddy
 - 每次变更先复制全部现有分片，组装完整候选树并执行 `caddy validate`；验证通过后
   才原子替换自己的分片和 reload。
 - 本服务只配置 `apipool.dev` 与 `api.apipool.dev`，不得配置 biz 域名。
-- Cloudflare Origin 证书与私钥放在 `/etc/caddy/certs/`；私钥 root-only，
-  不进入 Git。
+- Cloudflare Origin 证书与私钥放在 `/etc/caddy/certs/`；私钥必须为
+  `root:caddy 0640`，只让 root 与 Caddy 运行组读取，不进入 Git。部署脚本会在
+  reload 前以 Caddy 运行用户做实际可读性检查，避免仅 root 静态校验通过。
 
 ## 发布前检查
 
