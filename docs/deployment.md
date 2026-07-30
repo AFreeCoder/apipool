@@ -91,12 +91,19 @@ link-local/metadata 网络。
 
 ```caddyfile
 # /etc/caddy/Caddyfile
+{
+	auto_https ignore_loaded_certs
+}
+
 import /etc/caddy/sites-enabled/*.caddy
 ```
 
 - v2 只拥有 `apipool-v2.caddy`。
 - 本服务只拥有 `apipool-legacy.caddy`。
 - 两个写入器共用 `/run/apipool-caddy.lock`。
+- `auto_https ignore_loaded_certs` 必须保留，使 Caddy 在加载 APIPool Origin
+  wildcard 时仍为 `api2` 等精确域名管理公开证书；legacy 脚本缺少该前置条件时
+  fail-closed。
 - 每次变更先复制全部现有分片，组装完整候选树并执行 `caddy validate`；验证通过后
   才原子替换自己的分片和 reload。
 - 本服务只配置 `apipool.dev` 与 `api.apipool.dev`，不得配置 biz 域名。

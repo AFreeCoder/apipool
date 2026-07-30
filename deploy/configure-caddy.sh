@@ -86,6 +86,12 @@ if ! grep -Fq 'import /etc/caddy/sites-enabled/*.caddy' "$CADDY_ROOT"; then
   echo "configure-caddy.sh: 根 Caddyfile 未启用 sites-enabled 分片" >&2
   exit 78
 fi
+if ! grep -Eq '^[[:space:]]*auto_https[[:space:]]+ignore_loaded_certs[[:space:]]*$' \
+  "$CADDY_ROOT"; then
+  echo "configure-caddy.sh: 根 Caddyfile 未启用 auto_https ignore_loaded_certs" >&2
+  echo "configure-caddy.sh: 拒绝加载会覆盖其他精确域名公开证书的 Origin wildcard" >&2
+  exit 78
+fi
 
 exec 9>"$LOCK_FILE"
 flock -w 60 9 || {

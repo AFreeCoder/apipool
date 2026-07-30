@@ -64,6 +64,7 @@ assert_contains "$caddy" 'apipool\.dev, api\.apipool\.dev'
 assert_contains "$caddy" 'CADDY_RUNTIME_USER='
 assert_contains "$caddy" 'TLS 私钥权限必须为 0640'
 assert_contains "$caddy" 'runuser -u "\$CADDY_RUNTIME_USER" -- test -r'
+assert_contains "$caddy" 'auto_https ignore_loaded_certs'
 assert_not_contains "$caddy" 'biz\.apipool\.dev'
 
 validate_line="$(grep -n 'caddy validate --config "\$candidate_root"' "$caddy" | head -1 | cut -d: -f1)"
