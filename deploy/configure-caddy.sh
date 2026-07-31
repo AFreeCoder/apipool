@@ -9,13 +9,27 @@ CADDY_ROOT="${SUB2API_CADDY_ROOT:-/etc/caddy/Caddyfile}"
 SITES_DIR="${SUB2API_CADDY_SITES_DIR:-/etc/caddy/sites-enabled}"
 FRAGMENT="${SUB2API_CADDY_FRAGMENT:-$SITES_DIR/apipool-legacy.caddy}"
 LOCK_FILE="${SUB2API_CADDY_LOCK:-/run/apipool-caddy.lock}"
+CADDY_RUNTIME_LIB="${SUB2API_CADDY_RUNTIME_LIB:-/opt/apipool-v2/deploy/caddy-runtime-lib.sh}"
+
+if [ ! -f "$CADDY_RUNTIME_LIB" ] || [ -L "$CADDY_RUNTIME_LIB" ]; then
+  echo "configure-caddy.sh: 缺少或不安全的共享 Caddy 运行时库 $CADDY_RUNTIME_LIB" >&2
+  exit 69
+fi
+# APIPool_v2 是共享宿主机 Caddy 运行时的唯一 owner；legacy 只管理自己的分片。
+# shellcheck disable=SC1090
+. "$CADDY_RUNTIME_LIB"
+
+if [ "${APIPOOL_CADDY_RUNTIME_CONTRACT:-}" != "apipool-caddy-runtime-v1" ]; then
+  echo "configure-caddy.sh: 共享 Caddy 运行时契约不兼容" >&2
+  exit 78
+fi
 
 [ "$(id -u)" -eq 0 ] || {
   echo "configure-caddy.sh: 必须以 root 运行" >&2
   exit 77
 }
 
-for command_name in caddy cmp cp flock grep install mktemp rm sed systemctl; do
+for command_name in cmp cp flock grep install mktemp rm sed systemctl; do
   command -v "$command_name" >/dev/null 2>&1 || {
     echo "configure-caddy.sh: 缺少命令 $command_name" >&2
     exit 69
@@ -100,6 +114,7 @@ apipool.dev {
 			keepalive_idle_conns 256
 		}
 		flush_interval -1
+		stream_close_delay $APIPOOL_CADDY_STREAM_CLOSE_DELAY
 	}
 
 	encode gzip zstd
@@ -135,7 +150,8 @@ install -o root -g root -m 0644 "$fragment_tmp" "$candidate_dir/$(basename "$FRA
 # 用候选分片目录验证整套配置；验证成功前不修改线上 fragment。
 sed "s|import /etc/caddy/sites-enabled/\\*.caddy|import $candidate_dir/*.caddy|" \
   "$CADDY_ROOT" >"$candidate_root"
-caddy validate --config "$candidate_root" --adapter caddyfile >/dev/null
+verify_caddy_binary "$APIPOOL_CADDY_BIN"
+"$APIPOOL_CADDY_BIN" validate --config "$candidate_root" --adapter caddyfile >/dev/null
 
 if [ -f "$FRAGMENT" ] && cmp -s "$fragment_tmp" "$FRAGMENT"; then
   echo "configure-caddy.sh: $FRAGMENT 已是目标配置，跳过 reload/restart"
@@ -149,7 +165,7 @@ if [ -f "$FRAGMENT" ]; then
   had_previous=1
 fi
 install -o root -g root -m 0644 "$fragment_tmp" "$FRAGMENT"
-if ! caddy validate --config "$CADDY_ROOT" --adapter caddyfile >/dev/null; then
+if ! "$APIPOOL_CADDY_BIN" validate --config "$CADDY_ROOT" --adapter caddyfile >/dev/null; then
   if [ "$had_previous" -eq 1 ]; then
     install -o root -g root -m 0644 "$previous_fragment" "$FRAGMENT"
   else
@@ -158,17 +174,5 @@ if ! caddy validate --config "$CADDY_ROOT" --adapter caddyfile >/dev/null; then
   echo "configure-caddy.sh: 安装后的整套 Caddy 配置校验失败" >&2
   exit 78
 fi
-caddy_version="$(caddy version | head -n 1)"
-if [ "$caddy_version" = "2.6.2" ]; then
-  # 目标机该版本在 systemctl reload 后已稳定复现 context cancel panic。
-  # 精确版本使用受控 restart，避免 reload 返回成功后代理进程异步退出。
-  echo "configure-caddy.sh: Caddy 2.6.2 使用受控 restart"
-  systemctl restart caddy
-else
-  systemctl reload caddy
-fi
-systemctl is-active --quiet caddy || {
-  echo "configure-caddy.sh: Caddy 配置应用后未保持 active" >&2
-  exit 70
-}
+reload_caddy_safely "$CADDY_ROOT"
 echo "configure-caddy.sh: 已安装 $FRAGMENT"

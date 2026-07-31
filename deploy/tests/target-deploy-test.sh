@@ -30,6 +30,7 @@ runner="deploy/runner-deploy.sh"
 deploy_script="deploy/target-deploy.sh"
 backup_script="deploy/backup-postgres.sh"
 tooling_installer="deploy/install-production-tooling.sh"
+runtime_contract="deploy/caddy-runtime-contract"
 
 assert_contains "$workflow" 'name: Deploy to apipool_vps'
 assert_contains "$workflow" 'sha-\$\{GITHUB_SHA\}'
@@ -37,6 +38,8 @@ assert_contains "$workflow" 'image_tags<<EOF'
 assert_contains "$workflow" 'if \[ "\$GITHUB_REF" = "refs/heads/main" \]'
 assert_contains "$workflow" 'tags: \$\{\{ steps\.image\.outputs\.image_tags \}\}'
 assert_contains "$workflow" 'sub2api-prod-deploy'
+assert_contains "$workflow" 'verify-deployment-contract:'
+assert_contains "$workflow" 'needs: \[build, verify-deployment-contract\]'
 assert_contains "$workflow" 'cancel-in-progress: false'
 assert_contains "$workflow" "if: github.ref == 'refs/heads/main'"
 assert_contains "$workflow" 'environment: production'
@@ -59,7 +62,7 @@ assert_contains "$deploy_script" 'docker port sub2api'
 assert_contains "$caddy" '/run/apipool-caddy\.lock'
 assert_contains "$caddy" 'import /etc/caddy/sites-enabled/\*\.caddy'
 assert_contains "$caddy" 'candidate_dir='
-assert_contains "$caddy" 'caddy validate --config "\$candidate_root"'
+assert_contains "$caddy" '"\$APIPOOL_CADDY_BIN" validate --config "\$candidate_root"'
 assert_contains "$caddy" '^apipool\.dev \{$'
 assert_not_contains "$caddy" 'apipool\.dev, api\.apipool\.dev'
 assert_not_contains "$caddy" '^api\.apipool\.dev'
@@ -67,14 +70,16 @@ assert_not_contains "$caddy" 'APIPOOL_CADDY_CERT_FILE|APIPOOL_CADDY_KEY_FILE'
 assert_not_contains "$caddy" '根 Caddyfile 未启用 auto_https ignore_loaded_certs'
 assert_contains "$caddy" '根 Caddyfile 禁止启用 auto_https ignore_loaded_certs'
 assert_not_contains "$caddy" 'biz\.apipool\.dev'
-assert_contains "$caddy" 'caddy_version=.*caddy version'
-assert_contains "$caddy" '"\$caddy_version" = "2\.6\.2"'
-assert_contains "$caddy" 'systemctl restart caddy'
-assert_contains "$caddy" 'systemctl is-active --quiet caddy'
+assert_contains "$caddy" 'SUB2API_CADDY_RUNTIME_LIB:-/opt/apipool-v2/deploy/caddy-runtime-lib\.sh'
+assert_contains "$caddy" 'APIPOOL_CADDY_RUNTIME_CONTRACT:-.*apipool-caddy-runtime-v1'
+assert_contains "$caddy" 'verify_caddy_binary "\$APIPOOL_CADDY_BIN"'
+assert_contains "$caddy" 'stream_close_delay \$APIPOOL_CADDY_STREAM_CLOSE_DELAY'
+assert_contains "$caddy" 'reload_caddy_safely "\$CADDY_ROOT"'
+assert_not_contains "$caddy" 'systemctl restart caddy'
 assert_contains "$caddy" 'cmp -s "\$fragment_tmp" "\$FRAGMENT"'
 assert_contains "$caddy" '跳过 reload/restart'
 
-validate_line="$(grep -n 'caddy validate --config "\$candidate_root"' "$caddy" | head -1 | cut -d: -f1)"
+validate_line="$(grep -n '"\$APIPOOL_CADDY_BIN" validate --config "\$candidate_root"' "$caddy" | head -1 | cut -d: -f1)"
 install_line="$(grep -n 'install -o root -g root -m 0644 "\$fragment_tmp" "\$FRAGMENT"' "$caddy" | head -1 | cut -d: -f1)"
 [ "$validate_line" -lt "$install_line" ] \
   || fail "Caddy 候选树必须在写入 live fragment 前验证"
@@ -89,9 +94,11 @@ assert_contains "$runner" 'production tooling drift'
 assert_contains "$runner" 'cmp -s'
 assert_contains "$runner" 'deploy/sub2api-backup\.service\|/etc/systemd/system/sub2api-backup\.service'
 assert_contains "$runner" 'deploy/sub2api-backup\.timer\|/etc/systemd/system/sub2api-backup\.timer'
+assert_contains "$runner" 'deploy/caddy-runtime-contract\|\$APP_DIR/deploy/caddy-runtime-contract'
 assert_contains "$tooling_installer" '"\$DEPLOY_DIR/sub2api-backup\.service"'
 assert_contains "$tooling_installer" '"\$DEPLOY_DIR/sub2api-backup\.timer"'
 assert_contains "$tooling_installer" '/usr/local/sbin/sub2api-runner-deploy'
+assert_contains "$runtime_contract" '^APIPOOL_CADDY_RUNTIME_CONTRACT=apipool-caddy-runtime-v1$'
 assert_contains "$backup_script" 'RETENTION_HOURS="\$\{SCHEDULED_BACKUP_RETENTION_HOURS:-72\}"'
 assert_contains "$backup_script" 'MAX_FILES="\$\{SCHEDULED_BACKUP_MAX_FILES:-18\}"'
 assert_contains "$backup_script" '\[ -z "\$\{backup_tmp:-\}" \] \|\| rm -f -- "\$backup_tmp"'

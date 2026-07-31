@@ -73,6 +73,7 @@ verify_root_owned() {
     "$APP_DIR/deploy/sub2api-backup.timer" \
     "$APP_DIR/deploy/target-deploy.sh" \
     "$APP_DIR/deploy/configure-caddy.sh" \
+    "$APP_DIR/deploy/caddy-runtime-contract" \
     /etc/systemd/system/sub2api-backup.service \
     /etc/systemd/system/sub2api-backup.timer; do
     [ -e "$path" ] && [ "$(realpath -e "$path")" = "$path" ] || {
@@ -123,6 +124,7 @@ deploy/docker-compose.deploy.yml|$APP_DIR/deploy/docker-compose.deploy.yml
 deploy/backup-postgres.sh|$APP_DIR/deploy/backup-postgres.sh
 deploy/target-deploy.sh|$APP_DIR/deploy/target-deploy.sh
 deploy/configure-caddy.sh|$APP_DIR/deploy/configure-caddy.sh
+deploy/caddy-runtime-contract|$APP_DIR/deploy/caddy-runtime-contract
 deploy/rollback.sh|$APP_DIR/deploy/rollback.sh
 deploy/version_resolver.sh|$APP_DIR/deploy/version_resolver.sh
 deploy/sub2api-backup.service|$APP_DIR/deploy/sub2api-backup.service

@@ -18,6 +18,7 @@ required_files=(
   deploy/docker-compose.deploy.yml
   deploy/target-deploy.sh
   deploy/configure-caddy.sh
+  deploy/caddy-runtime-contract
   deploy/runner-deploy.sh
   deploy/rollback.sh
   deploy/sub2api-backup.service
@@ -48,6 +49,9 @@ fi
 install -o root -g root -m 0644 \
   "$SOURCE_ROOT/deploy/docker-compose.deploy.yml" \
   "$DEPLOY_DIR/docker-compose.deploy.yml"
+install -o root -g root -m 0644 \
+  "$SOURCE_ROOT/deploy/caddy-runtime-contract" \
+  "$DEPLOY_DIR/caddy-runtime-contract"
 for unit in sub2api-backup.service sub2api-backup.timer; do
   install -o root -g root -m 0644 \
     "$SOURCE_ROOT/deploy/$unit" "$DEPLOY_DIR/$unit"

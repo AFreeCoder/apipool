@@ -15,6 +15,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-deployment-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Verify production deployment contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n \
+            deploy/backup-postgres.sh \
+            deploy/configure-caddy.sh \
+            deploy/install-production-tooling.sh \
+            deploy/rollback.sh \
+            deploy/runner-deploy.sh \
+            deploy/target-deploy.sh
+          bash deploy/tests/target-deploy-test.sh
+
   build:
     runs-on: ubuntu-latest
     outputs:
@@ -83,7 +103,7 @@ jobs:
 
   deploy:
     if: github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build, verify-deployment-contract]
     runs-on: [self-hosted, linux, x64, sub2api-prod-deploy]
     timeout-minutes: 30
     environment: production

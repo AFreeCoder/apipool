@@ -1,0 +1,2 @@
+# legacy Caddy 分片写入器与 APIPool_v2 共享运行时之间的显式契约。
+APIPOOL_CADDY_RUNTIME_CONTRACT=apipool-caddy-runtime-v1

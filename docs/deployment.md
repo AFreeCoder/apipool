@@ -14,7 +14,8 @@ token、私钥、生产 `.env`、客户数据或备份内容。
 - 目标运行单元：`sub2api`、`sub2api-postgres`、`sub2api-redis`
 - biz：只保留独立备份，不在目标机安装 `.env.biz`、Compose、容器或 Caddy 路由
 
-DigitalOcean 旧机只在迁移观察期充当回退入口，不再是 `main` 的发布目标。
+DigitalOcean 旧机上的 legacy 数据已落后且容器已停止，只保留观察期备份，既不是
+`main` 的发布目标，也不得再作为生产回退入口。
 
 ## GitHub 发布链
 
@@ -44,6 +45,7 @@ DigitalOcean 旧机只在迁移观察期充当回退入口，不再是 `main` �
 - `deploy/install-production-tooling.sh`
 - `deploy/target-deploy.sh`
 - `deploy/configure-caddy.sh`
+- `deploy/caddy-runtime-contract`
 - `deploy/docker-compose.deploy.yml`
 - `deploy/rollback.sh`
 
@@ -69,6 +71,7 @@ link-local/metadata 网络。
     ├── .env                    root:root 0600
     ├── docker-compose.deploy.yml
     ├── configure-caddy.sh
+    ├── caddy-runtime-contract
     ├── release.env             root:root 0600
     ├── rollback.sh
     ├── target-deploy.sh
@@ -91,6 +94,10 @@ link-local/metadata 网络。
 
 ```caddyfile
 # /etc/caddy/Caddyfile
+{
+	grace_period 15m
+}
+
 import /etc/caddy/sites-enabled/*.caddy
 ```
 
@@ -101,14 +108,21 @@ import /etc/caddy/sites-enabled/*.caddy
   发起公网 ACME。legacy 脚本发现该选项时 fail-closed。
 - 每次变更先复制全部现有分片，组装完整候选树并执行 `caddy validate`；验证通过后
   才原子替换自己的分片并应用配置。
-- 候选分片与线上分片完全一致时直接短路，不 reload/restart Caddy。
+- 候选分片与线上分片完全一致时直接短路，不 reload Caddy。
 - 本服务在目标机只配置 `apipool.dev`，不得配置 API 或 biz 域名。qingyun 转发
   `api.apipool.dev` 时固定使用 `apipool.dev` 作为上游 Host/SNI。
 - Caddy 必须在自身存储中管理 `apipool.dev` 的有效公开证书；发布前检查证书存在且
   未临近过期。legacy 分片不再加载会覆盖 v2 子域名的 Origin wildcard。
-- 目标机当前 Caddy `2.6.2` 已复现 `systemctl reload` 返回成功后进程 panic；
-  脚本对该精确版本使用受控 restart，并在返回前确认服务保持 active。其他版本仍
-  使用无中断 reload。
+- APIPool_v2 是共享 Caddy 运行时的唯一 owner；本仓库通过 root-owned
+  `/opt/apipool-v2/deploy/caddy-runtime-lib.sh` 校验精确二进制并执行安全 reload，
+  只拥有 legacy 分片。
+- 固定工具链必须安装 `caddy-runtime-contract`，其契约值为
+  `apipool-caddy-runtime-v1`；legacy 写入器还会核对 APIPool_v2 runtime lib 暴露的
+  同名契约。升级共享运行时前先安装 APIPool_v2 工具链，再安装本仓库工具链；契约不符
+  时共享升级和普通 legacy 发布都 fail-closed。
+- 生产运行时为 Caddy `2.11.4`（Go `1.26.5`）。legacy 反代设置
+  `stream_close_delay 15m`，共享根设置 `grace_period 15m`，systemd 停止超时为
+  16 分钟；reload 后必须确认 MainPID 未变化、进程持续 active 且 journal 无崩溃签名。
 
 ## 发布前检查
 
@@ -137,54 +151,18 @@ pnpm run typecheck
 
 若某项无法运行，发布记录必须写明阻断、替代证据和剩余风险。
 
-## 迁移执行顺序
+## 迁移完成状态
 
-### 1. 不影响旧站的准备
-
-- 保持 DigitalOcean 的 main、biz、PostgreSQL、Redis 和原域名全部运行。
-- 在目标机先暂停无真实用户的 v2 容器；保留其数据和备份。
-- 修复目标 SSH 固定来源规则，并从 owner 与 DigitalOcean 各建立第二条并行连接；
-  防火墙脚本的自动回滚确认前不得关闭 Web/TAT 会话。
-- 安装 Caddy 分片工具，在不改变任何 DNS/源站的前提下完成
-  `caddy validate`、reload 和 v2 三域名 smoke。
-- 安装独立 APIPool Runner，但在目标数据库仍为 standby 时禁止触发应用发布。
-- 从 feature commit 预构建精确候选镜像并记录 digest，提前拉到目标机。
-
-### 2. 在线数据预同步
-
-- PostgreSQL 使用专用临时复制角色、最小 `pg_hba` 和物理 slot，通过 SSH 隧道执行
-  `pg_basebackup -R -X stream`；目标确认
-  `pg_is_in_recovery()=true`、system identifier 一致、replay lag 持续收敛。
-- `max_slot_wal_keep_size=-1` 时必须持续监控 retained WAL 和源盘；源盘空闲低于
-  20GiB 或 retained WAL 超过预设阈值时自动中止并删除 slot，不能让旧站磁盘被写满。
-- Redis 通过同一类仅内网可达的 SSH 隧道建立 replica；确认
-  `master_link_status=up`、全量同步结束、offset 持续追平。
-- app-data 先做一次在线 rsync；最终增量在写屏障内完成。
-- 在线生成 main 与 biz 的逻辑备份，并归档 Redis、两个 app-data、`.env*`、
-  Compose、Caddy、镜像 digest 与 SHA-256 清单。biz 只进入备份区。
-
-### 3. 短写屏障与提升
-
-选择实测低流量窗口：
-
-1. 停止旧机 main 和 biz 应用，不先停 PostgreSQL/Redis。
-2. 确认无 active/idle-in-transaction、WAL/事务提交停止增长，等待异步计费与缓存写入
-   排空。
-3. PostgreSQL 等待 replay LSN 与源端 flush LSN 相等；Redis 等待复制 offset 相等。
-4. 完成 app-data 最终 rsync 和 biz 最终独立逻辑备份。
-5. 停止目标复制，提升目标 PostgreSQL 与 Redis，验证 timeline/role。
-6. 以预拉取的精确候选镜像受控启动目标 main；先通过本机 Host/SNI、真实上游流式请求、
-   账单和幂等检查。
-7. 让旧 DigitalOcean Caddy 临时桥接目标机，使仍命中旧入口的请求也到达新主站。
-8. 先改 qingyun 的 `api.apipool.dev` 上游，再改 Cloudflare 的
-   `apipool.dev` origin；域名本身不变。
-9. 旧机 main/数据库/Redis 保持停止且禁止自动重启；biz 按本次范围保持停止，
-   不在目标机部署，域名配置不变，仅保留已验证的独立备份，
-   但其数据已经独立归档且不会进入目标机。
-
-当前单主架构不能承诺“任何长流请求都绝不重试”。验收目标是域名持续可达、数据零丢失，
-写屏障为演练确认的秒级窗口，极少数切换瞬间请求最多重试一次。若要求单请求严格零中断，
-必须先实现应用多副本 drain 与数据层 HA，这属于独立架构改造。
+- `apipool_vps` 是 legacy PostgreSQL、Redis 与应用的唯一生产主端。
+- `apipool.dev` 经 Cloudflare 到目标机；`api.apipool.dev` 经轻云互联到目标机，
+  域名和用户入口未改变。
+- DigitalOcean legacy 应用保持停止，旧数据不得重新接流；biz 不在目标机部署，仅保留
+  已验证的独立备份。
+- 后续 `main` push 只由专用 `sub2api-prod-deploy` Runner 发布到目标机。
+- 生产 deploy 显式依赖同一 workflow 内的 deployment-contract 检查；独立 CI 尚未
+  完成或相关部署测试失败时不得进入自托管 Runner。
+- 当前单实例应用发布仍可能带来一个短暂、可重试的容器换代窗口；Caddy 运行时升级则
+  必须使用 APIPool_v2 的候选实例透明切流流程，不得直接 restart。
 
 ## 发布监控
 
@@ -216,21 +194,9 @@ curl -fsS https://api.apipool.dev/health
 
 ## 回滚边界
 
-### 目标开始写入前
-
-旧机仍是唯一数据主端，可停止目标副本、恢复旧入口，不需要反向同步。
-
-### 目标应用开始写入后
-
-这是不可直接回 DNS 的分界。即使没有用户请求，后台任务也可能写 PostgreSQL/Redis。
-回滚必须：
-
-1. 停止目标应用；
-2. 用 `pg_rewind` 或重新物理同步让旧 PostgreSQL 追上目标；
-3. 反向同步 Redis 与 app-data；
-4. 验证旧端数据一致后再恢复入口。
-
-只回 Cloudflare 或 qingyun 而不处理数据层会形成双主和数据丢失。
+DigitalOcean 已不是可用回退主端。禁止只回 Cloudflare/qingyun 或重新启动旧容器；
+这会让请求落到过期数据库并形成数据分叉。普通故障优先在目标机回滚应用镜像或从目标机
+备份恢复；跨主机灾备恢复必须另行制定数据恢复方案并确认写入边界。
 
 应用镜像快速回退：
 
