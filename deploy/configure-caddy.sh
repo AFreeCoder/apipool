@@ -15,7 +15,7 @@ LOCK_FILE="${SUB2API_CADDY_LOCK:-/run/apipool-caddy.lock}"
   exit 77
 }
 
-for command_name in caddy cp flock grep install mktemp rm sed systemctl; do
+for command_name in caddy cmp cp flock grep install mktemp rm sed systemctl; do
   command -v "$command_name" >/dev/null 2>&1 || {
     echo "configure-caddy.sh: 缺少命令 $command_name" >&2
     exit 69
@@ -136,6 +136,11 @@ install -o root -g root -m 0644 "$fragment_tmp" "$candidate_dir/$(basename "$FRA
 sed "s|import /etc/caddy/sites-enabled/\\*.caddy|import $candidate_dir/*.caddy|" \
   "$CADDY_ROOT" >"$candidate_root"
 caddy validate --config "$candidate_root" --adapter caddyfile >/dev/null
+
+if [ -f "$FRAGMENT" ] && cmp -s "$fragment_tmp" "$FRAGMENT"; then
+  echo "configure-caddy.sh: $FRAGMENT 已是目标配置，跳过 reload/restart"
+  exit 0
+fi
 
 previous_fragment="$(mktemp)"
 had_previous=0

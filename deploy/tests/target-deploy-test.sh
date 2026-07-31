@@ -71,11 +71,16 @@ assert_contains "$caddy" 'caddy_version=.*caddy version'
 assert_contains "$caddy" '"\$caddy_version" = "2\.6\.2"'
 assert_contains "$caddy" 'systemctl restart caddy'
 assert_contains "$caddy" 'systemctl is-active --quiet caddy'
+assert_contains "$caddy" 'cmp -s "\$fragment_tmp" "\$FRAGMENT"'
+assert_contains "$caddy" '跳过 reload/restart'
 
 validate_line="$(grep -n 'caddy validate --config "\$candidate_root"' "$caddy" | head -1 | cut -d: -f1)"
 install_line="$(grep -n 'install -o root -g root -m 0644 "\$fragment_tmp" "\$FRAGMENT"' "$caddy" | head -1 | cut -d: -f1)"
 [ "$validate_line" -lt "$install_line" ] \
   || fail "Caddy 候选树必须在写入 live fragment 前验证"
+no_change_line="$(grep -n 'cmp -s "\$fragment_tmp" "\$FRAGMENT"' "$caddy" | head -1 | cut -d: -f1)"
+[ "$validate_line" -lt "$no_change_line" ] && [ "$no_change_line" -lt "$install_line" ] \
+  || fail "Caddy 无变化短路必须在候选验证后、live fragment 写入前执行"
 
 assert_contains "$runner" 'EXPECTED_WORKSPACE="/opt/actions-runner-sub2api/_work/apipool/apipool"'
 assert_contains "$runner" 'checkout HEAD does not match image tag'

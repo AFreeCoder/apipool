@@ -101,6 +101,7 @@ import /etc/caddy/sites-enabled/*.caddy
   发起公网 ACME。legacy 脚本发现该选项时 fail-closed。
 - 每次变更先复制全部现有分片，组装完整候选树并执行 `caddy validate`；验证通过后
   才原子替换自己的分片并应用配置。
+- 候选分片与线上分片完全一致时直接短路，不 reload/restart Caddy。
 - 本服务在目标机只配置 `apipool.dev`，不得配置 API 或 biz 域名。qingyun 转发
   `api.apipool.dev` 时固定使用 `apipool.dev` 作为上游 Host/SNI。
 - Caddy 必须在自身存储中管理 `apipool.dev` 的有效公开证书；发布前检查证书存在且
