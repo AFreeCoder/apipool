@@ -153,5 +153,17 @@ if ! caddy validate --config "$CADDY_ROOT" --adapter caddyfile >/dev/null; then
   echo "configure-caddy.sh: 安装后的整套 Caddy 配置校验失败" >&2
   exit 78
 fi
-systemctl reload caddy
+caddy_version="$(caddy version | head -n 1)"
+if [ "$caddy_version" = "2.6.2" ]; then
+  # 目标机该版本在 systemctl reload 后已稳定复现 context cancel panic。
+  # 精确版本使用受控 restart，避免 reload 返回成功后代理进程异步退出。
+  echo "configure-caddy.sh: Caddy 2.6.2 使用受控 restart"
+  systemctl restart caddy
+else
+  systemctl reload caddy
+fi
+systemctl is-active --quiet caddy || {
+  echo "configure-caddy.sh: Caddy 配置应用后未保持 active" >&2
+  exit 70
+}
 echo "configure-caddy.sh: 已安装 $FRAGMENT"

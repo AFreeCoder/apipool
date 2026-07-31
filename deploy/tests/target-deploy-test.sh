@@ -67,6 +67,10 @@ assert_not_contains "$caddy" 'APIPOOL_CADDY_CERT_FILE|APIPOOL_CADDY_KEY_FILE'
 assert_not_contains "$caddy" '根 Caddyfile 未启用 auto_https ignore_loaded_certs'
 assert_contains "$caddy" '根 Caddyfile 禁止启用 auto_https ignore_loaded_certs'
 assert_not_contains "$caddy" 'biz\.apipool\.dev'
+assert_contains "$caddy" 'caddy_version=.*caddy version'
+assert_contains "$caddy" '"\$caddy_version" = "2\.6\.2"'
+assert_contains "$caddy" 'systemctl restart caddy'
+assert_contains "$caddy" 'systemctl is-active --quiet caddy'
 
 validate_line="$(grep -n 'caddy validate --config "\$candidate_root"' "$caddy" | head -1 | cut -d: -f1)"
 install_line="$(grep -n 'install -o root -g root -m 0644 "\$fragment_tmp" "\$FRAGMENT"' "$caddy" | head -1 | cut -d: -f1)"

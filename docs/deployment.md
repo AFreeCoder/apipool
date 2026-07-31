@@ -100,11 +100,14 @@ import /etc/caddy/sites-enabled/*.caddy
 - 禁止配置 `auto_https ignore_loaded_certs`，否则 Caddy 会在已有手工证书时仍重复
   发起公网 ACME。legacy 脚本发现该选项时 fail-closed。
 - 每次变更先复制全部现有分片，组装完整候选树并执行 `caddy validate`；验证通过后
-  才原子替换自己的分片和 reload。
+  才原子替换自己的分片并应用配置。
 - 本服务在目标机只配置 `apipool.dev`，不得配置 API 或 biz 域名。qingyun 转发
   `api.apipool.dev` 时固定使用 `apipool.dev` 作为上游 Host/SNI。
 - Caddy 必须在自身存储中管理 `apipool.dev` 的有效公开证书；发布前检查证书存在且
   未临近过期。legacy 分片不再加载会覆盖 v2 子域名的 Origin wildcard。
+- 目标机当前 Caddy `2.6.2` 已复现 `systemctl reload` 返回成功后进程 panic；
+  脚本对该精确版本使用受控 restart，并在返回前确认服务保持 active。其他版本仍
+  使用无中断 reload。
 
 ## 发布前检查
 
