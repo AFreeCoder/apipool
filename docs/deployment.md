@@ -91,25 +91,20 @@ link-local/metadata 网络。
 
 ```caddyfile
 # /etc/caddy/Caddyfile
-{
-	auto_https ignore_loaded_certs
-}
-
 import /etc/caddy/sites-enabled/*.caddy
 ```
 
 - v2 只拥有 `apipool-v2.caddy`。
 - 本服务只拥有 `apipool-legacy.caddy`。
 - 两个写入器共用 `/run/apipool-caddy.lock`。
-- `auto_https ignore_loaded_certs` 必须保留，使 Caddy 在加载 APIPool Origin
-  wildcard 时仍为 `api2` 等精确域名管理公开证书；legacy 脚本缺少该前置条件时
-  fail-closed。
+- 禁止配置 `auto_https ignore_loaded_certs`，否则 Caddy 会在已有手工证书时仍重复
+  发起公网 ACME。legacy 脚本发现该选项时 fail-closed。
 - 每次变更先复制全部现有分片，组装完整候选树并执行 `caddy validate`；验证通过后
   才原子替换自己的分片和 reload。
-- 本服务只配置 `apipool.dev` 与 `api.apipool.dev`，不得配置 biz 域名。
-- Cloudflare Origin 证书与私钥放在 `/etc/caddy/certs/`；私钥必须为
-  `root:caddy 0640`，只让 root 与 Caddy 运行组读取，不进入 Git。部署脚本会在
-  reload 前以 Caddy 运行用户做实际可读性检查，避免仅 root 静态校验通过。
+- 本服务在目标机只配置 `apipool.dev`，不得配置 API 或 biz 域名。qingyun 转发
+  `api.apipool.dev` 时固定使用 `apipool.dev` 作为上游 Host/SNI。
+- Caddy 必须在自身存储中管理 `apipool.dev` 的有效公开证书；发布前检查证书存在且
+  未临近过期。legacy 分片不再加载会覆盖 v2 子域名的 Origin wildcard。
 
 ## 发布前检查
 
