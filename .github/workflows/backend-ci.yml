@@ -25,6 +25,9 @@ jobs:
             deploy/target-deploy.sh
           /bin/bash deploy/tests/apple-container-test.sh
           /bin/bash deploy/tests/target-deploy-test.sh
+          /bin/sh deploy/tests/docker-compose-security-test.sh
+          /bin/sh deploy/tests/docker-runtime-resources-test.sh
+          /bin/sh deploy/test-caddyfile-cache.sh
 
   test:
     runs-on: ubuntu-latest

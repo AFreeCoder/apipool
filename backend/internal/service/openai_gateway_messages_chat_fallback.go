@@ -60,6 +60,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	chatReq.Model = upstreamModel
+	chatReq.ReasoningEffort = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, chatReq.ReasoningEffort)
 	chatReq.Stream = clientStream
 	if clientStream {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
@@ -77,6 +78,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	// 以实际发给 Chat Completions 上游的请求为准记录 effort。Anthropic 的
 	// output_config.effort 在转换后位于 reasoning_effort，且空值会默认 medium。
 	reasoningEffort := extractCCReasoningEffortFromBody(chatBody)
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 	// Unlike forwardResponsesViaRawChatCompletions, applyOpenAIFastPolicyToBody
 	// is intentionally skipped: Anthropic Messages bodies carry no service_tier,
 	// so the converted Chat Completions body never contains one and the policy
