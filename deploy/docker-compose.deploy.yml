@@ -12,6 +12,8 @@ services:
     image: ${SUB2API_IMAGE:-deploy-sub2api:latest}
     container_name: sub2api
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     stop_grace_period: 30s
     # 旧机 1GiB cgroup 曾触发 11 次 OOM；目标 8GiB 主机为应用预留 2GiB。
     mem_limit: 2g

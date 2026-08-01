@@ -40,6 +40,14 @@ func TestLoadServerTimingConfig(t *testing.T) {
 	})
 }
 
+func TestLoadWebAuthnBrandDefault(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "APIPool", cfg.WebAuthn.RPDisplayName)
+}
+
 func TestLoadRedisUsernameFromEnvironment(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("REDIS_USERNAME", "app-user")

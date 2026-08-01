@@ -16,7 +16,7 @@ normalized_config=$(printf '%s\n' "$active_config" | awk '
 	}
 ')
 
-# Keep one canonical encode block instead of reimplementing Caddy matcher semantics.
+# Keep one canonical policy for both public sites instead of reimplementing Caddy matcher semantics.
 expected_encode_block=$(cat <<'EOF'
 encode {
 zstd
@@ -61,24 +61,29 @@ if printf '%s\n' "$normalized_config" | grep -Eiq '^flush_interval([[:space:]]|$
 fi
 
 encode_directive_count=$(printf '%s\n' "$normalized_config" | awk '$1 == "encode" { count++ } END { print count + 0 }')
-if [ "$encode_directive_count" -ne 1 ]; then
-	echo "Caddyfile must contain exactly one explicit encode block" >&2
+if [ "$encode_directive_count" -ne 2 ]; then
+	echo "Caddyfile must contain exactly two explicit encode blocks" >&2
 	exit 1
 fi
 
-actual_encode_block=$(printf '%s\n' "$normalized_config" | awk '
-	$1 == "encode" { in_block = 1 }
+actual_encode_blocks=$(printf '%s\n' "$normalized_config" | awk '
+	$1 == "encode" {
+		if (block_count > 0) print "__ENCODE_BLOCK_SEPARATOR__"
+		block_count++
+		in_block = 1
+	}
 	in_block {
 		print
 		for (field = 1; field <= NF; field++) {
 			if ($field == "{") depth++
 			if ($field == "}") depth--
 		}
-		if (depth == 0) exit
+		if (depth == 0) in_block = 0
 	}
 ')
-if [ "$actual_encode_block" != "$expected_encode_block" ]; then
-	echo "Caddyfile encode block must keep the canonical non-SSE compression policy" >&2
+expected_encode_blocks=$(printf '%s\n__ENCODE_BLOCK_SEPARATOR__\n%s\n' "$expected_encode_block" "$expected_encode_block")
+if [ "$actual_encode_blocks" != "$expected_encode_blocks" ]; then
+	echo "Every Caddyfile encode block must keep the canonical non-SSE compression policy" >&2
 	exit 1
 fi
 

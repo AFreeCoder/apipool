@@ -23,6 +23,8 @@ services:
       dockerfile: Dockerfile
     container_name: sub2api
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ulimits:
       nofile:
         soft: 100000

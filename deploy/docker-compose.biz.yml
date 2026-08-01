@@ -10,6 +10,8 @@ services:
     image: deploy-sub2api:latest
     container_name: sub2api-biz
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     stop_grace_period: 30s
     mem_limit: 512m
     memswap_limit: 512m
