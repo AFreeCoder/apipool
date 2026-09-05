@@ -26,6 +26,7 @@ type rateLimitAccountRepoStub struct {
 	lastTempReason         string
 	lastErrorID            int64
 	lastTempID             int64
+	tempErr                error
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
@@ -40,7 +41,7 @@ func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id 
 	r.lastTempMsg = reason
 	r.lastTempID = id
 	r.lastTempReason = reason
-	return nil
+	return r.tempErr
 }
 
 func (r *rateLimitAccountRepoStub) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
@@ -285,7 +286,7 @@ func TestRateLimitService_HandleUpstreamError_OpenAIOAuth401AccountDeactivatedSe
 	require.Empty(t, invalidator.accounts)
 }
 
-func TestRateLimitService_HandleUpstreamError_OpenAIOAuth403CloudflareChallengeSetsTempUnschedulable(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_OpenAIOAuth403CloudflareChallengeDoesNotPenalizeAccount(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	service.SetOpenAI403CounterCache(&openAI403CounterCacheStub{counts: []int64{1}})
@@ -300,11 +301,10 @@ func TestRateLimitService_HandleUpstreamError_OpenAIOAuth403CloudflareChallengeS
 	headers.Set("cf-ray", "9ddd-test-SJC")
 	shouldDisable := service.HandleUpstreamError(context.Background(), account, 403, headers, []byte(`<!DOCTYPE html><html><title>Just a moment...</title></html>`))
 
-	require.True(t, shouldDisable)
+	require.False(t, shouldDisable)
 	require.Equal(t, 0, repo.setErrorCalls)
-	require.Equal(t, 1, repo.tempCalls)
-	require.Contains(t, repo.lastTempMsg, "Cloudflare challenge")
-	require.Contains(t, repo.lastTempMsg, "cf-ray")
+	require.Equal(t, 0, repo.tempCalls)
+	require.Empty(t, repo.lastTempMsg)
 }
 
 func TestRateLimitService_HandleUpstreamError_OpenAIOAuth403EmptyBodyCfRaySetsTempUnschedulable(t *testing.T) {

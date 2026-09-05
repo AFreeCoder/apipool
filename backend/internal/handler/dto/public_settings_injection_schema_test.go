@@ -29,8 +29,7 @@ func TestPublicSettingsInjectionPayload_SchemaDoesNotDrift(t *testing.T) {
 
 	// Fields that legitimately live only on the DTO. Keep tiny; document each.
 	dtoOnlyFields := map[string]string{
-		// sora_client_enabled is an upstream-only field the fork does not surface.
-		"sora_client_enabled": "upstream-only field, not used on this fork",
+		"sora_client_enabled": "APIPool 保留旧 API 字段且固定关闭，不注入已停用的 Sora 功能",
 		// force_email_on_third_party_signup lives on the DTO but is not injected via SSR.
 		"force_email_on_third_party_signup": "auth-source default, not a feature flag",
 	}
