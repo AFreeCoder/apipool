@@ -449,8 +449,8 @@ describe('UseKeyModal', () => {
     const configToml = codeBlocks.find((content) => content.includes('model_provider = "apipool"'))
 
     expect(configToml).toBeDefined()
-    expect(configToml).toContain('model = "gpt-5.5"')
-    expect(configToml).toContain('review_model = "gpt-5.5"')
+    expect(configToml).toContain('model = "gpt-6-astra"')
+    expect(configToml).toContain('review_model = "gpt-6-astra"')
     expect(configToml).not.toContain('model = "gpt-5.4"')
     expect(configToml).not.toContain('model_context_window')
     expect(configToml).not.toContain('model_auto_compact_token_limit')
@@ -551,8 +551,8 @@ describe('UseKeyModal', () => {
     const configToml = codeBlocks.find((content) => content.includes('supports_websockets = true'))
 
     expect(configToml).toBeDefined()
-    expect(configToml).toContain('model = "gpt-5.5"')
-    expect(configToml).toContain('review_model = "gpt-5.5"')
+    expect(configToml).toContain('model = "gpt-6-astra"')
+    expect(configToml).toContain('review_model = "gpt-6-astra"')
     expect(configToml).not.toContain('model = "gpt-5.4"')
     expect(configToml).not.toContain('model_context_window')
     expect(configToml).not.toContain('model_auto_compact_token_limit')
@@ -666,12 +666,12 @@ describe('UseKeyModal', () => {
   })
 
 
-  it('OpenAI Codex 默认配置使用 GPT-5.5', () => {
+  it('OpenAI Codex 默认配置使用 GPT-6 Astra', () => {
     const wrapper = mountUseKeyModal('openai', 'https://example.com/v1')
 
     const codeBlocks = wrapper.findAll('pre code')
-    expect(codeBlocks[0].text()).toContain('model = "gpt-5.5"')
-    expect(codeBlocks[0].text()).toContain('review_model = "gpt-5.5"')
+    expect(codeBlocks[0].text()).toContain('model = "gpt-6-astra"')
+    expect(codeBlocks[0].text()).toContain('review_model = "gpt-6-astra"')
     expect(codeBlocks[0].text()).toContain('model_provider = "apipool"')
     expect(codeBlocks[0].text()).toContain('name = "apipool"')
     expect(codeBlocks[0].text()).not.toContain('model = "gpt-5.4"')
@@ -680,7 +680,7 @@ describe('UseKeyModal', () => {
     expect(codeBlocks[0].text()).toContain('[features]\ngoals = true')
   })
 
-  it('OpenAI Codex WebSocket 默认配置使用 GPT-5.5', async () => {
+  it('OpenAI Codex WebSocket 默认配置使用 GPT-6 Astra', async () => {
     const wrapper = mountUseKeyModal('openai', 'https://example.com/v1')
 
     const codexWsTab = findButtonByText(wrapper, 'keys.useKeyModal.cliTabs.codexCliWs')
@@ -690,8 +690,8 @@ describe('UseKeyModal', () => {
     await nextTick()
 
     const codeBlocks = wrapper.findAll('pre code')
-    expect(codeBlocks[0].text()).toContain('model = "gpt-5.5"')
-    expect(codeBlocks[0].text()).toContain('review_model = "gpt-5.5"')
+    expect(codeBlocks[0].text()).toContain('model = "gpt-6-astra"')
+    expect(codeBlocks[0].text()).toContain('review_model = "gpt-6-astra"')
     expect(codeBlocks[0].text()).toContain('supports_websockets = true')
     expect(codeBlocks[0].text()).not.toContain('model = "gpt-5.4"')
     expect(codeBlocks[0].text()).not.toContain('model_context_window')
@@ -871,7 +871,7 @@ describe('UseKeyModal', () => {
       .find((content) => content.includes('[model_providers.apipool]'))
     expect(loadedUnixConfig).toContain('model = "claude-opus-4-8"')
     expect(loadedUnixConfig).toContain('review_model = "claude-opus-4-8"')
-    expect(loadedUnixConfig).not.toContain('model = "gpt-5.5"')
+    expect(loadedUnixConfig).not.toContain('model = "gpt-6-astra"')
 
     const downloadButton = wrapper.findAll('button').find((button) =>
       button.text().includes('keys.useKeyModal.codexModelCatalog.download')
@@ -942,7 +942,8 @@ describe('UseKeyModal', () => {
       json: async () => ({
         models: [
           { slug: 'claude-opus-4-8' },
-          { slug: 'gpt-5.5' }
+          { slug: 'gpt-5.5' },
+          { slug: 'gpt-6-astra' }
         ]
       })
     }))
@@ -977,8 +978,8 @@ describe('UseKeyModal', () => {
     const config = wrapper.findAll('pre code')
       .map((code) => code.text())
       .find((content) => content.includes('[model_providers.apipool]'))
-    expect(config).toContain('model = "gpt-5.5"')
-    expect(config).toContain('review_model = "gpt-5.5"')
+    expect(config).toContain('model = "gpt-6-astra"')
+    expect(config).toContain('review_model = "gpt-6-astra"')
   })
 
   it('derives OpenAI Codex reasoning effort from the selected catalog descriptor', async () => {
