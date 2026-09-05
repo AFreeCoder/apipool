@@ -68,6 +68,7 @@ func (i *PluginPackageInstaller) Install(ctx context.Context, reader io.Reader, 
 	packagesDir := filepath.Join(i.rootDir, "packages")
 	installedDir := filepath.Join(i.rootDir, "installed")
 	for _, dir := range []string{stagingDir, packagesDir, installedDir} {
+		//nolint:gosec // G703: 目录仅由启动配置或 DATA_DIR 与固定子目录名构造，不含上传包或请求字段。
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("创建插件目录: %w", err)
 		}
