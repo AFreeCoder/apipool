@@ -2623,7 +2623,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_EndsTurnAfterFor
 	turnStatsMu.Unlock()
 }
 
-func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClosesSessionOnFatalErrorEvent(t *testing.T) {
+func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClosesSessionOnUnfinishedErrorEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -2632,7 +2632,19 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClosesSessionOnF
 		wantStatus         coderws.StatusCode
 		wantReason         string
 		wantFailoverStatus int
+		wantErrorDrain     bool
 	}{
+		{
+			name:           "ordinary_invalid_request_without_terminal",
+			event:          `{"type":"error","error":{"code":"invalid_value","type":"invalid_request_error","message":"Invalid model parameter value"}}`,
+			wantErrorDrain: true,
+		},
+		{
+			name:           "server_error_without_terminal",
+			event:          `{"type":"error","error":{"code":"server_error","type":"server_error","message":"Internal server error"}}`,
+			wantErrorDrain: true,
+		},
+
 		{
 			name:               "rate_limited_failover",
 			event:              `{"type":"error","error":{"code":"rate_limit_exceeded","type":"rate_limit_error","message":"rate limited by upstream"}}`,
@@ -2683,8 +2695,8 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClosesSessionOnF
 			cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 5
 			cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
-			upstreamConn := &openAIWSCaptureConn{
-				events: [][]byte{[]byte(tt.event)},
+			upstreamConn := &openAIWSErrorThenBlockConn{
+				openAIWSCaptureConn: openAIWSCaptureConn{events: [][]byte{[]byte(tt.event)}},
 			}
 			dialer := &openAIWSQueueDialer{
 				conns: []openAIWSClientConn{upstreamConn},
@@ -2784,10 +2796,22 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClosesSessionOnF
 			cancelWrite()
 			require.NoError(t, err)
 
+			if tt.wantErrorDrain {
+				readCtx, cancelRead := context.WithTimeout(context.Background(), 2*time.Second)
+				_, message, readErr := clientConn.Read(readCtx)
+				cancelRead()
+				require.NoError(t, readErr)
+				require.JSONEq(t, tt.event, string(message), "普通错误应先原样下发客户端")
+			}
+
 			select {
 			case serverErr := <-serverErrCh:
 				require.Error(t, serverErr)
-				if tt.wantFailoverStatus != 0 {
+				if tt.wantErrorDrain {
+					var closeErr *OpenAIWSClientCloseError
+					require.ErrorAs(t, serverErr, &closeErr)
+					require.Equal(t, coderws.StatusNormalClosure, closeErr.StatusCode(), "业务错误收尾不能额外惩罚账号健康")
+				} else if tt.wantFailoverStatus != 0 {
 					var failoverErr *UpstreamFailoverError
 					require.ErrorAs(t, serverErr, &failoverErr)
 					require.Equal(t, tt.wantFailoverStatus, failoverErr.StatusCode)
@@ -2797,18 +2821,18 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClosesSessionOnF
 					require.Equal(t, tt.wantStatus, closeErr.StatusCode())
 					require.Equal(t, tt.wantReason, closeErr.Reason())
 				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("等待 fatal error event 关闭 ingress websocket 超时")
+			case <-time.After(2 * time.Second):
+				t.Fatal("等待 未完成的 error event 关闭 ingress websocket 超时")
 			}
 
 			afterTurnMu.Lock()
-			require.Equal(t, 1, afterTurnCalls, "fatal error event 应触发一次 AfterTurn")
-			require.Equal(t, 1, afterTurnErrs, "fatal error event 应以 turnErr 形式上抛")
-			require.Equal(t, 0, afterTurnResults, "fatal error event 不应作为成功 turn 返回 result")
+			require.Equal(t, 1, afterTurnCalls, "未完成的 error event 应触发一次 AfterTurn")
+			require.Equal(t, 1, afterTurnErrs, "未完成的 error event 应以 turnErr 形式上抛")
+			require.Equal(t, 0, afterTurnResults, "未完成的 error event 不应作为成功 turn 返回 result")
 			afterTurnMu.Unlock()
 
 			upstreamConn.mu.Lock()
-			require.True(t, upstreamConn.closed, "fatal error event 后应关闭当前上游会话连接")
+			require.True(t, upstreamConn.closed, "未完成的 error event 后应关闭当前上游会话连接")
 			upstreamConn.mu.Unlock()
 		})
 	}

@@ -985,6 +985,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		clientDisconnected := false
 		mappedModel := ""
 		var mappedModelBytes []byte
+		upstreamReadCtx := ctx
+		errorDrainStarted := false
 		if originalModel != "" {
 			mappedModel = strings.TrimSpace(gjson.GetBytes(payload, "model").String())
 			if mappedModel == "" {
@@ -996,9 +998,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		for {
-			upstreamMessage, readErr := lease.ReadMessageWithContextTimeout(ctx, s.openAIWSReadTimeout())
+			upstreamMessage, readErr := lease.ReadMessageWithContextTimeout(upstreamReadCtx, s.openAIWSReadTimeout())
 			if readErr != nil {
 				lease.MarkBroken()
+				if errorDrainStarted && upstreamReadCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil && wroteDownstream && !clientDisconnected {
+					// 业务错误已交付，收尾到期不代表账号网络故障；正常关闭避免额外调度惩罚。
+					return nil, NewOpenAIWSClientCloseError(coderws.StatusNormalClosure, "upstream error event completed", nil)
+				}
 				return nil, wrapOpenAIWSIngressTurnError(
 					"read_upstream",
 					fmt.Errorf("read upstream websocket event: %w", readErr),
@@ -1028,6 +1034,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage)
 			}
 			if eventType == "error" {
+				// error 可能没有后续 response.failed。保留短暂收尾窗口以接收终态与
+				// 用量，但不能占用并发槽直到普通读取超时；重复事件不延长窗口。
+				if !errorDrainStarted {
+					errorDrainCtx, cancel := context.WithTimeout(ctx, time.Second)
+					defer cancel()
+					upstreamReadCtx = errorDrainCtx
+					errorDrainStarted = true
+				}
 				s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), upstreamMessage)
 				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(upstreamMessage)
 				statusCode := openAIWSRejectedFieldRetryHTTPStatus(upstreamMessage)
