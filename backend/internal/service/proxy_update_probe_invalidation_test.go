@@ -15,7 +15,10 @@ type updatingProxyRepoStub struct {
 	updateCalls int
 }
 
-func (s *updatingProxyRepoStub) GetByID(context.Context, int64) (*Proxy, error) {
+func (s *updatingProxyRepoStub) GetByID(_ context.Context, id int64) (*Proxy, error) {
+	if id != s.proxy.ID {
+		return &Proxy{ID: id, Status: StatusActive}, nil
+	}
 	copy := *s.proxy
 	return &copy, nil
 }

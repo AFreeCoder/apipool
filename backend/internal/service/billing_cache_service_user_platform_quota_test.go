@@ -825,9 +825,9 @@ func TestHasUserPlatformQuotaLimit(t *testing.T) {
 	daily := 5.0
 
 	tests := []struct {
-		name    string
-		setup   func() *BillingCacheService
-		want    bool
+		name  string
+		setup func() *BillingCacheService
+		want  bool
 	}{
 		{
 			name: "has_limit",

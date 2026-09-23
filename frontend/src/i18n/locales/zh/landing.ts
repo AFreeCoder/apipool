@@ -163,6 +163,7 @@ export default {
     usedQuota: '已用额度',
     resetNow: '即将重置',
     subscriptionType: '订阅类型',
+    billingType: '计费方式',
     subscriptionExpires: '订阅到期',
     // Usage stat cells
     todayRequests: '今日请求',
@@ -191,8 +192,8 @@ export default {
 
   // Setup Wizard
   setup: {
-    title: 'Sub2API 安装向导',
-    description: '配置您的 Sub2API 实例',
+    title: 'APIPool 安装向导',
+    description: '配置您的 APIPool 实例',
     database: {
       title: '数据库配置',
       description: '连接到您的 PostgreSQL 数据库',

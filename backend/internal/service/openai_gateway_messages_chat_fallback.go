@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -77,27 +75,23 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
 		chatBody = normalizedBody
 	}
-	// 以实际发给 Chat Completions 上游的请求为准记录 effort。Anthropic 的
-	// output_config.effort 在转换后位于 reasoning_effort，且空值会默认 medium。
-	reasoningEffort := extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel, billingModel, originalModel)
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 	if account.Platform == PlatformOpenAI {
 		policyBody, changed, policyErr := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, chatBody)
 		if policyErr != nil {
-			var overLimit *ReasoningEffortOverLimitError
-			if errors.As(policyErr, &overLimit) {
+			if IsReasoningEffortPolicyDenied(policyErr) {
 				MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-				writeAnthropicError(c, http.StatusForbidden, "forbidden_error", overLimit.Error())
+				writeAnthropicError(c, http.StatusForbidden, "forbidden_error", policyErr.Error())
 			}
 			return nil, policyErr
 		}
 		if changed {
 			chatBody = policyBody
-			if effectiveEffort := strings.TrimSpace(gjson.GetBytes(chatBody, "reasoning_effort").String()); effectiveEffort != "" {
-				reasoningEffort = &effectiveEffort
-			}
 		}
 	}
+	// Provider normalization and policy caps can both change the converted effort.
+	// Use the final outbound value for usage logs and billing.
+	reasoningEffort := extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel, billingModel, originalModel)
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, chatBody, upstreamModel)
 	// Unlike forwardResponsesViaRawChatCompletions, applyOpenAIFastPolicyToBody
 	// is intentionally skipped: Anthropic Messages bodies carry no service_tier,
 	// so the converted Chat Completions body never contains one and the policy

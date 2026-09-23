@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -36,7 +37,18 @@ var (
 	// （cache_creation_input_token_cost_above_200k_tokens、cache_read_input_token_cost_above_272k_tokens_priority、
 	// cache_creation_input_token_cost_above_1hr_above_200k_tokens 等）。
 	// 组 1 为基础价字段名主干，组 2 为 1h 缓存时长段（可为空），组 3 为服务档后缀（可为空）。
-	cacheTierPricePattern      = regexp.MustCompile(`^(cache_(?:creation|read)_input_token_cost)(_above_1hr)?_above_\d+k_tokens((?:_[a-z]+)?)$`)
+	cacheTierPricePattern = regexp.MustCompile(`^(cache_(?:creation|read)_input_token_cost)(_above_1hr)?_above_\d+k_tokens((?:_[a-z]+)?)$`)
+	// Official GPT Image 2.5 token rates (2026-09-08):
+	// https://developers.openai.com/api/docs/pricing#image-generation-models
+	openAIGPTImage25FallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:       5e-06,
+		CacheReadInputTokenCost: 1.25e-06,
+		InputCostPerImageToken:  8e-06, CacheReadInputImageTokenCost: 2e-06,
+		OutputCostPerImageToken: 3e-05,
+		LiteLLMProvider:         "openai",
+		Mode:                    "image_generation",
+		SupportsPromptCaching:   true,
+	}
 	openAIGPT54FallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken:       2.5e-06, // $2.5 per MTok
 		OutputCostPerToken:      1.5e-05, // $15 per MTok
@@ -61,6 +73,48 @@ var (
 		LiteLLMProvider:                     "openai",
 		Mode:                                "chat",
 		SupportsPromptCaching:               true,
+	}
+	openAIGPT6SolFallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:                   2e-6,
+		InputCostPerTokenPriority:           4e-6,
+		OutputCostPerToken:                  10e-6,
+		OutputCostPerTokenPriority:          20e-6,
+		CacheCreationInputTokenCost:         2.5e-6,
+		CacheCreationInputTokenCostPriority: 5e-6,
+		CacheReadInputTokenCost:             0.2e-6,
+		CacheReadInputTokenCostPriority:     0.4e-6,
+		LongContextInputTokenThreshold:      272_000,
+		LongContextInputCostMultiplier:      2,
+		LongContextOutputCostMultiplier:     1.5,
+		SupportsServiceTier:                 true,
+		LiteLLMProvider:                     "openai",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
+	openAIGPT6LunaFallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:                   0.1e-6,
+		InputCostPerTokenPriority:           0.2e-6,
+		OutputCostPerToken:                  0.5e-6,
+		OutputCostPerTokenPriority:          1e-6,
+		CacheCreationInputTokenCost:         0.125e-6,
+		CacheCreationInputTokenCostPriority: 0.25e-6,
+		CacheReadInputTokenCost:             0.01e-6,
+		CacheReadInputTokenCostPriority:     0.02e-6,
+		LongContextInputTokenThreshold:      272_000,
+		LongContextInputCostMultiplier:      2,
+		LongContextOutputCostMultiplier:     1.5,
+		SupportsServiceTier:                 true,
+		LiteLLMProvider:                     "openai",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
+	claudeOpus55FallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken: 4e-6, OutputCostPerToken: 20e-6,
+		CacheCreationInputTokenCost: 5e-6, CacheCreationInputTokenCostAbove1hr: 8e-6,
+		CacheReadInputTokenCost:   0.2e-6,
+		InputCostPerTokenPriority: 8e-6, OutputCostPerTokenPriority: 40e-6,
+		CacheCreationInputTokenCostPriority: 10e-6, CacheReadInputTokenCostPriority: 0.4e-6,
+		SupportsServiceTier: true, LiteLLMProvider: "anthropic", Mode: "chat", SupportsPromptCaching: true,
 	}
 	openAIGPT56SolFallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken:                   5e-06,
@@ -125,6 +179,7 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
+	CacheCreationInputTokenCostExplicit bool    `json:"-"`
 	InputCostPerToken                   float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
 	InputCostPerImageToken              float64 `json:"input_cost_per_image_token"`
@@ -620,6 +675,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.CacheCreationInputTokenCost != nil {
 			pricing.CacheCreationInputTokenCost = *entry.CacheCreationInputTokenCost
+			pricing.CacheCreationInputTokenCostExplicit = true
 		}
 		if entry.CacheCreationInputTokenCostPriority != nil {
 			pricing.CacheCreationInputTokenCostPriority = *entry.CacheCreationInputTokenCostPriority
@@ -653,6 +709,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.InputCostPerImageToken != nil {
 			pricing.InputCostPerImageToken = *entry.InputCostPerImageToken
+		}
+		if entry.CacheReadInputImageTokenCost != nil {
+			pricing.CacheReadInputImageTokenCost = *entry.CacheReadInputImageTokenCost
 		}
 
 		hasExplicitLongContext := entry.LongContextInputTokenThreshold != nil ||
@@ -1215,7 +1274,7 @@ func (s *PricingService) buildModelLookupCandidates(modelLower string) []string 
 	normalized := normalizeModelNameForPricing(modelLower)
 
 	// A tier-specific entry should take precedence when the pricing catalog gains
-	// one later. Today Antigravity's Gemini 3.6 Flash tiers share the base rate,
+	// one later. Antigravity's Gemini Flash thinking tiers share the base rate,
 	// so the normalized base remains the fallback after the exact aliases.
 	candidates := rawCandidates
 	if normalizeGeminiThinkingTierAlias(lastSegment(modelLower)) != lastSegment(modelLower) {
@@ -1277,15 +1336,16 @@ func normalizeModelNameForPricing(model string) string {
 	return normalizeGeminiThinkingTierAlias(model)
 }
 
-// normalizeGeminiThinkingTierAlias maps Antigravity's Gemini 3.6 Flash
+// normalizeGeminiThinkingTierAlias maps Antigravity's Gemini Flash
 // thinking-tier model IDs to the public base model. The tier controls reasoning
 // behavior, not the published token rate, so this keeps -high/-low/-medium and
-// -tiered requests on the same price card as gemini-3.6-flash.
+// -tiered requests on the corresponding base model's price card.
 func normalizeGeminiThinkingTierAlias(model string) string {
-	const baseModel = "gemini-3.6-flash"
-	for _, tier := range []string{"-high", "-low", "-medium", "-tiered"} {
-		if model == baseModel+tier {
-			return baseModel
+	for _, baseModel := range []string{"gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"} {
+		for _, tier := range []string{"-high", "-low", "-medium", "-tiered"} {
+			if model == baseModel+tier {
+				return baseModel
+			}
 		}
 	}
 	return model
@@ -1319,6 +1379,12 @@ func (s *PricingService) extractBaseName(model string) string {
 
 // matchByModelFamily 基于模型系列匹配
 func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
+	if claude.IsOpus55(model) {
+		if pricing, ok := s.pricingData["claude-opus-5-5"]; ok {
+			return pricing
+		}
+		return claudeOpus55FallbackPricing
+	}
 	// modelFamily 定义一个模型系列的匹配和定价查找规则。
 	type modelFamily struct {
 		name    string   // 系列名称
@@ -1419,6 +1485,9 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 	for _, pattern := range lookups {
 		for key, pricing := range s.pricingData {
 			keyLower := strings.ToLower(key)
+			if matched.name == "opus-5" && claude.IsOpus55(keyLower) {
+				continue
+			}
 			if strings.Contains(keyLower, pattern) {
 				logger.LegacyPrintf("service.pricing", "[Pricing] Fuzzy matched %s -> %s", model, key)
 				return pricing
@@ -1445,6 +1514,16 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.1-codex"))
 			return pricing
 		}
+	}
+
+	if openai.IsGPT6SolOrLunaModelSpelling(model) {
+		if pricing, ok := s.pricingData[normalizeKnownOpenAICodexModel(model)]; ok {
+			return pricing
+		}
+		if strings.HasPrefix(model, "gpt-6-sol") {
+			return openAIGPT6SolFallbackPricing
+		}
+		return openAIGPT6LunaFallbackPricing
 	}
 
 	// 尝试的回退变体
@@ -1513,6 +1592,13 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		return openAIGPT54FallbackPricing
 	}
 
+	// Remote price mirrors can lag new releases. Never bill GPT Image 2.5
+	// using the older image model's rates when its entry is absent.
+	for _, imageModel := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		if model == imageModel || model == imageModel+"-2026-09-08" {
+			return openAIGPTImage25FallbackPricing
+		}
+	}
 	if isOpenAIImageGenerationModel(model) {
 		for _, candidate := range []string{"gpt-image-2", "gpt-image-1.5", "gpt-image-1"} {
 			if pricing, ok := s.pricingData[candidate]; ok {

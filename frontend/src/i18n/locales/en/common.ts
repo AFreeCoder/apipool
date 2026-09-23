@@ -1,5 +1,7 @@
 export default {
   common: {
+    download: "Download",
+
     loading: 'Loading...',
     submitting: 'Submitting...',
     justNow: 'just now',
@@ -12,6 +14,12 @@ export default {
     delete: 'Delete',
     edit: 'Edit',
     create: 'Create',
+    apply: 'Apply',
+    clear: 'Clear',
+    creating: 'Creating...',
+    required: 'Required',
+    sending: 'Sending...',
+    tryAgain: 'Please try again',
     update: 'Update',
     confirm: 'Confirm',
     reset: 'Reset',
@@ -191,6 +199,8 @@ export default {
     github: 'GitHub',
     mySubscriptions: 'My Subscriptions',
     buySubscription: 'Recharge / Subscription',
+    recharge: 'Recharge',
+    subscribe: 'Subscription',
     docs: 'Docs',
     myOrders: 'My Orders',
     orderManagement: 'Orders',

@@ -17,6 +17,12 @@ const TooltipStub = { template: '<div><slot /></div>' }
 const PaginationStub = { template: '<div class="pagination-stub" />' }
 
 function mountTable(row: Partial<OpsErrorLog>) {
+  vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+    matches: true, media: query, onchange: null,
+    addListener: vi.fn(), removeListener: vi.fn(),
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(() => false),
+  }))
   const base = {
     id: 1,
     created_at: '2026-06-05T23:59:50Z',
@@ -40,7 +46,7 @@ function mountTable(row: Partial<OpsErrorLog>) {
 
   return mount(OpsErrorLogTable, {
     props: { rows: [base], total: 1, loading: false, page: 1, pageSize: 20 },
-    global: { stubs: { 'el-tooltip': TooltipStub, Pagination: PaginationStub } },
+    global: { stubs: { 'el-tooltip': TooltipStub, Pagination: PaginationStub, DataTable: false } },
   })
 }
 
@@ -72,6 +78,37 @@ describe('OpsErrorLogTable user/api-key/account columns', () => {
 
     expect(wrapper.text()).toContain('old-key')
     expect(wrapper.text()).toContain('admin.ops.errorLog.keyDeletedBadge')
+  })
+})
+
+describe('OpsErrorLogTable column order', () => {
+  it('puts time and response content first for ops without changing time sorting', async () => {
+    const wrapper = mountTable({})
+    await wrapper.setProps({ summaryFirst: true })
+
+    const headers = wrapper.findAll('thead th')
+    expect(headers.slice(0, 3).map((header) => header.text())).toEqual([
+      'admin.ops.errorLog.time',
+      'admin.ops.errorLog.message',
+      'admin.ops.errorLog.user',
+    ])
+    expect(wrapper.findAll('tbody td')[1].text()).toBe('boom')
+
+    await headers[0].trigger('click')
+    expect(wrapper.emitted('sort')).toEqual([['created_at', 'asc']])
+    wrapper.unmount()
+  })
+
+  it('preserves the usage column order and visibility by default', async () => {
+    const wrapper = mountTable({})
+    await wrapper.setProps({ visibleColumnKeys: ['created_at', 'user', 'message'] })
+
+    expect(wrapper.findAll('thead th').map((header) => header.text())).toEqual([
+      'admin.ops.errorLog.user',
+      'admin.ops.errorLog.message',
+      'admin.ops.errorLog.time',
+    ])
+    wrapper.unmount()
   })
 })
 

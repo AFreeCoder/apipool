@@ -1,5 +1,21 @@
 export default {
     accounts: {
+      kiroLabel: "Kiro",
+      kiroDesc: "Connect through Kiro OAuth",
+      kiroAuthMethod: "Authorization method",
+      kiroSocialAuth: "Social account authorization",
+      kiroIDCAuth: "IAM Identity Center authorization",
+      kiroClientId: "Client ID",
+      kiroClientSecret: "Client secret",
+      kiroRefreshToken: "Refresh token",
+      kiroRefreshTokenRequired: "Enter a refresh token",
+      kiroIDCClientRequired: "Enter the client ID and secret",
+      kiroApiRegion: "API region",
+      kiroAuthRegion: "Authorization region",
+      kiroProfileArn: "Profile ARN",
+      kiroMachineId: "Machine ID",
+      kiroMachineIdHint: "Optional; use an existing machine identifier",
+
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',
@@ -107,6 +123,8 @@ export default {
         kimi: 'Kimi',
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
+        minimax: 'MiniMax',
+        opencode_go: 'OpenCode',
       },
       cnProviders: {
         accountMode: {
@@ -148,11 +166,54 @@ export default {
         balance: 'Balance --',
         window5h: '5h',
         windowWeekly: '7d',
+        windowMonthly: '30d',
         probe: 'Query',
         probeTooltip: 'Query the provider quota endpoint for 5-hour / weekly rolling window usage',
         balanceProbeTooltip: 'Query the provider balance endpoint for the account balance',
         balanceLow: 'Insufficient balance',
         noBalanceEndpoint: 'This platform has no balance query endpoint',
+      },
+      opencodeGo: {
+        accountMode: {
+          zen: 'Zen',
+          zenDesc: 'Pay-as-you-go gateway. Consumes account credits, billed per token.',
+          go: 'GO',
+          goDesc: 'Subscription gateway, rate-limited by 5-hour / weekly / monthly usage windows.',
+        },
+        protocolRules: {
+          title: 'Model protocol routing',
+          hint: 'In adaptive mode, each model is sent to a native upstream protocol. Use an exact ID or a trailing * glob (e.g. grok-*, qwen*). The first matching rule wins; unmatched models use Chat Completions.',
+          patternPlaceholder: 'grok-* or deepseek-v4-flash',
+          add: 'Add rule',
+          remove: 'Remove rule',
+          restoreDefaults: 'Restore defaults',
+          fallback: 'Unmatched models → Chat Completions (/v1/chat/completions)',
+        },
+        title: 'OpenCode Go usage',
+        panelHint: 'Usage windows reported by the upstream OpenCode Go account. Refreshed on demand or automatically when enabled.',
+        notRefreshed: 'Not refreshed',
+        refreshNow: 'Refresh usage',
+        autoRefresh: 'Automatic usage refresh',
+        autoRefreshHint: 'Runs only when the account switch and the global switch are both enabled.',
+        rolling: '5 hour',
+        rollingShort: '5h',
+        weekly: 'Week',
+        weeklyShort: '7d',
+        monthly: 'Month',
+        monthlyShort: '1m',
+        status: 'Status',
+        updatedAt: 'Updated',
+        ok: 'Current',
+        unauthorized: 'Session expired',
+        failed: 'Refresh failed',
+        windowWithReset: '{percent} used, resets {reset}',
+        loadFailed: 'Failed to load OpenCode Go usage settings',
+        autoRefreshFailed: 'Failed to update automatic usage refresh',
+        refreshSuccess: 'OpenCode Go usage refreshed',
+        refreshFailed: 'Failed to refresh OpenCode Go usage',
+        errors: {
+          OPENCODE_GO_USAGE_REFRESH_RATE_LIMITED: 'Refresh is limited. Try again in {retry_after_seconds} seconds.'
+        }
       },
       types: {
         oauth: 'OAuth',
@@ -280,7 +341,7 @@ export default {
         }
       },
       upstreamBilling: {
-        trustWarning: 'This rate is declared by the upstream site for the current API key. Sub2API cannot verify that it matches actual charges. The upstream site or an intermediary may return forged, stale, or modified data. Verify it against bills, balance changes, and actual usage.',
+        trustWarning: 'This rate is declared by the upstream site for the current API key. APIPool cannot verify that it matches actual charges. The upstream site or an intermediary may return forged, stale, or modified data. Verify it against bills, balance changes, and actual usage.',
         autoProbe: 'Automatically probe upstream declared rate',
         autoProbeHint: 'Refresh the upstream declared rate on the global interval. This switch alone does not change the account rate.',
         syncRate: 'Sync upstream declared rate',
@@ -585,16 +646,19 @@ export default {
           'Disabled by default. Enable to allow responses_websockets_v2 capability (still gated by global and account-type switches).',
         wsMode: 'WS mode',
         wsModeDesc:
-          'Only applies to the current OpenAI account type; account WS modes, including http_bridge, take effect only when the global gateway.openai_ws.mode_router_v2_enabled=true.',
+          'Applies only to the current OpenAI account type. Select Off to disable WS. Other modes use the selected connection method only when gateway.openai_ws.mode_router_v2_enabled=true; otherwise, they use the context pool.',
         wsModeOff: 'Off (off)',
         wsModeCtxPool: 'Context Pool (ctx_pool)',
         wsModePassthrough: 'Passthrough (passthrough)',
         wsModeHttpBridge: 'HTTP Bridge (http_bridge)',
         wsModeShared: 'Shared (shared)',
         wsModeDedicated: 'Dedicated (dedicated)',
-        wsModeConcurrencyHint:
-          'When WS mode is enabled, account concurrency becomes the WS connection pool limit for this account.',
-        wsModePassthroughHint: 'Passthrough mode does not use the WS connection pool.',
+        wsModeCtxPoolHint:
+          'The gateway gets and reuses upstream WS connections from a pool, with the pool limit determined by gateway configuration.',
+        wsModePassthroughHint:
+          'The gateway opens a separate upstream WS connection for each client session, without using a connection pool.',
+        wsModeHttpBridgeHint:
+          'The gateway converts client WS requests to upstream HTTP requests, then converts SSE streaming responses back into WS messages.',
         oauthResponsesWebsocketsV2: 'OAuth WebSocket Mode',
         oauthResponsesWebsocketsV2Desc:
           'Only applies to OpenAI OAuth. This account can use OpenAI WebSocket Mode only when enabled.',
@@ -748,6 +812,8 @@ export default {
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
+      fromModel: 'Request model',
+      toModel: 'Target model',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
       mapRequestModels:
         'Map request models to actual models. Left is the requested model, right is the actual model sent to API.',
@@ -806,6 +872,8 @@ export default {
       interceptWarmupRequestsDesc:
         'When enabled, warmup requests like title generation will return mock responses without consuming upstream tokens',
       headerOverride: {
+        fillTemplate: "Fill template",
+
         title: 'Header Override',
         hint: 'Override same-named request headers on forwarding (case-insensitive)',
         info: 'Applies to outbound requests of this account only: configured headers override client/gateway-generated headers of the same name before forwarding. Auth headers (authorization, x-api-key) and connection-control headers cannot be overridden.',
@@ -842,6 +910,30 @@ export default {
       grokClientToolCache: {
         title: 'Client Tool Cache (May Change Automatic Tool Selection)',
         hint: 'For detected Grok Free OAuth accounts, this is enabled by default for client function tools such as Codex and Trae. Turn it off to opt out if the automatic tool-selection behavior is not acceptable.'
+      },
+      grokMediaEligibility: {
+        title: 'Media Generation Eligibility',
+        hint: 'Controls whether this Grok OAuth account may be selected for image and video generation.',
+        auto: 'Automatic detection',
+        enabled: 'Force enable',
+        disabled: 'Force disable',
+        current: 'Current decision:',
+        eligible: 'Eligible',
+        ineligible: 'Not eligible',
+        loading: 'Loading eligibility…',
+        loadFailed: 'Unable to load media eligibility',
+        autoHint: 'Automatic detection only clears the manual override; it does not trigger a media request.',
+        forceEnableWarning: 'Force enable bypasses automatic eligibility checks. Use only for accounts confirmed to support image/video generation.',
+        partialSave: 'Other account settings may have been saved, but media eligibility was not updated. Please retry.',
+        reasons: {
+          eligible: 'Paid entitlement confirmed',
+          billing_inconclusive: 'Billing information inconclusive',
+          billing_forbidden: 'Billing endpoint forbidden',
+          billing_free_tier: 'Free tier account',
+          billing_unobserved: 'Billing not observed yet',
+          override_enabled: 'Manually forced enabled',
+          override_disabled: 'Manually forced disabled'
+        }
       },
       autoPauseOnExpired: 'Auto Pause On Expired',
       autoPauseOnExpiredDesc: 'When enabled, the account will auto pause scheduling after it expires',
@@ -1010,6 +1102,18 @@ export default {
       },
       // OAuth flow
       oauth: {
+        kiro: {
+          title: "Kiro authorization",
+          provider: "Login provider",
+          providerHint: "Select the login provider for your Kiro account",
+          browserLogin: "Sign in using browser",
+          manualInput: "Enter manually",
+          importantNotice: "Use the same login method as your Kiro account",
+          missingExchangeParams: "Missing authorization exchange parameters",
+          failedToExchangeCode: "Failed to exchange authorization code",
+          failedToGenerateUrl: "Failed to generate authorization URL",
+        },
+
         title: 'Claude Account Authorization',
         authMethod: 'Authorization Method',
         manualAuth: 'Manual Authorization',
@@ -1532,15 +1636,48 @@ export default {
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        estimatedTotalCost: 'Est. total ${cost}',
+        estimatedTotalCostTooltip: 'Estimated total cost at 100% utilization, based on current window cost and utilization'
+      },
+      openaiReferral: {
+        available: 'Invites left',
+        invite: 'Invite user',
+        fromAccount: 'Inviting account:',
+        personal: 'Invite a friend',
+        workspace: 'Invite a coworker',
+        email: 'Recipient email',
+        consent: 'I have this person’s consent to send them an invitation.',
+        send: 'Send invitation',
+        sending: 'Sending…',
+        sent: 'Invitation sent to {email}',
+        queryHint: 'Click to query remaining invitations',
+        checkedAt: 'Checked: {time}. Click to refresh.',
+        unavailable: 'Invitations are unavailable. Eligibility requirements may not be met, or the limit has been reached.',
+        invalidEmail: 'Enter one valid email address.',
+        rejected: 'The invitation was rejected. Check the email and offer eligibility.',
+        alreadyInvited: 'An invitation already exists for this email. Check its status in Codex.',
+        rateLimited: 'The invitation rate or capacity limit has been reached. Try again later.',
+        sendUnknown: 'The invitation outcome is unknown. Check its status in Codex before deciding whether to retry.',
+        programChanged: 'The account’s referral program changed. Refresh eligibility before sending.',
+        consentRequired: 'Confirm that you have the recipient’s consent first.',
+        shadowHint: 'Send invitations from the parent account.',
+        cacheFailed: 'Live capacity was fetched, but the cache could not be saved. Query again.',
+        refreshFailed: 'The invitation was sent, but remaining capacity could not be refreshed. Query again.'
       },
       openaiQuotaReset: {
-        count: 'Credits',
+        count: 'Resets',
+        points: 'Points',
+        pointsUnlimited: 'Unlimited',
+        pointsAvailable: 'Available',
+        pointsTooltip: 'Click to query Codex points and reset credits',
+        pointsUpdatedAt: 'Balance checked: {time}',
+        pointsCachePersistFailed: 'Showing live points, but the cache could not be saved. Query again.',
         reset: 'Reset',
-        countTooltipLoad: 'Click to load the available reset-credit count',
-        countTooltipRefresh: 'Click to refresh the available reset-credit count',
+        countTooltipLoad: 'Click to load the available reset-credit count and points balance',
+        countTooltipRefresh: 'Click to refresh the available reset-credit count and points balance',
         resetTooltipReady: 'Consume 1 reset credit to immediately restore the window',
-        resetTooltipNeedQuery: 'Click Credits first to load the available count',
+        resetTooltipNeedQuery: 'Click Resets first to load the available count',
         resetTooltipNoCredits: 'No reset credits available',
         resetTooltipShadow: 'Spark shadow accounts cannot reset credits; reset on the parent account',
         expiresAt: 'Expires {time}',
