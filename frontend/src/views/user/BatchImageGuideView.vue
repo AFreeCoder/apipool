@@ -1066,7 +1066,7 @@ function referenceImageLimitForModel(model: string) {
 }
 
 const agentInstruction = computed(() => `---
-name: sub2api-batch-image
+name: apipool-batch-image
 description: 当用户希望用 Gemini/Vertex 批量生成图片、批量跑提示词、下载批量生图结果、重试失败图片时使用。
 ---
 

@@ -2,6 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UseKeyModal from '../UseKeyModal.vue'
+import en from '@/i18n/locales/en'
+import zh from '@/i18n/locales/zh'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -988,6 +990,15 @@ describe('UseKeyModal', () => {
       expect(config).toContain('model_catalog_json = "~/.codex/codex-models.json"')
       expect(config).toContain('base_url = "https://example.com/v1"')
       expect(config).toContain('wire_api = "responses"')
+      if (platform === 'minimax') {
+        const envKey = config?.match(/env_key = "([^"]+)"/)?.[1]
+        expect(envKey).toBe('APIPOOL_API_KEY')
+        for (const messages of [en, zh]) {
+          const note = messages.keys.useKeyModal[platform].codexNote
+          expect(note).toContain(envKey!)
+          expect(note).not.toContain('SUB2API_')
+        }
+      }
     }
   )
 

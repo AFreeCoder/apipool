@@ -708,7 +708,7 @@
             <input
               v-model="editForm.password"
               :type="editPasswordVisible ? 'text' : 'password'"
-              :placeholder="t('admin.proxies.leaveEmptyToKeep')"
+              :placeholder="t('admin.proxies.password')"
               class="input pr-10"
               @input="editPasswordDirty = true"
             />
@@ -720,6 +720,9 @@
               <Icon :name="editPasswordVisible ? 'eyeOff' : 'eye'" size="md" />
             </button>
           </div>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.proxies.passwordEditHint') }}
+          </p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.status') }}</label>

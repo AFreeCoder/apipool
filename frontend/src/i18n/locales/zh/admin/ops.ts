@@ -749,8 +749,8 @@ export default {
       },
       settings: {
         ignoredErrorCodes: "忽略的错误码",
-        ignoredErrorCodesHint: "这些错误码不会触发告警",
-        ignoredErrorCodesPlaceholder: "例如：400, 404",
+        ignoredErrorCodesHint: "响应体 error.code 命中的请求不会写入错误日志；匹配不区分大小写，不按 HTTP 状态码过滤",
+        ignoredErrorCodesPlaceholder: "例如：API_KEY_QUOTA_EXHAUSTED",
 
         title: '运维监控设置',
         loadFailed: '加载设置失败',

@@ -61,7 +61,7 @@ export default {
         },
         siteBillingMode: {
           title: 'Site Billing Mode',
-          description: 'Controls which purchase options users see. Defaults to "Recharge & Subscription".',
+          description: 'Controls built-in purchase options and related navigation. Defaults to "Recharge & Subscription". Content and products in an embedded external purchase page remain controlled by the external system.',
           label: 'Purchase options',
           options: {
             rechargeAndSubscription: 'Recharge & Subscription',
@@ -69,9 +69,9 @@ export default {
             subscriptionOnly: 'Subscription only',
           },
           hints: {
-            rechargeAndSubscription: 'Users can both top up their balance and buy subscription plans.',
-            rechargeOnly: 'Hides "My Subscriptions", the purchase-page subscription tab, the header subscription badge and the usage billing-type filter; direct visits to "My Subscriptions" return to the dashboard. The admin sidebar also hides the "Subscription Management" entry (the page stays reachable by URL). Existing subscription billing and redeem-code subscriptions are unaffected.',
-            subscriptionOnly: 'The purchase page only offers subscription plans and the sidebar entry reads "Subscription"; balance top-up orders are rejected. Redeem codes, affiliate payouts and other balance credits are unaffected.',
+            rechargeAndSubscription: 'The built-in purchase page offers both balance top-ups and subscription plans.',
+            rechargeOnly: 'Hides "My Subscriptions", the built-in purchase-page subscription tab, the header subscription badge and the usage billing-type filter; direct visits to "My Subscriptions" return to the dashboard. The admin sidebar also hides the "Subscription Management" entry (the page stays reachable by URL). Existing subscription billing and redeem-code subscriptions are unaffected.',
+            subscriptionOnly: 'The built-in purchase page only offers subscription plans and the sidebar entry reads "Subscription"; built-in balance top-up orders are rejected. Redeem codes, affiliate payouts and other balance credits are unaffected.',
           },
         },
         modelPlaza: {

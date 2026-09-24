@@ -127,7 +127,7 @@ export default {
       status: '状态',
       enterProxyName: '请输入代理名称',
       optionalAuth: '可选认证信息',
-      leaveEmptyToKeep: '留空保持不变',
+      passwordEditHint: '不修改此字段则保留原密码；主动清空后保存将删除密码。',
       form: {
         hostPlaceholder: '请输入主机地址',
         portPlaceholder: '请输入端口'

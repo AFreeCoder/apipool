@@ -536,8 +536,9 @@ type CreateProxyInput struct {
 	ExpiryWarnDays int
 }
 
-// UpdateProxyInput preserves omitted expiry/backup values; Clear flags explicitly
-// remove them. A nil ExpiryWarnDays preserves the current warning period.
+// UpdateProxyInput preserves omitted expiry/backup values; nullable updates with
+// Set=true and Value=nil explicitly clear them. A nil ExpiryWarnDays preserves
+// the current warning period.
 type UpdateProxyInput struct {
 	Name           string
 	Protocol       string

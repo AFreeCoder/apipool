@@ -141,7 +141,7 @@ export default {
         ungrouped: '未分组',
         hint: '显示格式为“分组名 / 基础分 / 粘性上限分”。基础分按当前筛选条件限定的候选账号计算，包含优先级、负载、排队、错误率、首包延迟、重置窗口、额度余量、计费倍率等因子；粘性上限分表示请求命中 previous_response_id 或 session_hash 后可能达到的分数，不代表当前列表快照已命中粘性。分数越大越优先。'
       },
-      usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
+      usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 APIPool 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 APIPool 端解除该限制。',
       ollamaCloud: {
         title: 'Ollama Cloud 用量',
         sessionSecurityHint: '浏览器会话会加密落库，且只发送到固定的 Ollama 官方设置页。',
@@ -521,7 +521,7 @@ export default {
         claude: 'Claude',
         grokRequests: '请求',
         grokTokens: 'Token',
-        grokFreeQuota24hHint: '按 sub2api 近 24 小时本地 Token 用量估算（上限 {limit}）',
+        grokFreeQuota24hHint: '按 APIPool 近 24 小时本地 Token 用量估算（上限 {limit}）',
         grokWeeklyUsage: '周额度已用 {percent}%',
         grokUsed: '已用 $',
         grokBalance: '余额 $',

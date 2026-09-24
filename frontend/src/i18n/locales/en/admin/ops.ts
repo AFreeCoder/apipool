@@ -749,8 +749,8 @@ export default {
       },
       settings: {
         ignoredErrorCodes: "Ignored error codes",
-        ignoredErrorCodesHint: "These error codes will not trigger alerts",
-        ignoredErrorCodesPlaceholder: "For example: 400, 404",
+        ignoredErrorCodesHint: "Requests with a matching response-body error.code are excluded from error logs. Matching is case-insensitive and does not use HTTP status codes.",
+        ignoredErrorCodesPlaceholder: "For example: API_KEY_QUOTA_EXHAUSTED",
 
         title: 'Ops Monitoring Settings',
         loadFailed: 'Failed to load settings',
