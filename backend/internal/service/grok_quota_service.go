@@ -506,7 +506,7 @@ func (s *GrokQuotaService) prepareProbe(ctx context.Context, accountID int64) (*
 	if err != nil {
 		return nil, "", "", err
 	}
-	token, err := s.tokenProvider.GetAccessToken(ctx, account)
+	token, err := s.tokenProvider.GetAccessTokenForManualTest(ctx, account)
 	if err != nil {
 		return nil, "", "", infraerrors.Newf(http.StatusBadGateway, "GROK_QUOTA_TOKEN_UNAVAILABLE", "failed to acquire access token: %v", err)
 	}

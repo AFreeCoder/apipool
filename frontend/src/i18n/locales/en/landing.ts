@@ -163,6 +163,7 @@ export default {
     usedQuota: 'Used Quota',
     resetNow: 'Resetting soon',
     subscriptionType: 'Subscription Type',
+    billingType: 'Billing Type',
     subscriptionExpires: 'Subscription Expires',
     // Usage stat cells
     todayRequests: 'Today Requests',
@@ -191,8 +192,8 @@ export default {
 
   // Setup Wizard
   setup: {
-    title: 'Sub2API Setup',
-    description: 'Configure your Sub2API instance',
+    title: 'APIPool Setup',
+    description: 'Configure your APIPool instance',
     database: {
       title: 'Database Configuration',
       description: 'Connect to your PostgreSQL database',

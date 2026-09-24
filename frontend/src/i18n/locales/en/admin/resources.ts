@@ -147,7 +147,7 @@ export default {
       password: 'Password (Optional)',
       status: 'Status',
       enterProxyName: 'Enter proxy name',
-      leaveEmptyToKeep: 'Leave empty to keep current',
+      passwordEditHint: 'Leave this field untouched to keep the current password. Clearing it and saving removes the password.',
       optionalAuth: 'Optional authentication',
       form: {
         hostPlaceholder: 'proxy.example.com',

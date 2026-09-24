@@ -35,7 +35,7 @@ API 端点：**https://api.apipool.dev**（推荐，国内直连无需代理）
 
 | 组件 | 技术 |
 |------|------|
-| 后端 | Go 1.26.4, Gin, Ent ORM |
+| 后端 | Go 1.27.0, Gin, Ent ORM |
 | 前端 | Vue 3 + TypeScript, Vite, Pinia, TailwindCSS |
 | 数据库 | PostgreSQL 18 |
 | 缓存 | Redis 8 |
@@ -236,7 +236,7 @@ npm run dev
 | Workflow | 触发条件 | 内容 |
 |----------|----------|------|
 | deploy.yml | push to main | 构建精确 SHA 镜像并由目标仓库级 Runner 部署到 apipool_vps |
-| backend-ci.yml | push, PR | 单元测试 + 集成测试 + golangci-lint v2.10.1 |
+| backend-ci.yml | push, PR | 单元测试 + 集成测试 + golangci-lint v2.13 |
 | security-scan.yml | push, PR, 每周一 | govulncheck + gosec + pnpm audit |
 | release.yml | tag `v*` | 构建发布 |
 

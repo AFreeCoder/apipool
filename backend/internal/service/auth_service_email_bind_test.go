@@ -263,7 +263,7 @@ func TestAuthServiceBindEmailIdentity_SnapshotsPlatformQuotaDefaultsOnFirstBind(
 	require.Len(t, quotaRepo.bulkInsertCalls, 1)
 
 	records := quotaRepo.bulkInsertCalls[0]
-	require.Len(t, records, len(service.AllowedQuotaPlatforms))
+	require.Len(t, records, 3)
 	byPlatform := make(map[string]service.UserPlatformQuotaRecord, len(records))
 	for _, rec := range records {
 		byPlatform[rec.Platform] = rec
@@ -284,10 +284,7 @@ func TestAuthServiceBindEmailIdentity_SnapshotsPlatformQuotaDefaultsOnFirstBind(
 	require.NotNil(t, gemini.MonthlyLimitUSD)
 	require.Equal(t, 0.0, *gemini.MonthlyLimitUSD)
 
-	grok := byPlatform["grok"]
-	require.Nil(t, grok.DailyLimitUSD)
-	require.Nil(t, grok.WeeklyLimitUSD)
-	require.Nil(t, grok.MonthlyLimitUSD)
+	require.NotContains(t, byPlatform, "grok", "unlimited defaults do not create quota rows")
 }
 
 func TestAuthServiceBindEmailIdentity_RejectsExistingEmailOnAnotherUser(t *testing.T) {

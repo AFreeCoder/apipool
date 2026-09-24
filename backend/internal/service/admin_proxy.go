@@ -57,6 +57,9 @@ func (s *adminServiceImpl) GetProxiesByIDs(ctx context.Context, ids []int64) ([]
 }
 
 func (s *adminServiceImpl) CreateProxy(ctx context.Context, input *CreateProxyInput) (*Proxy, error) {
+	if !isJSONTimeInRange(input.ExpiresAt) {
+		return nil, infraerrors.BadRequest("PROXY_EXPIRY_INVALID", "proxy expiry year must be between 0 and 9999")
+	}
 	// 规范化 fallback_mode
 	mode, err := normalizeProxyFallbackMode(input.FallbackMode)
 	if err != nil {
@@ -106,6 +109,9 @@ func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *Upd
 		return nil, infraerrors.BadRequest("PROXY_WARN_DAYS_INVALID", "expiry_warn_days must be >= 0")
 	}
 
+	if input.ExpiresAt.Set && !isJSONTimeInRange(input.ExpiresAt.Value) {
+		return nil, infraerrors.BadRequest("PROXY_EXPIRY_INVALID", "proxy expiry year must be between 0 and 9999")
+	}
 	proxy, err := s.proxyRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -123,11 +129,11 @@ func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *Upd
 	if input.Port != 0 {
 		proxy.Port = input.Port
 	}
-	if input.Username != "" {
-		proxy.Username = input.Username
+	if input.Username != nil {
+		proxy.Username = *input.Username
 	}
-	if input.Password != "" {
-		proxy.Password = input.Password
+	if input.Password != nil {
+		proxy.Password = *input.Password
 	}
 	if input.Status != "" {
 		proxy.Status = input.Status
