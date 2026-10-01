@@ -21,6 +21,14 @@ type countTokensEligibilityStub struct {
 	calls int
 }
 
+func (s *countTokensEligibilityStub) InflightReservationEnabled() bool { return false }
+
+func (s *countTokensEligibilityStub) InflightReservationFailClosedOnUnpriced() bool { return false }
+
+func (s *countTokensEligibilityStub) ReserveInflight(context.Context, *service.User, *service.Group, *service.UserSubscription, float64) (*service.InflightReservation, error) {
+	return nil, nil
+}
+
 func (s *countTokensEligibilityStub) CheckBillingEligibility(
 	context.Context,
 	*service.User,

@@ -288,6 +288,18 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 			want:     []string{sparkModel, alias},
 		},
 		{
+			// A passthrough account with a stale mapping behaves like an unmapped
+			// one: it adds the defaults but never its own mapping keys, and it no
+			// longer hides the aliases declared on ordinary accounts.
+			name: "passthrough account contributes defaults without hiding mapped aliases",
+			accounts: append([]service.Account{{
+				ID: 5, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+				Credentials: map[string]any{"model_mapping": map[string]any{"stale-model": "stale-model"}},
+				Extra:       map[string]any{"openai_passthrough": true},
+			}}, accounts[1:]...),
+			want: append(openai.DefaultModelIDs(), alias),
+		},
+		{
 			name:     "unmapped accounts from another platform do not add defaults",
 			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformAnthropic}}, accounts[1:]...),
 			want:     []string{sparkModel, alias},
@@ -1487,9 +1499,9 @@ func TestGatewayModels_GPT6SolLunaDiscoveryRespectsGroupAndAccountRestrictions(t
 		restricted bool
 		want       []string
 	}{
-		{"selected and ordered", []string{"gpt-6-luna", "gpt-6-sol"}, false, []string{"gpt-6-luna", "gpt-6-sol"}},
+		{"selected and ordered", []string{"gpt-6.1-sol", "gpt-6-luna", "gpt-6-sol"}, false, []string{"gpt-6.1-sol", "gpt-6-luna", "gpt-6-sol"}},
 		{"group excludes new models", []string{"gpt-5.6-sol"}, false, []string{"gpt-5.6-sol"}},
-		{"account restricts new models", []string{"gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"}, true, []string{"gpt-5.6-sol"}},
+		{"account restricts new models", []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"}, true, []string{"gpt-5.6-sol"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			groupID := int64(25)
