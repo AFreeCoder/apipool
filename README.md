@@ -160,6 +160,13 @@ xAI quota 是被动展示：系统不会自造订阅额度，只会在 xAI 返�
 
 用户 API Key 页的“使用密钥”弹窗会为 Grok 分组生成 Grok Build CLI 与 OpenCode 配置；配置里包含 APIPool API Key，应按敏感凭据保管。
 
+## TypeSafe / Jev 支持
+
+支持 TypeSafe API Key 账号，通过原生、非流式 System One 协议访问 `jev-latest`。
+默认上游为 `https://api.typesafe.ai`，公开端点为 `POST /v1/systemone`，支持 `noul`、`choice`、`score` 三种问题类型。
+TypeSafe 不兼容 Chat Completions、Responses、Anthropic Messages 或流式客户端；现有平台与外部充值订阅入口保持独立。
+详细请求格式见 [中文说明](README_CN.md#typesafe--jev-使用说明)。
+
 ## Antigravity 支持
 
 APIPool 支持 [Antigravity](https://antigravity.so/) 账号。授权后可使用专用 Claude 和 Gemini 入口。
