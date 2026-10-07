@@ -439,6 +439,7 @@ describe('UseKeyModal', () => {
     expect(configToml).toContain('model = "grok-4.5"')
     expect(configToml).toContain('base_url = "https://example.com/v1"')
     expect(configToml).toContain('env_key = "APIPOOL_API_KEY"')
+    expect(configToml).toContain('[features]\napi_key_model_discovery = true')
     expect(configToml).toContain('wire_api = "responses"')
     // API-key provider: Codex must not require a ChatGPT OAuth login.
     expect(configToml).toContain('requires_openai_auth = false')
@@ -501,7 +502,7 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('image_generation')
     expect(configToml).not.toContain('supports_websockets')
     expect(configToml).not.toContain('responses_websockets_v2')
-    expect(configToml).toContain('[features]\ngoals = true')
+    expect(configToml).toContain('[features]\napi_key_model_discovery = true\ngoals = true')
     expect(configToml).not.toContain('model_reasoning_effort = "xhigh"')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
@@ -643,7 +644,7 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
     expect(configToml).toContain('supports_websockets = true')
-    expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
+    expect(configToml).toContain('[features]\napi_key_model_discovery = true\nresponses_websockets_v2 = true\ngoals = true')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
   })
@@ -691,7 +692,7 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
     expect(configToml).toContain('supports_websockets = true')
-    expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
+    expect(configToml).toContain('[features]\napi_key_model_discovery = true\nresponses_websockets_v2 = true\ngoals = true')
     expect(codeBlocks).not.toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).not.toContain('auth.json')
   })
@@ -760,7 +761,7 @@ describe('UseKeyModal', () => {
     expect(codeBlocks[0].text()).not.toContain('model = "gpt-5.4"')
     expect(codeBlocks[0].text()).not.toContain('model_context_window')
     expect(codeBlocks[0].text()).not.toContain('model_auto_compact_token_limit')
-    expect(codeBlocks[0].text()).toContain('[features]\ngoals = true')
+    expect(codeBlocks[0].text()).toContain('[features]\napi_key_model_discovery = true\ngoals = true')
   })
 
   it('OpenAI Codex WebSocket 默认配置使用 GPT-6 Astra', async () => {
@@ -779,7 +780,7 @@ describe('UseKeyModal', () => {
     expect(codeBlocks[0].text()).not.toContain('model = "gpt-5.4"')
     expect(codeBlocks[0].text()).not.toContain('model_context_window')
     expect(codeBlocks[0].text()).not.toContain('model_auto_compact_token_limit')
-    expect(codeBlocks[0].text()).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
+    expect(codeBlocks[0].text()).toContain('[features]\napi_key_model_discovery = true\nresponses_websockets_v2 = true\ngoals = true')
   })
 
   it('renders GPT-5.6 and GPT-6 Astra capabilities in OpenCode config', async () => {
@@ -958,6 +959,7 @@ describe('UseKeyModal', () => {
       .map((code) => code.text())
       .find((content) => content.includes('[model_providers.apipool]'))
     expect(unixConfig).toContain('[model_providers.apipool]\nname = "APIPool Composite"\nbase_url = "https://example.com/v1"\nmodel_catalog_url = "https://example.com/v1/models"')
+    expect(unixConfig).toContain('[features]\napi_key_model_discovery = true')
     expect(unixConfig).not.toContain('model_catalog_json')
     expect(unixConfig).toContain('env_key = "APIPOOL_API_KEY"')
     expect(fetchMock).not.toHaveBeenCalled()
@@ -1183,6 +1185,7 @@ describe('UseKeyModal', () => {
         expect(configToml).toContain('model = "gpt-6-astra"')
         expect(configToml).toContain(`[model_providers.${provider}]\nname = "${provider}"\nbase_url = "https://example.com/v1"\nmodel_catalog_url = "https://example.com/v1/models"`)
         expect(configToml).not.toContain('model_catalog_json')
+        expect(configToml).toContain('[features]\napi_key_model_discovery = true')
         expect(configToml).toContain('requires_openai_auth = true')
         expect(configToml).not.toContain('client_version')
         expect(wrapper.find('[data-testid="codex-model-catalog"]').exists()).toBe(true)
@@ -1193,6 +1196,7 @@ describe('UseKeyModal', () => {
           .find((content) => content.includes(`model_provider = "${provider}"`))!
         expect(fileConfig).toContain('model_catalog_json = "~/.codex/codex-models.json"')
         expect(fileConfig).not.toContain('model_catalog_url')
+        expect(fileConfig).not.toContain('api_key_model_discovery')
         expect(fileConfig.indexOf('model_catalog_json')).toBeLessThan(fileConfig.indexOf(`[model_providers.${provider}]`))
         await wrapper.get('[data-testid="codex-model-catalog-mode"]').setValue('remote')
       }
