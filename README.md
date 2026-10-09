@@ -35,7 +35,7 @@ API 端点：**https://api.apipool.dev**（推荐，国内直连无需代理）
 
 | 组件 | 技术 |
 |------|------|
-| 后端 | Go 1.27.0, Gin, Ent ORM |
+| 后端 | Go 1.27.2, Gin, Ent ORM |
 | 前端 | Vue 3 + TypeScript, Vite, Pinia, TailwindCSS |
 | 数据库 | PostgreSQL 18 |
 | 缓存 | Redis 8 |
