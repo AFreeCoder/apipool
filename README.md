@@ -97,6 +97,8 @@ docker compose -f docker-compose.deploy.yml restart      # 重启服务
 - `dashboard_aggregation.retention.usage_logs_days` 建议设为 `30`
 - 自动部署会额外收敛旧 `rollback-*` 镜像标签；应用镜像由 GitHub Actions 构建并推送到 GHCR，服务器只拉取本次 commit 对应镜像
 
+使用上游通用 Compose 模板首次安装时，未设置 `ADMIN_EMAIL` / `ADMIN_PASSWORD` 会生成随机管理员登录邮箱和密码，并在首次启动日志中显示；已存在的用户与管理员不会重新创建或改密。手动提供的密码必须为 8–72 字节。
+
 上游内建支付功能的配置文档见 [docs/PAYMENT.md](docs/PAYMENT.md) 与 [docs/PAYMENT_CN.md](docs/PAYMENT_CN.md)。当前 APIPool 仍保留通过系统设置配置 iframe 充值页的本地方案，两种能力并存，合入上游时不要默认互相替换。
 
 完整生产拓扑、Runner 所有权、Caddy 共存、迁移和跨数据主端回滚边界见
