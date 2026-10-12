@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
@@ -44,6 +44,7 @@ func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
 
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, "https://compat-upstream.example/v1/responses", upstream.lastReq.URL.String())
+	require.Equal(t, "gpt-6.1-sol", gjson.GetBytes(upstream.lastBody, "model").String())
 	requireOpenAICodexProbeHeaders(t, upstream.lastReq.Header)
 	updates := <-updateCalls
 	require.Equal(t, true, updates[openai_compat.ExtraKeyResponsesSupported])
@@ -131,8 +132,8 @@ func TestResponsesProbeBodyHasFunctionCall(t *testing.T) {
 }
 
 func TestSelectResponsesProbeModel(t *testing.T) {
-	// No model_mapping -> fall back to DefaultTestModel (OpenAI official APIKey).
-	require.Equal(t, openai.DefaultTestModel, selectResponsesProbeModel(&Account{}))
+	// No model_mapping -> use the Responses probe default, not the manual test default.
+	require.Equal(t, "gpt-6.1-sol", selectResponsesProbeModel(&Account{}))
 
 	// model_mapping values are upstream models; pick first by sort for reproducibility.
 	acct := &Account{Credentials: map[string]any{
@@ -153,9 +154,9 @@ func TestSelectResponsesProbeModel(t *testing.T) {
 	}}
 	require.Equal(t, "real-model", selectResponsesProbeModel(acctWild))
 
-	// Only wildcard mappings -> DefaultTestModel.
+	// Only wildcard mappings -> Responses probe default.
 	acctAllWild := &Account{Credentials: map[string]any{
 		"model_mapping": map[string]any{"a": "gpt-*"},
 	}}
-	require.Equal(t, openai.DefaultTestModel, selectResponsesProbeModel(acctAllWild))
+	require.Equal(t, "gpt-6.1-sol", selectResponsesProbeModel(acctAllWild))
 }
