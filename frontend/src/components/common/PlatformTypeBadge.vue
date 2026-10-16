@@ -110,7 +110,7 @@ const typeLabel = computed(() => {
     case 'kiro':
       return 'Kiro'
     case 'service_account':
-      return 'Vertex'
+      return 'Agent Platform (Vertex)'
     default:
       return props.type
   }
