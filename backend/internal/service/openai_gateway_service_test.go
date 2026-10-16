@@ -2973,6 +2973,7 @@ func TestOpenAINonStreamingNormalizesNullOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, rec.Body.String(), `"output":[]`)
 	require.NotContains(t, rec.Body.String(), `"output":null`)
+	require.Positive(t, gjson.Get(rec.Body.String(), "created_at").Int())
 }
 
 func TestOpenAINonStreamingPassthroughNormalizesNullOutput(t *testing.T) {
