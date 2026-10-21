@@ -1843,7 +1843,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	}) {
 		return false, "shadow_parent_unhealthy"
 	}
-	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
+	if req.RequestedModel != "" && !supportsOpenAIRequestModel(account, req.RequestedModel, req.RequireCompact) {
 		return false, "model_unsupported"
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&
