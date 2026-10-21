@@ -266,23 +266,19 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}
-	// A missing model is account/provider availability, not a malformed client
-	// request. Keep this unconditional exception inside the OpenAI-compatible
-	// gateway and require an eligible account so Anthropic/Gemini paths retain
-	// their existing opt-in 400 behavior.
-	// A bare forwarding service has no account-selection owner to consume a
-	// failover sentinel. In that mode (used by direct/single-account callers),
-	// preserve the deterministic upstream 400 instead of returning an unwritten
-	// retry signal. Managed gateway instances always have an account repository;
-	// their handler can exclude this account and actually select another one.
-	if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() && statusCode == http.StatusBadRequest &&
-		isOpenAICompatibleModelNotFound400(upstreamBody) {
+	if s.shouldFailoverOpenAIModelNotFound400(account, statusCode, upstreamBody) {
 		return true
 	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+}
+
+// 仅受管网关能消费换号信号；独立单账号调用保留确定性的上游错误。
+func (s *OpenAIGatewayService) shouldFailoverOpenAIModelNotFound400(account *Account, statusCode int, body []byte) bool {
+	return s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() &&
+		statusCode == http.StatusBadRequest && isOpenAICompatibleModelNotFound400(body)
 }
 
 func isOpenAICompatibleModelNotFound400(respBody []byte) bool {
