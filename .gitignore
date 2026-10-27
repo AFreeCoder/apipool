@@ -147,6 +147,7 @@ docs/plans/*
 !docs/superpowers/
 !docs/superpowers/**
 frontend/src/docs/media/
+!docs/admin-api-keys.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md

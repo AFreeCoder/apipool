@@ -622,6 +622,11 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	}
 
 	if result != nil && result.ImageCount > 0 {
+		// 分组显式开启按张计费且来自图片端点时强制走图片计费；混合的
+		// Responses/Chat/WS 请求即使产出了图片，也不能因开关丢失文本 token 费用。
+		if imageCountBillingApplies(apiKey, result.ImageEndpoint) {
+			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
+		}
 		// 渠道显式配置优先：token 走 token，image/per_request 走图片。
 		// 没有渠道显式配置时，gpt-image-2 可通过全局开关改为按 usage token 计费。
 		resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
