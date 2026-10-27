@@ -551,6 +551,11 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 		}
 		return applyPaymentProductNameAffix(productName, cfg)
 	}
+	if sel != nil && sel.ProviderKey == payment.TypeEasyPay {
+		if productName := strings.TrimSpace(sel.Config["balanceProductName"]); productName != "" {
+			return productName
+		}
+	}
 	currency := payment.DefaultPaymentCurrency
 	if sel != nil {
 		currency = paymentProviderConfigCurrency(sel.ProviderKey, sel.Config)

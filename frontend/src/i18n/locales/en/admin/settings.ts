@@ -842,6 +842,8 @@ export default {
         validationEasyPayCustomMethodPrefixReserved: 'Custom EasyPay payment types cannot start with alipay or wxpay',
         validationEasyPayCustomMethodDuplicate: 'Custom EasyPay payment types must be unique',
         field_apiBase: 'API Base URL',
+        field_balanceProductName: 'Recharge Product Name',
+        balanceProductNameHint: 'The full product name sent to the payment provider for balance recharges, without an amount or affixes. Leave blank to use system settings. Subscriptions use the plan product name.',
         field_notifyUrl: 'Notify URL',
         field_returnUrl: 'Return URL',
         callbackBaseUrl: 'Callback Base URL',

@@ -837,6 +837,8 @@ export default {
         validationEasyPayCustomMethodPrefixReserved: '易支付自定义支付方式不能以 alipay 或 wxpay 开头',
         validationEasyPayCustomMethodDuplicate: '易支付自定义支付方式不能重复',
         field_apiBase: 'API 基础地址',
+        field_balanceProductName: '充值商品名称',
+        balanceProductNameHint: '余额充值时传给支付平台的完整商品名称，不附加金额或前后缀。留空沿用系统设置；订阅使用套餐商品名称。',
         field_notifyUrl: '异步通知地址',
         field_returnUrl: '同步跳转地址',
         callbackBaseUrl: '回调基础地址',

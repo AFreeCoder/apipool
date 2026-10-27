@@ -200,6 +200,7 @@ export default {
     mySubscriptions: 'My Subscriptions',
     buySubscription: 'Recharge / Subscription',
     recharge: 'Recharge',
+    onlineRecharge: 'Online Recharge',
     subscribe: 'Subscription',
     docs: 'Docs',
     myOrders: 'My Orders',

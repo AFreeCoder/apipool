@@ -200,6 +200,7 @@ export default {
     mySubscriptions: '我的订阅',
     buySubscription: '充值/订阅',
     recharge: '充值',
+    onlineRecharge: '在线充值',
     subscribe: '订阅',
     docs: '文档',
     myOrders: '我的订单',
