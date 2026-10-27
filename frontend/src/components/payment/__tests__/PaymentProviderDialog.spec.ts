@@ -165,6 +165,24 @@ describe('PaymentProviderDialog payment guide', () => {
     expect(wrapper.text()).toContain('/api/v1/payment/webhook/stripe')
   })
 
+  it.each(['额度充值', ''])('saves the EasyPay recharge product name as %j', async (name) => {
+    const provider = providerFactory({
+      provider_key: 'easypay', name: 'ZPay',
+      config: { pid: 'pid-1', apiBase: 'https://pay.example.com', balanceProductName: '旧商品名' },
+      supported_types: ['wxpay'], payment_mode: 'qrcode',
+    })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (provider: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    const input = wrapper.findAll('input[type="text"]')
+      .find(input => (input.element as HTMLInputElement).value === '旧商品名')
+    if (!input) throw new Error('recharge product name input not found')
+    await input.setValue(name)
+    await wrapper.find('form').trigger('submit.prevent')
+    const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string> }
+    expect(payload.config.balanceProductName).toBe(name)
+  })
+
   it('emits an empty Airwallex accountId when the admin clears it', async () => {
     const provider = providerFactory({
       config: {

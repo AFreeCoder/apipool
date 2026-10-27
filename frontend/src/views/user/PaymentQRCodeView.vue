@@ -13,7 +13,7 @@
       </p>
       <div v-if="expired" class="text-center">
         <p class="text-lg font-medium text-red-500">{{ t('payment.qr.expired') }}</p>
-        <button class="btn btn-primary mt-4" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</button>
+        <button class="btn btn-primary mt-4" @click="router.push('/payment')">{{ t('payment.result.backToRecharge') }}</button>
       </div>
       <div v-else class="text-center">
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ qrUrl ? t('payment.qr.expiresIn') : t('payment.qr.payInNewWindowHint') }}</p>
@@ -177,7 +177,7 @@ async function handleCancel() {
   try {
     await paymentAPI.cancelOrder(orderId.value)
     cleanup()
-    router.push('/purchase')
+    router.push('/payment')
   } catch (err: unknown) {
     appStore.showError(extractI18nErrorMessage(err, t, 'payment.errors', t('common.error')))
   } finally {

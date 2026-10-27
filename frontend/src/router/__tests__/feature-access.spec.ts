@@ -8,6 +8,7 @@ type NavigationGuard = (
 
 const routerHarness = vi.hoisted(() => ({
   guard: null as NavigationGuard | null,
+  routes: [] as Array<{ path: string; meta?: Record<string, unknown> }>,
 }))
 
 const authStore = vi.hoisted(() => ({
@@ -33,13 +34,16 @@ const appStore = vi.hoisted(() => ({
 
 vi.mock('vue-router', () => ({
   createWebHistory: vi.fn(() => ({})),
-  createRouter: vi.fn(() => ({
-    beforeEach: vi.fn((guard: NavigationGuard) => {
-      routerHarness.guard = guard
-    }),
-    afterEach: vi.fn(),
-    onError: vi.fn(),
-  })),
+  createRouter: vi.fn((options) => {
+    routerHarness.routes = options.routes
+    return {
+      beforeEach: vi.fn((guard: NavigationGuard) => {
+        routerHarness.guard = guard
+      }),
+      afterEach: vi.fn(),
+      onError: vi.fn(),
+    }
+  }),
 }))
 
 vi.mock('@/stores/auth', () => ({
@@ -108,6 +112,8 @@ function runGuard(meta: Record<string, unknown>, path: string) {
 
 describe('feature route guard', () => {
   beforeAll(async () => {
+    const { loadLocaleMessages } = await import('@/i18n')
+    await loadLocaleMessages('en')
     await import('@/router')
   })
 
@@ -118,6 +124,19 @@ describe('feature route guard', () => {
     appStore.publicSettingsLoaded = false
     appStore.cachedPublicSettings = null
     appStore.fetchPublicSettings.mockReset()
+  })
+
+  it.each([true, false])('gates the online recharge route on payment_enabled=%s', async (enabled) => {
+    const route = routerHarness.routes.find(route => route.path === '/payment')
+    expect(route?.meta?.requiresAuth).toBe(true)
+    expect(route?.meta?.requiresPayment).toBe(true)
+    expect(routerHarness.routes.find(route => route.path === '/purchase')?.meta?.requiresPayment).toBe(false)
+    appStore.publicSettingsLoaded = true
+    appStore.cachedPublicSettings = { payment_enabled: enabled }
+    const { navigation, next } = runGuard(route!.meta!, '/payment')
+    await navigation
+    if (enabled) expect(next).toHaveBeenCalledWith()
+    else expect(next).toHaveBeenCalledWith('/dashboard')
   })
 
   it('waits for the first public-settings request before deciding payment access', async () => {

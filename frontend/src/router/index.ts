@@ -330,6 +330,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/payment',
+    name: 'Payment',
+    component: () => import('@/views/user/PaymentView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Online Recharge',
+      titleKey: 'nav.onlineRecharge',
+      requiresPayment: true
+    }
+  },
+  {
     path: '/orders',
     name: 'OrderList',
     component: () => import('@/views/user/UserOrdersView.vue'),

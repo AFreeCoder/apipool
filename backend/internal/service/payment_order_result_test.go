@@ -331,6 +331,35 @@ func TestComputeValidityDaysSupportsSingularAndPluralUnits(t *testing.T) {
 	}
 }
 
+func TestBuildPaymentSubjectEasyPayBalanceProductName(t *testing.T) {
+	t.Parallel()
+	svc := &PaymentService{}
+	cfg := &PaymentConfig{ProductNamePrefix: "PRE", ProductNameSuffix: "SUF"}
+	tests := []struct {
+		name        string
+		providerKey string
+		productName string
+		plan        *dbent.SubscriptionPlan
+		want        string
+	}{
+		{"exact recharge name", payment.TypeEasyPay, " 额度充值 ", nil, "额度充值"},
+		{"blank retains affixes", payment.TypeEasyPay, "  ", nil, "PRE 12.34 SUF"},
+		{"subscription retains plan name", payment.TypeEasyPay, "额度充值", &dbent.SubscriptionPlan{ProductName: "Pro Monthly"}, "PRE Pro Monthly SUF"},
+		{"other provider unchanged", payment.TypeAlipay, "额度充值", nil, "PRE 12.34 SUF"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sel := &payment.InstanceSelection{ProviderKey: tt.providerKey, Config: map[string]string{"balanceProductName": tt.productName}}
+			if got := svc.buildPaymentSubject(tt.plan, 12.34, cfg, sel); got != tt.want {
+				t.Fatalf("buildPaymentSubject() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if got := svc.buildPaymentSubject(nil, 12.34, &PaymentConfig{}, nil); got != "Sub2API 12.34 CNY" {
+		t.Fatalf("default subject = %q", got)
+	}
+}
+
 func TestBuildPaymentSubjectAppliesAffixToSubscriptionPlanProductName(t *testing.T) {
 	t.Parallel()
 
