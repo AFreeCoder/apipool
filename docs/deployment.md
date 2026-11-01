@@ -222,3 +222,7 @@ ssh apipool_vps \
 - 确认 `main` 后续 push 只发布 `apipool_vps`，同 SHA 幂等发布不会重启。
 - 删除临时复制角色、slot、SSH key、隧道和临时 allowlist；收窄腾讯云侧 SSH 规则。
 - biz 备份完成后不在目标机启动；其域名后续是否下线是单独决定，不与主站迁移混做。
+
+## 变更记录
+
+- 2026-11-02：`api.apipool.dev` 改为直达 `apipool_vps`，取消轻云转发依赖；见 [Issue #23](https://github.com/AFreeCoder/apipool/issues/23)。
