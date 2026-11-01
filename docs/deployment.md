@@ -109,9 +109,9 @@ import /etc/caddy/sites-enabled/*.caddy
 - 每次变更先复制全部现有分片，组装完整候选树并执行 `caddy validate`；验证通过后
   才原子替换自己的分片并应用配置。
 - 候选分片与线上分片完全一致时直接短路，不 reload Caddy。
-- 本服务在目标机只配置 `apipool.dev`，不得配置 API 或 biz 域名。qingyun 转发
-  `api.apipool.dev` 时固定使用 `apipool.dev` 作为上游 Host/SNI。
-- Caddy 必须在自身存储中管理 `apipool.dev` 的有效公开证书；发布前检查证书存在且
+- 本服务在目标机配置 `apipool.dev` 与 `api.apipool.dev`，共同转发到本机应用；
+  不得配置 biz 域名。API 域名使用仅 DNS 的 A 记录直接指向 `apipool_vps`。
+- Caddy 必须在自身存储中管理这两个域名的有效公开证书；发布前检查证书存在且
   未临近过期。legacy 分片不再加载会覆盖 v2 子域名的 Origin wildcard。
 - APIPool_v2 是共享 Caddy 运行时的唯一 owner；本仓库通过 root-owned
   `/opt/apipool-v2/deploy/caddy-runtime-lib.sh` 校验精确二进制并执行安全 reload，
@@ -154,8 +154,9 @@ pnpm run typecheck
 ## 迁移完成状态
 
 - `apipool_vps` 是 legacy PostgreSQL、Redis 与应用的唯一生产主端。
-- `apipool.dev` 经 Cloudflare 到目标机；`api.apipool.dev` 经轻云互联到目标机，
-  域名和用户入口未改变。
+- `apipool.dev` 经 Cloudflare 到目标机；`api.apipool.dev` 通过仅 DNS 的 A 记录
+  直达目标机，域名和用户入口未改变，不再依赖轻云转发。
+- API 与主站共用 `/var/log/caddy/apipool.dev.log`，统计时按 `request.host` 区分。
 - DigitalOcean legacy 应用保持停止，旧数据不得重新接流；biz 不在目标机部署，仅保留
   已验证的独立备份。
 - 后续 `main` push 只由专用 `sub2api-prod-deploy` Runner 发布到目标机。
@@ -194,7 +195,7 @@ curl -fsS https://api.apipool.dev/health
 
 ## 回滚边界
 
-DigitalOcean 已不是可用回退主端。禁止只回 Cloudflare/qingyun 或重新启动旧容器；
+DigitalOcean 已不是可用回退主端。禁止只回切 DNS 或重新启动旧容器；
 这会让请求落到过期数据库并形成数据分叉。普通故障优先在目标机回滚应用镜像或从目标机
 备份恢复；跨主机灾备恢复必须另行制定数据恢复方案并确认写入边界。
 
@@ -221,3 +222,7 @@ ssh apipool_vps \
 - 确认 `main` 后续 push 只发布 `apipool_vps`，同 SHA 幂等发布不会重启。
 - 删除临时复制角色、slot、SSH key、隧道和临时 allowlist；收窄腾讯云侧 SSH 规则。
 - biz 备份完成后不在目标机启动；其域名后续是否下线是单独决定，不与主站迁移混做。
+
+## 变更记录
+
+- 2026-11-02：`api.apipool.dev` 改为直达 `apipool_vps`，取消轻云转发依赖；见 [Issue #23](https://github.com/AFreeCoder/apipool/issues/23)。
