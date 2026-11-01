@@ -88,9 +88,8 @@ fi
 
 cat >"$fragment_tmp" <<EOF
 # 由 /opt/sub2api/deploy/configure-caddy.sh 管理。
-# api.apipool.dev 由 qingyun 转发到本机，并使用 apipool.dev 作为上游 Host/SNI。
-# 目标机只声明 apipool.dev，避免为不指向目标机的 api hostname 发起 ACME。
-apipool.dev {
+# 主站与 API 入口均由本机承接，公开证书由 Caddy 自动管理。
+apipool.dev, api.apipool.dev {
 	@static {
 		path /assets/*
 		path /logo.png
