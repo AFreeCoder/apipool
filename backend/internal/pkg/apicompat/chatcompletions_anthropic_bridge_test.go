@@ -574,11 +574,10 @@ func TestChatCompletionsChunkToAnthropicEvents_ToolCallAggregation(t *testing.T)
 	})
 
 	types := anthropicEventTypes(events)
-	// message_start → content_block_start(tool_use) → 2× input_json_delta (empty first arg skipped) → content_block_stop → message_delta(tool_use) → message_stop
+	// 参数先聚合后输出，保留完整内容及 start → delta → stop 生命周期。
 	require.Equal(t, []string{
 		"message_start",
 		"content_block_start",
-		"content_block_delta",
 		"content_block_delta",
 		"content_block_stop",
 		"message_delta",
@@ -604,7 +603,7 @@ func TestChatCompletionsChunkToAnthropicEvents_ToolCallAggregation(t *testing.T)
 			partials = append(partials, e.Delta.PartialJSON)
 		}
 	}
-	require.Equal(t, []string{`{"city":`, `"SF"}`}, partials)
+	require.JSONEq(t, `{"city":"SF"}`, strings.Join(partials, ""))
 }
 
 func TestChatCompletionsChunkToAnthropicEvents_LengthMapsToMaxTokens(t *testing.T) {
